@@ -178,17 +178,15 @@
 
           <% @messages.each do |message| %>
             <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>">
-              <% unless message.role == "user" %>
-                <header class="message-header">
-                  <div class="role"><%= h message_role_label(message.role) %></div>
-                  <% if message_metadata(message) %>
-                    <div class="message-meta"><%= h message_metadata(message) %></div>
-                  <% end %>
-                  <% if message.role == "assistant" && !message.compact %>
-                    <button type="button" class="copy-button" data-copy-target="message">Copy</button>
-                  <% end %>
-                </header>
-              <% end %>
+              <header class="message-header">
+                <div class="role"><%= h message_role_label(message.role) %></div>
+                <% if message_metadata(message) %>
+                  <div class="message-meta"><%= h message_metadata(message) %></div>
+                <% end %>
+                <% if message.role == "assistant" && !message.compact %>
+                  <button type="button" class="copy-button" data-copy-target="message">Copy</button>
+                <% end %>
+              </header>
               <% if message.compact %>
                 <details class="message-details" <%= "open" if message.expanded %>>
                   <summary><span class="compact-summary"><%= h message.summary %></span></summary>
@@ -544,7 +542,18 @@
       if (body.dataset.plainText === text) body.innerHTML = payload.html;
     }
 
-    function appendMessage(roleName, text, live = true, forceScroll = false) {
+    function formatTimestamp(timestamp) {
+      const date = timestamp ? new Date(timestamp) : new Date();
+      if (Number.isNaN(date.getTime())) return "";
+      const pad = (value) => String(value).padStart(2, "0");
+      return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+    }
+
+    function eventTimestamp(event) {
+      return event?.timestamp || event?.message?.timestamp || event?.delta?.timestamp || event?.item?.timestamp;
+    }
+
+    function appendMessage(roleName, text, live = true, forceScroll = false, timestamp = null) {
       const shouldScroll = forceScroll || nearConversationBottom();
       const roleKey = messageRoleKey(roleName);
 
@@ -564,18 +573,21 @@
       body.textContent = text;
       if (roleName === "assistant") renderAssistantMarkdown(body, text).catch(() => {});
 
-      if (roleName !== "user") {
-        header.append(role);
-        if (roleName === "assistant") header.append(makeCopyButton());
-        article.append(header);
-      }
+      const meta = document.createElement("div");
+      meta.className = "message-meta";
+      meta.textContent = formatTimestamp(timestamp);
+
+      header.append(role);
+      if (meta.textContent) header.append(meta);
+      if (roleName === "assistant") header.append(makeCopyButton());
+      article.append(header);
       article.append(body);
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
       return { article, body, compact: false };
     }
 
-    function appendCompactMessage(roleName, summary, text, expanded = false, live = true, forceScroll = false, rawDetails = "") {
+    function appendCompactMessage(roleName, summary, text, expanded = false, live = true, forceScroll = false, rawDetails = "", timestamp = null) {
       const shouldScroll = forceScroll || nearConversationBottom();
       const roleKey = messageRoleKey(roleName);
 
@@ -588,7 +600,11 @@
       const role = document.createElement("div");
       role.className = "role";
       role.textContent = messageRoleLabel(roleName);
+      const meta = document.createElement("div");
+      meta.className = "message-meta";
+      meta.textContent = formatTimestamp(timestamp);
       header.append(role);
+      if (meta.textContent) header.append(meta);
 
       const details = document.createElement("details");
       details.className = "message-details";
@@ -662,15 +678,15 @@
       return entry;
     }
 
-    function upsertLiveAssistantSegment(event, roleName, segment, fallbackIndex, shouldScroll) {
+    function upsertLiveAssistantSegment(event, roleName, segment, fallbackIndex, shouldScroll, timestamp) {
       const key = segmentIdentity(event, segment, fallbackIndex);
       const existing = liveAssistantSegments.get(key);
       const updated = existing && updateLiveSegment(existing, roleName, segment, shouldScroll);
       if (updated) return updated;
 
       const entry = segment.compact ?
-        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails) :
-        appendMessage("assistant", segment.text, true, shouldScroll);
+        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp) :
+        appendMessage("assistant", segment.text, true, shouldScroll, timestamp);
       liveAssistantSegments.set(key, entry);
       if (segment.toolName === "bash" && segment.toolCallId && !segment.isToolResult) liveBashToolCalls.set(segment.toolCallId, entry);
       return entry;
@@ -685,6 +701,7 @@
       if (segments.length === 0) return;
 
       const shouldScroll = nearConversationBottom();
+      const timestamp = eventTimestamp(event);
 
       if (roleName === "user") {
         return;
@@ -701,9 +718,9 @@
             bashCallEntry.article.classList.toggle("message--tool-error", segment.expanded);
             if (shouldScroll) scrollToBottom();
           } else if (segment.compact) {
-            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails);
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp);
           } else {
-            appendMessage(roleName, segment.text, true, shouldScroll);
+            appendMessage(roleName, segment.text, true, shouldScroll, timestamp);
           }
         });
         return;
@@ -711,7 +728,7 @@
 
       liveAssistantSeen = true;
       segments.forEach((segment, index) => {
-        const entry = upsertLiveAssistantSegment(event, roleName, segment, index, shouldScroll);
+        const entry = upsertLiveAssistantSegment(event, roleName, segment, index, shouldScroll, timestamp);
         if (!segment.compact) liveAssistantMessage = entry;
       });
     }
@@ -863,7 +880,7 @@
       pendingImages.forEach((entry) => formData.append("images[]", entry.file, entry.file.name || "image"));
 
       resetLiveAssistantTracking();
-      appendMessage("user", [message, pendingImages.length > 0 ? `[${imageAttachmentLabel(pendingImages.length)}]` : ""].filter(Boolean).join("\n"), true, true);
+      appendMessage("user", [message, pendingImages.length > 0 ? `[${imageAttachmentLabel(pendingImages.length)}]` : ""].filter(Boolean).join("\n"), true, true, new Date());
       promptTextarea.value = "";
       clearAttachments();
       commandList?.classList.remove("is-visible");

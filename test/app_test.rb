@@ -417,6 +417,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--error" data-role="error"'
       assert_includes response.body, 'class="message-body"'
       assert_includes response.body, "Hello &lt;Pi&gt;"
+      assert_includes response.body, "2026-06-13 10:00"
       refute_includes response.body, "Hello <Pi>"
       assert_includes response.body, "messageRoleKey"
     end
@@ -620,13 +621,16 @@ class AppTest < Minitest::Test
       assert_includes response.body, "let liveAssistantSegments = new Map();"
       assert_includes response.body, "let liveAssistantSeen = false;"
       assert_includes response.body, 'if (roleName === "user") {'
-      assert_includes response.body, 'appendMessage("assistant", segment.text, true, shouldScroll);'
+      assert_includes response.body, "function formatTimestamp(timestamp)"
+      assert_includes response.body, "function eventTimestamp(event)"
+      assert_includes response.body, 'appendMessage("assistant", segment.text, true, shouldScroll, timestamp);'
       assert_includes response.body, 'function renderAssistantMarkdown(body, text)'
       assert_includes response.body, 'fetch("/markdown", { method: "POST", body: formData })'
       assert_includes response.body, 'if (["custom", "system", "status"].includes(role)) return "status";'
       assert_includes response.body, "function showStatus(_text, _forceScroll = false) {}"
       assert_includes response.body, "showStatus(eventStatusText(event));"
       assert_includes response.body, "resetLiveAssistantTracking();\n      appendMessage(\"user\", [message, pendingImages.length > 0"
+      assert_includes response.body, "true, true, new Date());"
       assert_includes response.body, "promptForm.requestSubmit();"
       assert_includes response.body, "function resizePromptTextarea()"
       assert_includes response.body, "commandList.removeAttribute(\"open\");"
@@ -651,7 +655,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function segmentIdentity(event, segment, fallbackIndex)"
       assert_includes response.body, "event.assistantMessageEvent || {}"
       assert_includes response.body, "segment.startIndex ?? update.contentIndex ?? fallbackIndex"
-      assert_includes response.body, "function upsertLiveAssistantSegment(event, roleName, segment, fallbackIndex, shouldScroll)"
+      assert_includes response.body, "function upsertLiveAssistantSegment(event, roleName, segment, fallbackIndex, shouldScroll, timestamp)"
       assert_includes response.body, "const existing = liveAssistantSegments.get(key);"
       assert_includes response.body, "const updated = existing && updateLiveSegment(existing, roleName, segment, shouldScroll);"
       assert_includes response.body, "liveAssistantSegments.set(key, entry);"
