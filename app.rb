@@ -105,6 +105,8 @@ class PiWebGateway < Sinatra::Base
 
     def message_role_label(role)
       case role.to_s
+      when "assistant"
+        "pi"
       when "toolResult"
         "tool result"
       when "status"
@@ -131,6 +133,40 @@ class PiWebGateway < Sinatra::Base
       markdown_renderer.render(message.text)
     end
 
+    def session_status_items(status)
+      return [] unless status
+
+      [
+        ["CTX", format_context_usage(status)],
+        ["Model", format_model(status)],
+        ["Thinking", status.thinking_level]
+      ].select { |_label, value| value.to_s != "" }
+    end
+
+    def format_context_usage(status)
+      return if status.context_tokens.nil?
+
+      if status.context_limit
+        percent = status.context_percent || ((status.context_tokens.to_f / status.context_limit) * 100).round(1)
+        "#{percent}%/#{compact_number(status.context_limit)}"
+      else
+        compact_number(status.context_tokens)
+      end
+    end
+
+    def format_model(status)
+      [status.provider, status.model_id].compact.reject(&:empty?).join("/")
+    end
+
+    def compact_number(value)
+      number = value.to_f
+      return value.to_s if number <= 0
+      return number.round.to_s if number < 1_000
+      return "#{(number / 1_000).round(1)}k" if number < 1_000_000
+
+      "#{(number / 1_000_000).round(1)}M"
+    end
+
     def markdown_renderer
       @markdown_renderer ||= Redcarpet::Markdown.new(
         SafeMarkdownRenderer.new(
@@ -154,6 +190,7 @@ class PiWebGateway < Sinatra::Base
     append_pending_active_session(@groups)
     @selected_session = find_selected_session(@groups.values.flatten)
     @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path) : []
+    @session_status = @selected_session && File.exist?(@selected_session.path) ? @store.status(@selected_session.path) : nil
     @commands = @selected_session && command_session_available?(@selected_session.path) ? commands_for(@selected_session.path) : []
 
     erb :index
@@ -214,6 +251,19 @@ class PiWebGateway < Sinatra::Base
       []
     end
     JSON.generate(events: events)
+  end
+
+  get "/status" do
+    session_path = params.fetch("session")
+    halt 404 unless File.exist?(session_path)
+
+    content_type :json
+    status = PiSessionStore.new(root: settings.sessions_root).status(session_path)
+    JSON.generate(
+      context: format_context_usage(status),
+      model: format_model(status),
+      thinking: status.thinking_level
+    )
   end
 
   post "/markdown" do

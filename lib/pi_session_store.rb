@@ -15,6 +15,7 @@ class PiSessionStore
   )
 
   Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, :tool_call_id, :tool_name, :raw_details, keyword_init: true)
+  Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :cost_total, keyword_init: true)
 
   def initialize(root: File.expand_path("~/.pi/agent/sessions"))
     @root = root
@@ -51,7 +52,35 @@ class PiSessionStore
     end
   end
 
+  def status(path)
+    latest = Status.new
+
+    read_entries(path).each do |entry|
+      case entry["type"]
+      when "model_change"
+        latest.provider = entry["provider"] unless entry["provider"].to_s.empty?
+        latest.model_id = entry["modelId"] || entry["model"] unless (entry["modelId"] || entry["model"]).to_s.empty?
+      when "thinking_level_change"
+        latest.thinking_level = entry["thinkingLevel"] || entry["thinking_level"] unless (entry["thinkingLevel"] || entry["thinking_level"]).to_s.empty?
+      when "message"
+        apply_usage(latest, entry["message"])
+      end
+    end
+
+    latest
+  end
+
   private
+
+  def apply_usage(status, message)
+    return unless message.is_a?(Hash) && message["role"] == "assistant" && message["usage"].is_a?(Hash)
+
+    usage = message["usage"]
+    status.context_tokens = usage["totalTokens"] || usage["total_tokens"] || usage["tokens"]
+    status.context_limit = usage["contextWindow"] || usage["context_window"] || usage["contextLimit"] || usage["context_limit"]
+    status.context_percent = usage["contextPercent"] || usage["context_percent"]
+    status.cost_total = usage.dig("cost", "total") || usage["costTotal"] || usage["cost_total"]
+  end
 
   def parse_session(path)
     session_entry = nil

@@ -95,6 +95,9 @@
     .composer-state[data-state="error"] { color: #ffb4b6; }
     .composer-state[data-state="error"]::before { background: var(--danger); }
     .composer-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .session-status-bar { display: flex; justify-content: flex-end; gap: 0.9rem; min-height: 1.1rem; color: var(--muted-soft); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    .session-status-item { display: inline-flex; gap: 0.25rem; white-space: nowrap; }
+    .session-status-label { color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
     .compact-controls { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
     .compact-controls input { width: min(22rem, 36vw); padding: 0.5rem 0.65rem; font-size: 0.9rem; }
     .abort-form, .compact-form { display: none; }
@@ -176,15 +179,17 @@
 
           <% @messages.each do |message| %>
             <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>">
-              <header class="message-header">
-                <div class="role"><%= h message_role_label(message.role) %></div>
-                <% if message_metadata(message) %>
-                  <div class="message-meta"><%= h message_metadata(message) %></div>
-                <% end %>
-                <% if message.role == "assistant" && !message.compact %>
-                  <button type="button" class="copy-button" data-copy-target="message">Copy</button>
-                <% end %>
-              </header>
+              <% unless message.role == "user" %>
+                <header class="message-header">
+                  <div class="role"><%= h message_role_label(message.role) %></div>
+                  <% if message_metadata(message) %>
+                    <div class="message-meta"><%= h message_metadata(message) %></div>
+                  <% end %>
+                  <% if message.role == "assistant" && !message.compact %>
+                    <button type="button" class="copy-button" data-copy-target="message">Copy</button>
+                  <% end %>
+                </header>
+              <% end %>
               <% if message.compact %>
                 <details class="message-details" <%= "open" if message.expanded %>>
                   <summary><span class="compact-summary"><%= h message.summary %></span></summary>
@@ -254,6 +259,11 @@
                 </div>
               </div>
             </form>
+            <div class="session-status-bar" id="session-status-bar" data-status-url="/status?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
+              <% session_status_items(@session_status).each do |label, value| %>
+                <span class="session-status-item" data-status-key="<%= h label.downcase %>"><span class="session-status-label"><%= h label %></span> <span class="session-status-value"><%= h value %></span></span>
+              <% end %>
+            </div>
           </div>
         </div>
       <% else %>
@@ -277,6 +287,7 @@
     const commandList = document.getElementById("command-list");
     const commandFilter = commandList?.querySelector(".command-filter");
     const conversationScroll = document.getElementById("conversation-scroll");
+    const sessionStatusBar = document.getElementById("session-status-bar");
     let liveAssistantMessage = null;
     let liveAssistantSegments = new Map();
     let liveAssistantSeen = false;
@@ -290,6 +301,66 @@
 
     function scrollToBottom(behavior = "smooth") {
       conversationScroll?.scrollTo({ top: conversationScroll.scrollHeight, behavior });
+    }
+
+    function setStatusItem(key, label, value) {
+      if (!sessionStatusBar || value === null || value === undefined || value === "") return;
+
+      let item = sessionStatusBar.querySelector(`[data-status-key="${key}"]`);
+      if (!item) {
+        item = document.createElement("span");
+        item.className = "session-status-item";
+        item.dataset.statusKey = key;
+        const labelElement = document.createElement("span");
+        labelElement.className = "session-status-label";
+        labelElement.textContent = label;
+        const valueElement = document.createElement("span");
+        valueElement.className = "session-status-value";
+        item.append(labelElement, " ", valueElement);
+        sessionStatusBar.append(item);
+      }
+
+      item.querySelector(".session-status-value").textContent = value;
+    }
+
+    function compactNumber(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number <= 0) return String(value || "");
+      if (number < 1000) return String(Math.round(number));
+      if (number < 1000000) return `${(number / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+      return `${(number / 1000000).toFixed(1).replace(/\.0$/, "")}M`;
+    }
+
+    function updateStatusFromMessage(message) {
+      const usage = message?.usage;
+      if (!usage) return;
+
+      const tokens = usage.totalTokens || usage.total_tokens || usage.tokens;
+      if (tokens) setStatusItem("ctx", "CTX", compactNumber(tokens));
+      if (message.provider || message.model) setStatusItem("model", "Model", [message.provider, message.model].filter(Boolean).join("/"));
+    }
+
+    function updateStatusFromEvent(event) {
+      if (event.type === "model_change" || event.type === "model_select") {
+        const provider = event.provider || event.model?.provider;
+        const model = event.modelId || event.model?.id || event.model;
+        if (provider || model) setStatusItem("model", "Model", [provider, model].filter(Boolean).join("/"));
+      }
+      if (event.type === "thinking_level_change" || event.type === "thinking_level_select") {
+        setStatusItem("thinking", "Thinking", event.thinkingLevel || event.level);
+      }
+      updateStatusFromMessage(event.message);
+    }
+
+    async function refreshSessionStatus() {
+      if (!sessionStatusBar) return;
+
+      const response = await fetch(sessionStatusBar.dataset.statusUrl);
+      if (!response.ok) return;
+      const status = await response.json();
+      setStatusItem("ctx", "CTX", status.context);
+      setStatusItem("model", "Model", status.model);
+      setStatusItem("thinking", "Thinking", status.thinking);
     }
 
     function setComposerState(state, label) {
@@ -446,6 +517,7 @@
     }
 
     function messageRoleLabel(roleName) {
+      if (roleName === "assistant") return "pi";
       if (roleName === "toolResult") return "tool result";
       if (["custom", "session_info"].includes(roleName)) return "status";
       return roleName || "status";
@@ -504,9 +576,12 @@
       body.textContent = text;
       if (roleName === "assistant") renderAssistantMarkdown(body, text).catch(() => {});
 
-      header.append(role);
-      if (roleName === "assistant") header.append(makeCopyButton());
-      article.append(header, body);
+      if (roleName !== "user") {
+        header.append(role);
+        if (roleName === "assistant") header.append(makeCopyButton());
+        article.append(header);
+      }
+      article.append(body);
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
       return { article, body, compact: false };
@@ -689,7 +764,11 @@
       if (!response.ok) return;
 
       const payload = await response.json();
-      payload.events.forEach(renderEvent);
+      payload.events.forEach((event) => {
+        updateStatusFromEvent(event);
+        renderEvent(event);
+      });
+      if (payload.events.length > 0) refreshSessionStatus().catch(() => {});
     }
 
     promptTextarea?.addEventListener("keydown", (event) => {

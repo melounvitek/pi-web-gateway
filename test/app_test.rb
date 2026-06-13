@@ -178,6 +178,47 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_session_status_bar
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "model_change", provider: "openai-codex", modelId: "gpt-5.5" },
+        { type: "thinking_level_change", thinkingLevel: "medium" },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Hi" }], usage: { totalTokens: 12_345 } } }
+      ])
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, "session-status-bar"
+      assert_includes response.body, "CTX"
+      assert_includes response.body, "12.3k"
+      assert_includes response.body, "openai-codex/gpt-5.5"
+      assert_includes response.body, "medium"
+    end
+  end
+
+  def test_returns_session_status_json
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "model_change", provider: "openai-codex", modelId: "gpt-5.5" },
+        { type: "thinking_level_change", thinkingLevel: "medium" },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Hi" }], usage: { totalTokens: 12_345 } } }
+      ])
+      PiWebGateway.set :sessions_root, dir
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/status", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_equal({ "context" => "12.3k", "model" => "openai-codex/gpt-5.5", "thinking" => "medium" }, JSON.parse(response.body))
+    end
+  end
+
   def test_aborts_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)

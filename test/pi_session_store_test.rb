@@ -91,6 +91,26 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_reads_latest_status_from_session_entries
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "model_change", provider: "openai-codex", modelId: "gpt-5.5" },
+        { type: "thinking_level_change", thinkingLevel: "medium" },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Hi" }], usage: { totalTokens: 12_345, cost: { total: 0.123 } } } }
+      ])
+
+      status = PiSessionStore.new(root: dir).status(path)
+
+      assert_equal "openai-codex", status.provider
+      assert_equal "gpt-5.5", status.model_id
+      assert_equal "medium", status.thinking_level
+      assert_equal 12_345, status.context_tokens
+      assert_equal 0.123, status.cost_total
+    end
+  end
+
   private
 
   def write_jsonl(path, entries)
