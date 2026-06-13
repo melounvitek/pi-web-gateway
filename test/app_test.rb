@@ -328,6 +328,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "composer-state"
       assert_includes response.body, "Enter sends, Shift+Enter adds a line"
       assert_includes response.body, "Abort running Pi"
+      refute_includes response.body, "Optional compact instructions"
+      refute_includes response.body, ">Compact</button>"
       assert_includes response.body, "nearConversationBottom"
     end
   end
