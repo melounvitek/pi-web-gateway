@@ -77,12 +77,12 @@ Success check:
 - [x] Send JSONL commands to stdin.
 - [x] Read JSONL responses/events from stdout.
 - [x] Implement request/response correlation by `id`.
-- [ ] Support:
-  - [ ] `get_state`
-  - [ ] `get_messages`
-  - [ ] `prompt`
-  - [ ] `abort`
-- [ ] Use one active Pi RPC process at a time for the PoC.
+- [x] Support:
+  - [x] `get_state`
+  - [x] `get_messages`
+  - [x] `prompt`
+  - [x] `abort`
+- [x] Use one active Pi RPC process at a time for the PoC.
 
 Success check:
 

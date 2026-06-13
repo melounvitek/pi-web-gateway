@@ -40,4 +40,27 @@ class PiRpcClientTest < Minitest::Test
 
     assert_equal({ "id" => "prompt-1", "type" => "prompt", "message" => "Hello" }, JSON.parse(input.string))
   end
+
+  def test_command_helpers_send_supported_rpc_commands
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({ id: "get_state-1", type: "state" }),
+      JSON.generate({ id: "get_messages-2", type: "messages" }),
+      JSON.generate({ id: "prompt-3", type: "accepted" }),
+      JSON.generate({ id: "abort-4", type: "aborted" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.get_state
+    client.get_messages
+    client.prompt("Hello")
+    client.abort
+
+    assert_equal [
+      { "id" => "get_state-1", "type" => "get_state" },
+      { "id" => "get_messages-2", "type" => "get_messages" },
+      { "id" => "prompt-3", "type" => "prompt", "message" => "Hello" },
+      { "id" => "abort-4", "type" => "abort" }
+    ], input.string.lines.map { |line| JSON.parse(line) }
+  end
 end

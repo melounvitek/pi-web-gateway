@@ -1,10 +1,12 @@
 require "sinatra/base"
 require "erb"
 require_relative "lib/pi_session_store"
+require_relative "lib/pi_rpc_client"
 
 class PiWebGateway < Sinatra::Base
   set :root, File.dirname(__FILE__)
   set :sessions_root, ENV.fetch("PI_SESSIONS_ROOT", File.expand_path("~/.pi/agent/sessions"))
+  set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
 
   helpers do
     def h(value)
@@ -27,6 +29,19 @@ class PiWebGateway < Sinatra::Base
     @messages = @selected_session ? @store.messages(@selected_session.path) : []
 
     erb :index
+  end
+
+  post "/prompt" do
+    session_path = params.fetch("session")
+    message = params.fetch("message").to_s
+    halt 400, "Message cannot be empty" if message.strip.empty?
+
+    client = settings.rpc_client_factory.first.call(session_path)
+    client.prompt(message)
+    client.get_messages
+    redirect "/?session=#{Rack::Utils.escape(session_path)}"
+  ensure
+    client&.close
   end
 
   private
