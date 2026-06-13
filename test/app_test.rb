@@ -446,13 +446,58 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, 'class="message message--assistant message--compact" data-role="assistant"'
-      assert_includes response.body, '<summary><span class="compact-summary">thinking + bash</span></summary>'
+      assert_includes response.body, '<summary><span class="compact-summary">thinking</span></summary>'
+      assert_includes response.body, '<summary><span class="compact-summary">$ ls</span></summary>'
       assert_includes response.body, 'class="message message--tool message--compact" data-role="toolResult"'
       assert_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
       assert_includes response.body, 'class="message message--tool message--compact message--tool-error" data-role="toolResult"'
       assert_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, "Thinking through the problem"
       assert_includes response.body, "file list"
+    end
+  end
+
+  def test_pairs_historical_bash_tool_call_with_matching_result
+    Dir.mktmpdir do |dir|
+      tool_call_id = "call_123"
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "" },
+              { type: "toolCall", id: tool_call_id, name: "bash", arguments: { command: "git status --short", timeout: 30 } }
+            ]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:01:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: tool_call_id,
+            toolName: "bash",
+            content: [{ type: "text", text: " M app.rb" }],
+            isError: false
+          }
+        }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, '<summary><span class="compact-summary">$ git status --short (timeout 30s)</span></summary>'
+      assert_includes response.body, "$ git status --short (timeout 30s)"
+      assert_includes response.body, " M app.rb"
+      refute_includes response.body, "[thinking]"
+      refute_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
     end
   end
 

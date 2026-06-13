@@ -14,7 +14,7 @@ class PiSessionStore
     keyword_init: true
   )
 
-  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, keyword_init: true)
+  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, :tool_call_id, :tool_name, keyword_init: true)
 
   def initialize(root: File.expand_path("~/.pi/agent/sessions"))
     @root = root
@@ -31,10 +31,22 @@ class PiSessionStore
   end
 
   def messages(path)
-    read_entries(path).flat_map do |entry|
-      next [] unless entry["type"] == "message"
+    pending_tool_calls = {}
+    read_entries(path).each_with_object([]) do |entry, rendered_messages|
+      next unless entry["type"] == "message"
 
-      messages_from_entry(entry)
+      messages_from_entry(entry).each do |message|
+        if message.role == "toolResult" && message.tool_name == "bash" && pending_tool_calls[message.tool_call_id]
+          call_message = pending_tool_calls.delete(message.tool_call_id)
+          call_message.text = [call_message.text, message.text].reject(&:empty?).join("\n\n")
+          call_message.expanded ||= message.expanded
+          call_message.error ||= message.error
+          next
+        end
+
+        rendered_messages << message
+        pending_tool_calls[message.tool_call_id] = message if message.tool_name == "bash" && message.tool_call_id
+      end
     end
   end
 
@@ -106,7 +118,9 @@ class PiSessionStore
         compact: compact_message?(message),
         summary: compact_summary(message),
         expanded: message["isError"] == true,
-        error: message["isError"] == true
+        error: message["isError"] == true,
+        tool_call_id: message["toolCallId"],
+        tool_name: message["toolName"]
       )]
     end
   end
@@ -116,6 +130,10 @@ class PiSessionStore
       text = content_text(parts)
       next if text.empty?
 
+      tool_call = parts.find { |part| part.is_a?(Hash) && part["type"] == "toolCall" }
+      tool_name = tool_call && (tool_call["name"] || tool_call["toolName"])
+      tool_call_id = tool_call && tool_call["id"]
+
       Message.new(
         role: "assistant",
         text: text,
@@ -123,14 +141,28 @@ class PiSessionStore
         compact: compact,
         summary: compact ? compact_summary(message.merge("content" => parts)) : nil,
         expanded: false,
-        error: false
+        error: false,
+        tool_call_id: tool_call_id,
+        tool_name: tool_name
       )
     end
   end
 
   def content_groups(content)
-    Array(content).slice_when { |before_part, after_part| compact_part?(before_part) != compact_part?(after_part) }
-      .map { |parts| [compact_part?(parts.first), parts] }
+    groups = []
+    Array(content).each do |part|
+      compact = compact_part?(part)
+      if bash_tool_call?(part)
+        groups << [true, [part]]
+      elsif compact
+        groups << [true, [part]]
+      elsif groups.last && groups.last.first == false
+        groups.last.last << part
+      else
+        groups << [false, [part]]
+      end
+    end
+    groups
   end
 
   def content_text(content)
@@ -138,7 +170,7 @@ class PiSessionStore
       next part if part.is_a?(String)
       next unless part.is_a?(Hash)
 
-      part["text"] || part["thinking"] || tool_text(part)
+      part["text"] || thinking_text(part) || tool_text(part)
     end.join("\n")
   end
 
@@ -162,10 +194,11 @@ class PiSessionStore
 
     labels = Array(message["content"]).filter_map do |part|
       next unless part.is_a?(Hash)
+      next bash_command_line(part) if bash_tool_call?(part)
 
       case part["type"]
       when "thinking"
-        "thinking"
+        "thinking" unless part["thinking"].to_s.empty?
       when "toolCall", "toolResult"
         part["name"] || part["toolName"] || "tool"
       end
@@ -173,15 +206,35 @@ class PiSessionStore
     labels.uniq.join(" + ")
   end
 
+  def thinking_text(part)
+    return unless part["type"] == "thinking"
+
+    part["thinking"] unless part["thinking"].to_s.empty?
+  end
+
   def tool_text(part)
     case part["type"]
     when "toolCall"
+      return bash_command_line(part) if bash_tool_call?(part)
+
       name = part["name"] || "tool"
       arguments = part["arguments"]
       arguments && !arguments.empty? ? "[tool: #{name}]\n#{JSON.pretty_generate(arguments)}" : "[tool: #{name}]"
     when "toolResult"
       part["output"] || part["result"] || "[tool result]"
     end
+  end
+
+  def bash_tool_call?(part)
+    part.is_a?(Hash) && part["type"] == "toolCall" && part["name"] == "bash"
+  end
+
+  def bash_command_line(part)
+    arguments = part["arguments"].is_a?(Hash) ? part["arguments"] : {}
+    command = arguments["command"].to_s
+    timeout = arguments["timeout"]
+    suffix = timeout ? " (timeout #{timeout}s)" : ""
+    "$ #{command}#{suffix}"
   end
 
   def parse_time(value)

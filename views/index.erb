@@ -210,6 +210,7 @@
     let liveAssistantMessage = null;
     let liveAssistantSegments = new Map();
     let liveAssistantSeen = false;
+    let liveBashToolCalls = new Map();
     let statusLine = null;
 
     function nearConversationBottom() {
@@ -229,12 +230,19 @@
       return part && typeof part === "object" && ["thinking", "toolCall", "toolResult"].includes(part.type);
     }
 
+    function bashCommandLine(part) {
+      const args = part?.arguments || {};
+      const timeout = args.timeout ? ` (timeout ${args.timeout}s)` : "";
+      return `$ ${args.command || ""}${timeout}`;
+    }
+
     function contentPartText(part) {
       if (!part) return "";
       if (typeof part === "string") return part;
       if (part.text) return part.text;
-      if (part.type === "thinking" || part.thinking) return part.thinking || "[thinking]";
+      if (part.type === "thinking" || part.thinking) return part.thinking || "";
       if (part.type === "toolCall") {
+        if (part.name === "bash") return bashCommandLine(part);
         const args = part.arguments ? `\n${JSON.stringify(part.arguments, null, 2)}` : "";
         return `[tool: ${part.name || "tool"}]${args}`;
       }
@@ -244,7 +252,8 @@
 
     function contentPartLabel(part) {
       if (!part || typeof part !== "object") return null;
-      if (part.type === "thinking" || part.thinking) return "thinking";
+      if (part.type === "thinking" || part.thinking) return part.thinking ? "thinking" : null;
+      if (part.type === "toolCall" && part.name === "bash") return bashCommandLine(part);
       if (part.type === "toolCall" || part.type === "toolResult") return part.name || part.toolName || "tool";
       return null;
     }
@@ -254,8 +263,9 @@
       const groups = [];
       parts.forEach((part, index) => {
         const compact = message.role === "toolResult" || compactContentPart(part);
+        const bashCall = part && typeof part === "object" && part.type === "toolCall" && part.name === "bash";
         const lastGroup = groups[groups.length - 1];
-        if (lastGroup && lastGroup.compact === compact) {
+        if (!bashCall && !compact && lastGroup && lastGroup.compact === false) {
           lastGroup.parts.push(part);
           lastGroup.endIndex = index;
         } else {
@@ -266,13 +276,17 @@
       return groups.map((group) => {
         const text = group.parts.map(contentPartText).filter(Boolean).join("\n");
         const labels = group.parts.map(contentPartLabel).filter(Boolean);
+        const toolPart = group.parts.find((part) => part && typeof part === "object" && ["toolCall", "toolResult"].includes(part.type));
         return {
           text,
           compact: group.compact,
           summary: message.toolName || [...new Set(labels)].join(" + ") || "tool output",
           expanded: message.isError === true,
           startIndex: group.startIndex,
-          endIndex: group.endIndex
+          endIndex: group.endIndex,
+          toolCallId: message.toolCallId || toolPart?.id || toolPart?.toolCallId,
+          toolName: message.toolName || toolPart?.name || toolPart?.toolName,
+          isToolResult: message.role === "toolResult" || toolPart?.type === "toolResult"
         };
       }).filter((segment) => segment.text);
     }
@@ -410,11 +424,13 @@
     function resetLiveAssistantTracking() {
       liveAssistantMessage = null;
       liveAssistantSegments = new Map();
+      liveBashToolCalls = new Map();
       liveAssistantSeen = false;
     }
 
     function segmentIdentity(event, segment, fallbackIndex) {
       const update = event.assistantMessageEvent || {};
+      if (segment.toolCallId) return `${segment.toolCallId}-${segment.compact ? "compact" : "text"}`;
       const contentIndex = segment.startIndex ?? update.contentIndex ?? fallbackIndex;
       return `${contentIndex}-${segment.compact ? "compact" : "text"}`;
     }
@@ -444,6 +460,7 @@
         appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll) :
         appendMessage("assistant", segment.text, true, shouldScroll);
       liveAssistantSegments.set(key, entry);
+      if (segment.toolName === "bash" && segment.toolCallId && !segment.isToolResult) liveBashToolCalls.set(segment.toolCallId, entry);
       return entry;
     }
 
@@ -463,7 +480,12 @@
 
       if (roleName !== "assistant") {
         segments.forEach((segment) => {
-          if (segment.compact) {
+          const bashCallEntry = segment.toolName === "bash" && segment.toolCallId && liveBashToolCalls.get(segment.toolCallId);
+          if (bashCallEntry && segment.isToolResult) {
+            bashCallEntry.body.textContent = [bashCallEntry.body.textContent, segment.text].filter(Boolean).join("\n\n");
+            bashCallEntry.article.classList.toggle("message--tool-error", segment.expanded);
+            if (shouldScroll) scrollToBottom();
+          } else if (segment.compact) {
             appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll);
           } else {
             appendMessage(roleName, segment.text, true, shouldScroll);
