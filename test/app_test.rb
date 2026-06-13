@@ -436,6 +436,8 @@ class AppTest < Minitest::Test
       refute_includes response.body, "Optional compact instructions"
       refute_includes response.body, ">Compact</button>"
       assert_includes response.body, "nearConversationBottom"
+      assert_includes response.body, "scrollbar-gutter: stable"
+      assert_includes response.body, "scrollbar-width: none"
     end
   end
 
@@ -640,13 +642,13 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--tool message--compact" data-role="toolResult"'
       assert_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
       assert_includes response.body, 'class="message message--tool message--compact message--tool-error" data-role="toolResult"'
-      assert_includes response.body, '<details class="message-details" open>'
+      refute_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, "Thinking through the problem"
       assert_includes response.body, "file list"
     end
   end
 
-  def test_renders_read_and_edit_tools_as_transcripts
+  def test_renders_read_edit_and_write_tools_as_collapsed_transcripts
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
         {
@@ -687,6 +689,25 @@ class AppTest < Minitest::Test
             details: { diff: " 70 assert_equal [false, false], messages.map(&:compact)\n+71 assert_equal [true, false], messages.map(&:thinking)" },
             isError: false
           }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:02:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "write-1", name: "write", arguments: { path: "notes/status.txt", content: "done" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:02:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "write-1",
+            toolName: "write",
+            content: [{ type: "text", text: "Wrote notes/status.txt" }],
+            isError: false
+          }
         }
       ])
       PiWebGateway.set :sessions_root, dir
@@ -698,8 +719,11 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'message--tool-transcript'
       assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">read</span> <span class="tool-path">test/app_test.rb</span><span class="tool-range">:545-654</span></span></summary>'
       assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">edit</span> <span class="tool-path">test/pi_session_store_test.rb</span></span></summary>'
+      assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">write</span> <span class="tool-path">notes/status.txt</span></span></summary>'
+      refute_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, '+71 assert_equal [true, false], messages.map(&amp;:thinking)'
       assert_includes response.body, '545 assert_equal 200, response.status'
+      assert_includes response.body, 'Wrote notes/status.txt'
     end
   end
 
@@ -770,7 +794,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "message--tool-transcript"
       assert_includes response.body, "toolSummaryParts(toolName, toolPart?.arguments || {})"
       assert_includes response.body, "segment.toolTranscript ? segment.text"
-      assert_includes response.body, '["bash", "read", "edit"].includes(segment.toolName)'
+      assert_includes response.body, 'details.open = options.open === true;'
+      assert_includes response.body, '["bash", "read", "edit", "write"].includes(segment.toolName)'
       assert_includes response.body, "part.type === \"toolCall\""
       assert_includes response.body, "part.type === \"thinking\""
     end

@@ -148,7 +148,7 @@ class PiSessionStore
         timestamp: parse_time(entry["timestamp"]),
         compact: compact_message?(message),
         summary: compact_summary(message),
-        expanded: message["isError"] == true,
+        expanded: false,
         error: message["isError"] == true,
         tool_call_id: message["toolCallId"],
         tool_name: message["toolName"],
@@ -197,11 +197,11 @@ class PiSessionStore
   end
 
   def pair_tool_result?(tool_name)
-    ["bash", "read", "edit"].include?(tool_name)
+    ["bash", "read", "edit", "write"].include?(tool_name)
   end
 
   def transcript_tool?(tool_name)
-    ["read", "edit"].include?(tool_name)
+    ["read", "edit", "write"].include?(tool_name)
   end
 
   def tool_summary_html(tool_call)
