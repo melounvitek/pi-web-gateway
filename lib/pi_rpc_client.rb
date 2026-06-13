@@ -31,8 +31,10 @@ class PiRpcClient
     request("get_messages", id: next_id("get_messages"))
   end
 
-  def prompt(message)
-    request("prompt", id: next_id("prompt"), message: message)
+  def prompt(message, images = [])
+    payload = { message: message }
+    payload[:images] = images unless images.empty?
+    request("prompt", id: next_id("prompt"), **payload)
   end
 
   def abort

@@ -3,6 +3,7 @@ require "rack/mock"
 require "tmpdir"
 require "json"
 require "fileutils"
+require "base64"
 require_relative "../app"
 
 class AppTest < Minitest::Test
@@ -32,6 +33,34 @@ class AppTest < Minitest::Test
       assert_equal 303, response.status
       assert_equal [[ :start, path ], [ :prompt, "Hello Pi" ]], calls
       assert_includes response["Location"], Rack::Utils.escape(path)
+    end
+  end
+
+  def test_posts_prompt_with_uploaded_images
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      image_path = File.join(dir, "screenshot.png")
+      File.binwrite(image_path, "fake image data")
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :active_rpc_client, nil
+      PiWebGateway.set :active_rpc_session, nil
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+
+      upload = Rack::Multipart::UploadedFile.new(image_path, "image/png", true)
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/prompt",
+        params: { "session" => path, "message" => "What is this?", "images[]" => upload }
+      )
+
+      assert_equal 303, response.status
+      assert_equal [
+        [:start, path],
+        [:prompt, "What is this?", [{ type: "image", data: Base64.strict_encode64("fake image data"), mimeType: "image/png" }]]
+      ], calls
     end
   end
 
@@ -554,7 +583,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'if (["custom", "system", "status"].includes(role)) return "status";'
       assert_includes response.body, "showStatus(eventStatusText(event));"
       assert_includes response.body, 'if (liveAssistantSeen) showStatus("Done");'
-      assert_includes response.body, "resetLiveAssistantTracking();\n      appendMessage(\"user\", message, true, true);"
+      assert_includes response.body, "resetLiveAssistantTracking();\n      appendMessage(\"user\", [message, pendingImages.length > 0"
       assert_includes response.body, "promptForm.requestSubmit();"
       assert_includes response.body, "function resizePromptTextarea()"
       assert_includes response.body, "commandList.removeAttribute(\"open\");"
@@ -624,8 +653,8 @@ class AppTest < Minitest::Test
       @session_file = session_file
     end
 
-    def prompt(message)
-      @calls << [:prompt, message]
+    def prompt(message, images = [])
+      @calls << (images.empty? ? [:prompt, message] : [:prompt, message, images])
     end
 
     def get_messages

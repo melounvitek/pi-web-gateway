@@ -1,6 +1,7 @@
 require "sinatra/base"
 require "erb"
 require "json"
+require "base64"
 require "redcarpet"
 require "sanitize"
 require_relative "lib/pi_session_store"
@@ -24,6 +25,9 @@ class SafeMarkdownRenderer < Redcarpet::Render::HTML
 end
 
 class PiWebGateway < Sinatra::Base
+  MAX_PROMPT_IMAGES = 5
+  MAX_PROMPT_IMAGE_BYTES = 10 * 1024 * 1024
+
   set :root, File.dirname(__FILE__)
   set :sessions_root, ENV.fetch("PI_SESSIONS_ROOT", File.expand_path("~/.pi/agent/sessions"))
   set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
@@ -158,10 +162,11 @@ class PiWebGateway < Sinatra::Base
   post "/prompt" do
     session_path = params.fetch("session")
     message = params.fetch("message").to_s
-    halt 400, "Message cannot be empty" if message.strip.empty?
+    images = prompt_images_from(params["images"])
+    halt 400, "Message cannot be empty" if message.strip.empty? && images.empty?
 
     client = active_rpc_client(session_path)
-    client.prompt(message)
+    client.prompt(message, images)
     redirect "/?session=#{Rack::Utils.escape(session_path)}"
   end
 
@@ -217,6 +222,36 @@ class PiWebGateway < Sinatra::Base
   end
 
   private
+
+  def prompt_images_from(upload_param)
+    uploads = Array(upload_param).compact
+    halt 400, "Too many images" if uploads.length > MAX_PROMPT_IMAGES
+
+    uploads.map do |upload|
+      tempfile = uploaded_tempfile(upload)
+      mime_type = uploaded_content_type(upload).to_s
+      halt 400, "Only image uploads are supported" unless tempfile && mime_type.start_with?("image/")
+      halt 400, "Image upload is too large" if tempfile.size > MAX_PROMPT_IMAGE_BYTES
+
+      tempfile.rewind if tempfile.respond_to?(:rewind)
+      { type: "image", data: Base64.strict_encode64(tempfile.read), mimeType: mime_type }
+    end
+  end
+
+  def uploaded_tempfile(upload)
+    return upload.tempfile if upload.respond_to?(:tempfile)
+    return File.open(upload.path, "rb") if upload.respond_to?(:path)
+    return upload[:tempfile] if upload.is_a?(Hash) && upload.key?(:tempfile)
+
+    upload["tempfile"] if upload.is_a?(Hash)
+  end
+
+  def uploaded_content_type(upload)
+    return upload.content_type if upload.respond_to?(:content_type)
+    return upload[:type] if upload.is_a?(Hash) && upload.key?(:type)
+
+    upload["type"] if upload.is_a?(Hash)
+  end
 
   def find_selected_session(sessions)
     selected_path = params["session"]

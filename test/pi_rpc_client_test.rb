@@ -38,9 +38,9 @@ class PiRpcClientTest < Minitest::Test
     output = StringIO.new(JSON.generate({ id: "prompt-1", type: "accepted" }) + "\n")
     client = PiRpcClient.new(stdin: input, stdout: output)
 
-    client.request("prompt", id: "prompt-1", message: "Hello")
+    client.request("prompt", id: "prompt-1", message: "Hello", images: [{ type: "image", data: "abc", mimeType: "image/png" }])
 
-    assert_equal({ "id" => "prompt-1", "type" => "prompt", "message" => "Hello" }, JSON.parse(input.string))
+    assert_equal({ "id" => "prompt-1", "type" => "prompt", "message" => "Hello", "images" => [{ "type" => "image", "data" => "abc", "mimeType" => "image/png" }] }, JSON.parse(input.string))
   end
 
   def test_command_helpers_send_supported_rpc_commands
@@ -60,7 +60,7 @@ class PiRpcClientTest < Minitest::Test
 
     client.get_state
     client.get_messages
-    client.prompt("Hello")
+    client.prompt("Hello", [{ type: "image", data: "abc", mimeType: "image/png" }])
     client.abort
     client.new_session("/tmp/session.jsonl")
     client.switch_session("/tmp/other-session.jsonl")
@@ -71,7 +71,7 @@ class PiRpcClientTest < Minitest::Test
     assert_equal [
       { "id" => "get_state-1", "type" => "get_state" },
       { "id" => "get_messages-2", "type" => "get_messages" },
-      { "id" => "prompt-3", "type" => "prompt", "message" => "Hello" },
+      { "id" => "prompt-3", "type" => "prompt", "message" => "Hello", "images" => [{ "type" => "image", "data" => "abc", "mimeType" => "image/png" }] },
       { "id" => "abort-4", "type" => "abort" },
       { "id" => "new_session-5", "type" => "new_session", "parentSession" => "/tmp/session.jsonl" },
       { "id" => "switch_session-6", "type" => "switch_session", "sessionPath" => "/tmp/other-session.jsonl" },

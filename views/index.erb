@@ -15,6 +15,12 @@
     .conversation-scroll { min-height: 0; overflow-y: auto; padding: 1.5rem; scroll-behavior: smooth; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid var(--border); background: rgba(49, 51, 56, 0.97); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.16); }
     .composer-inner { display: grid; gap: 0.6rem; }
+    .attachment-tray { display: none; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem; border: 1px dashed var(--border); border-radius: 0.55rem; background: var(--panel-soft); }
+    .attachment-tray.has-attachments { display: flex; }
+    .attachment { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.4rem; border-radius: 0.45rem; background: var(--panel-softer); color: var(--muted); font-size: 0.82rem; }
+    .attachment img { width: 2rem; height: 2rem; border-radius: 0.35rem; object-fit: cover; }
+    .attachment button { padding: 0.1rem 0.35rem; background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .attachment button:hover { color: var(--text); background: var(--panel-soft); transform: none; }
     h1 { font-size: 1.25rem; line-height: 1.2; margin: 0 0 1rem; letter-spacing: -0.01em; }
     h2 { font-size: 0.78rem; margin: 1.25rem 0 0.5rem; color: var(--muted-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em; }
     .cwd-group { margin-bottom: 0.75rem; }
@@ -231,9 +237,10 @@
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
             </form>
 
-            <form method="post" action="/prompt" class="prompt-form">
+            <form method="post" action="/prompt" class="prompt-form" enctype="multipart/form-data">
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-              <textarea name="message" rows="1" autofocus placeholder="Ask Pi… Enter sends, Shift+Enter adds a line. Type / for commands."></textarea>
+              <div class="attachment-tray" aria-live="polite"></div>
+              <textarea name="message" rows="1" autofocus placeholder="Ask Pi… Enter sends, Shift+Enter adds a line. Paste or drop images to attach."></textarea>
               <div class="composer-controls">
                 <span class="composer-state" data-state="idle">Ready</span>
                 <div class="composer-actions">
@@ -260,6 +267,7 @@
     const promptForm = document.querySelector(".prompt-form");
     const promptTextarea = promptForm?.querySelector("textarea");
     const sendButton = promptForm?.querySelector(".send-button");
+    const attachmentTray = promptForm?.querySelector(".attachment-tray");
     const composerState = document.querySelector(".composer-state");
     const commandList = document.getElementById("command-list");
     const commandFilter = commandList?.querySelector(".command-filter");
@@ -269,6 +277,7 @@
     let liveAssistantSeen = false;
     let liveBashToolCalls = new Map();
     let statusLine = null;
+    let pendingImages = [];
 
     function nearConversationBottom() {
       if (!conversationScroll) return false;
@@ -294,6 +303,57 @@
       if (!promptTextarea) return;
       promptTextarea.style.height = "auto";
       promptTextarea.style.height = `${promptTextarea.scrollHeight}px`;
+    }
+
+    function imageAttachmentLabel(count) {
+      return `${count} image${count === 1 ? "" : "s"} attached`;
+    }
+
+    function renderAttachments() {
+      if (!attachmentTray) return;
+      attachmentTray.replaceChildren();
+      attachmentTray.classList.toggle("has-attachments", pendingImages.length > 0);
+
+      pendingImages.forEach((entry, index) => {
+        const wrapper = document.createElement("span");
+        wrapper.className = "attachment";
+
+        const image = document.createElement("img");
+        image.src = entry.url;
+        image.alt = "Attached image preview";
+
+        const label = document.createElement("span");
+        label.textContent = entry.file.name || `Image ${index + 1}`;
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => {
+          URL.revokeObjectURL(entry.url);
+          pendingImages.splice(index, 1);
+          renderAttachments();
+        });
+
+        wrapper.append(image, label, remove);
+        attachmentTray.append(wrapper);
+      });
+    }
+
+    function addImageFiles(files) {
+      const imageFiles = [...files].filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length === 0) return false;
+
+      imageFiles.forEach((file) => {
+        pendingImages.push({ file, url: URL.createObjectURL(file) });
+      });
+      renderAttachments();
+      return true;
+    }
+
+    function clearAttachments() {
+      pendingImages.forEach((entry) => URL.revokeObjectURL(entry.url));
+      pendingImages = [];
+      renderAttachments();
     }
 
     function compactContentPart(part) {
@@ -648,6 +708,22 @@
       }
     });
 
+    promptTextarea?.addEventListener("paste", (event) => {
+      const items = [...(event.clipboardData?.items || [])];
+      const files = items.map((item) => item.kind === "file" ? item.getAsFile() : null).filter(Boolean);
+      if (addImageFiles(files)) event.preventDefault();
+    });
+
+    promptForm?.addEventListener("dragover", (event) => {
+      if ([...(event.dataTransfer?.items || [])].some((item) => item.type.startsWith("image/"))) {
+        event.preventDefault();
+      }
+    });
+
+    promptForm?.addEventListener("drop", (event) => {
+      if (addImageFiles(event.dataTransfer?.files || [])) event.preventDefault();
+    });
+
     promptTextarea?.addEventListener("input", () => {
       resizePromptTextarea();
       if (!commandList) return;
@@ -720,14 +796,16 @@
       event.preventDefault();
 
       const message = promptTextarea.value.trim();
-      if (!message) return;
+      if (!message && pendingImages.length === 0) return;
 
       const formData = new FormData(promptForm);
       formData.set("message", message);
+      pendingImages.forEach((entry) => formData.append("images[]", entry.file, entry.file.name || "image"));
 
       resetLiveAssistantTracking();
-      appendMessage("user", message, true, true);
+      appendMessage("user", [message, pendingImages.length > 0 ? `[${imageAttachmentLabel(pendingImages.length)}]` : ""].filter(Boolean).join("\n"), true, true);
       promptTextarea.value = "";
+      clearAttachments();
       commandList?.removeAttribute("open");
       if (commandFilter) commandFilter.value = "";
       commandList?.querySelectorAll(".command").forEach((command) => { command.hidden = false; });
