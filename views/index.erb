@@ -23,6 +23,7 @@
     .live-heading { margin-top: 1.5rem; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font-family: inherit; }
     .prompt-form { display: grid; gap: 0.5rem; margin: 1rem 0; }
+    .session-actions { margin: 1rem 0; }
     textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; }
     button { justify-self: end; padding: 0.5rem 0.9rem; border: 0; border-radius: 0.5rem; background: #2563eb; color: white; font-weight: 600; cursor: pointer; }
   </style>
@@ -55,6 +56,11 @@
           <%= h @selected_session.cwd %><br>
           <%= h @selected_session.path %>
         </p>
+
+        <form method="post" action="/sessions/new" class="session-actions">
+          <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+          <button type="submit">New session in this cwd</button>
+        </form>
 
         <% if @messages.empty? %>
           <p class="empty">No messages in this session.</p>

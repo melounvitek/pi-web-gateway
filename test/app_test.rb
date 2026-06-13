@@ -6,6 +6,12 @@ require "fileutils"
 require_relative "../app"
 
 class AppTest < Minitest::Test
+  def setup
+    PiWebGateway.set :active_rpc_client, nil
+    PiWebGateway.set :active_rpc_session, nil
+    PiWebGateway.set :active_rpc_cwd, nil
+  end
+
   def test_posts_prompt_to_selected_session_and_redirects_back
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -36,9 +42,12 @@ class AppTest < Minitest::Test
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :active_rpc_client, nil
       PiWebGateway.set :active_rpc_session, nil
+      client = FakeRpcClient.new(calls, [{ "type" => "assistant_delta", "text" => "Hi" }])
+      PiWebGateway.set :active_rpc_client, client
+      PiWebGateway.set :active_rpc_session, path
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
-        FakeRpcClient.new(calls, [{ "type" => "assistant_delta", "text" => "Hi" }])
+        FakeRpcClient.new(calls)
       }]
 
       response = Rack::MockRequest.new(PiWebGateway).get(
@@ -49,16 +58,83 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_equal "application/json", response.content_type
       assert_equal({ "events" => [{ "type" => "assistant_delta", "text" => "Hi" }] }, JSON.parse(response.body))
-      assert_equal [[ :start, path ], [ :drain_events ]], calls
+      assert_equal [[ :drain_events ]], calls
+    end
+  end
+
+  def test_ignores_event_polls_for_inactive_sessions
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :active_rpc_session, "other-session"
+      PiWebGateway.set :active_rpc_client, FakeRpcClient.new(calls, [{ "type" => "stale" }])
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/events",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_equal({ "events" => [] }, JSON.parse(response.body))
+      assert_empty calls
+    end
+  end
+
+  def test_creates_new_native_session_and_redirects_to_it
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      new_path = File.join(File.dirname(path), "new-session.jsonl")
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :active_rpc_client, nil
+      PiWebGateway.set :active_rpc_session, nil
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls, [], new_path)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/sessions/new",
+        params: { "session" => path }
+      )
+
+      assert_equal 303, response.status
+      assert_includes response["Location"], Rack::Utils.escape(new_path)
+      assert_equal [[ :start, path ], [ :new_session, path ], [ :get_state ]], calls
+    end
+  end
+
+  def test_renders_pending_new_session_before_pi_persists_the_file
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      pending_path = File.join(File.dirname(path), "pending-session.jsonl")
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :active_rpc_session, pending_path
+      PiWebGateway.set :active_rpc_cwd, "/tmp/project"
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => pending_path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "New session (pending first assistant response)"
+      assert_includes response.body, pending_path
     end
   end
 
   private
 
   class FakeRpcClient
-    def initialize(calls, events = [])
+    def initialize(calls, events = [], session_file = nil)
       @calls = calls
       @events = events
+      @session_file = session_file
     end
 
     def prompt(message)
@@ -67,6 +143,16 @@ class AppTest < Minitest::Test
 
     def get_messages
       @calls << [:get_messages]
+    end
+
+    def new_session(parent_session = nil)
+      @calls << [:new_session, parent_session]
+      { "type" => "response", "command" => "new_session", "success" => true, "data" => { "cancelled" => false } }
+    end
+
+    def get_state
+      @calls << [:get_state]
+      { "type" => "response", "command" => "get_state", "success" => true, "data" => { "sessionFile" => @session_file } }
     end
 
     def drain_events

@@ -39,6 +39,15 @@ class PiRpcClient
     request("abort", id: next_id("abort"))
   end
 
+  def new_session(parent_session = nil)
+    payload = parent_session ? { parentSession: parent_session } : {}
+    request("new_session", id: next_id("new_session"), **payload)
+  end
+
+  def switch_session(session_path)
+    request("switch_session", id: next_id("switch_session"), sessionPath: session_path)
+  end
+
   def drain_events
     ensure_reader
     @mutex.synchronize do

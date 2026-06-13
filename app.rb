@@ -10,6 +10,7 @@ class PiWebGateway < Sinatra::Base
   set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
   set :active_rpc_client, nil
   set :active_rpc_session, nil
+  set :active_rpc_cwd, nil
 
   helpers do
     def h(value)
@@ -28,8 +29,9 @@ class PiWebGateway < Sinatra::Base
   get "/" do
     @store = PiSessionStore.new(root: settings.sessions_root)
     @groups = @store.grouped_sessions
+    append_pending_active_session(@groups)
     @selected_session = find_selected_session(@groups.values.flatten)
-    @messages = @selected_session ? @store.messages(@selected_session.path) : []
+    @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path) : []
 
     erb :index
   end
@@ -44,10 +46,28 @@ class PiWebGateway < Sinatra::Base
     redirect "/?session=#{Rack::Utils.escape(session_path)}"
   end
 
+  post "/sessions/new" do
+    session_path = params.fetch("session")
+    current_session = PiSessionStore.new(root: settings.sessions_root).sessions.find { |session| session.path == session_path }
+    client = active_rpc_client(session_path)
+    response = client.new_session(session_path)
+    halt 409, "New session was cancelled" if response_cancelled?(response)
+
+    new_session_path = session_file_from(client.get_state) || newest_session_for_same_cwd(session_path)&.path || session_path
+    settings.set :active_rpc_cwd, current_session&.cwd
+    settings.set :active_rpc_session, new_session_path
+    redirect "/?session=#{Rack::Utils.escape(new_session_path)}"
+  end
+
   get "/events" do
     session_path = params.fetch("session")
     content_type :json
-    JSON.generate(events: active_rpc_client(session_path).drain_events)
+    events = if session_path == settings.active_rpc_session && settings.active_rpc_client
+      settings.active_rpc_client.drain_events
+    else
+      []
+    end
+    JSON.generate(events: events)
   end
 
   private
@@ -59,6 +79,25 @@ class PiWebGateway < Sinatra::Base
     sessions.find { |session| session.path == selected_path } || sessions.first
   end
 
+  def append_pending_active_session(groups)
+    pending_path = params["session"]
+    return unless pending_path == settings.active_rpc_session
+    return if pending_path.to_s.empty? || File.exist?(pending_path)
+
+    cwd = settings.active_rpc_cwd || "Pending Pi cwd"
+    groups[cwd] ||= []
+    groups[cwd].unshift(PiSessionStore::Session.new(
+      path: pending_path,
+      cwd: cwd,
+      id: File.basename(pending_path, ".jsonl"),
+      display_name: "New session (pending first assistant response)",
+      first_user_message: nil,
+      message_count: 0,
+      created_at: nil,
+      modified_at: Time.now
+    ))
+  end
+
   def active_rpc_client(session_path)
     return settings.active_rpc_client if settings.active_rpc_session == session_path && settings.active_rpc_client
 
@@ -67,5 +106,28 @@ class PiWebGateway < Sinatra::Base
     settings.set :active_rpc_session, session_path
     settings.set :active_rpc_client, client
     client
+  end
+
+  def response_data(response)
+    response.is_a?(Hash) && response["data"].is_a?(Hash) ? response["data"] : response
+  end
+
+  def response_cancelled?(response)
+    response_data(response).is_a?(Hash) && response_data(response)["cancelled"]
+  end
+
+  def session_file_from(response)
+    data = response_data(response)
+    return unless data.is_a?(Hash)
+
+    data["sessionFile"] || data["session_file"] || data["path"]
+  end
+
+  def newest_session_for_same_cwd(session_path)
+    sessions = PiSessionStore.new(root: settings.sessions_root).sessions
+    current = sessions.find { |session| session.path == session_path }
+    return unless current
+
+    sessions.select { |session| session.cwd == current.cwd && session.path != session_path }.max_by(&:modified_at)
   end
 end

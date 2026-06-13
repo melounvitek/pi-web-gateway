@@ -17,7 +17,7 @@ Target experience:
 
 ## Step delivery check
 
-After each implementation step, verify the current app on:
+After each implementation step, restart the local Sinatra/Puma server so route changes are loaded, then verify the current app on:
 
 > http://100.103.198.74:4567/
 
@@ -119,17 +119,19 @@ Success check:
 
 ### 4. Native session creation and switching
 
-- [ ] Add “New session” action for a selected cwd.
-- [ ] Create the session through Pi-native behavior.
-- [ ] Add session switching.
-- [ ] Prefer RPC `switch_session`; restarting the active `pi --mode rpc --session <file>` process is acceptable for PoC.
-- [ ] Refresh sidebar after session creation/switching.
+- [x] Add “New session” action for a selected cwd.
+- [x] Create the session through Pi-native behavior.
+- [x] Add session switching.
+- [x] Prefer RPC `switch_session`; restarting the active `pi --mode rpc --session <file>` process is acceptable for PoC.
+- [x] Refresh sidebar after session creation/switching.
+- [x] Keep a pending new session selected before Pi persists its JSONL file on first assistant response.
+- [x] Ignore stale event polls from old browser pages so they do not steal the one active RPC process.
 
 Success check:
 
-- [ ] New session appears as a native Pi JSONL file.
-- [ ] Prompting in the new session works.
-- [ ] Switching back to an older session shows its messages.
+- [x] New session appears as a native Pi JSONL file.
+- [x] Prompting in the new session works.
+- [x] Switching back to an older session shows its messages.
 
 ### 5. Slash command discovery
 

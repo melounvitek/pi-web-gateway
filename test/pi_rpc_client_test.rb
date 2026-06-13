@@ -49,7 +49,9 @@ class PiRpcClientTest < Minitest::Test
       JSON.generate({ id: "get_state-1", type: "state" }),
       JSON.generate({ id: "get_messages-2", type: "messages" }),
       JSON.generate({ id: "prompt-3", type: "accepted" }),
-      JSON.generate({ id: "abort-4", type: "aborted" })
+      JSON.generate({ id: "abort-4", type: "aborted" }),
+      JSON.generate({ id: "new_session-5", type: "response", command: "new_session", success: true, data: { cancelled: false } }),
+      JSON.generate({ id: "switch_session-6", type: "response", command: "switch_session", success: true, data: { cancelled: false } })
     ].join("\n") + "\n")
     client = PiRpcClient.new(stdin: input, stdout: output)
 
@@ -57,12 +59,16 @@ class PiRpcClientTest < Minitest::Test
     client.get_messages
     client.prompt("Hello")
     client.abort
+    client.new_session("/tmp/session.jsonl")
+    client.switch_session("/tmp/other-session.jsonl")
 
     assert_equal [
       { "id" => "get_state-1", "type" => "get_state" },
       { "id" => "get_messages-2", "type" => "get_messages" },
       { "id" => "prompt-3", "type" => "prompt", "message" => "Hello" },
-      { "id" => "abort-4", "type" => "abort" }
+      { "id" => "abort-4", "type" => "abort" },
+      { "id" => "new_session-5", "type" => "new_session", "parentSession" => "/tmp/session.jsonl" },
+      { "id" => "switch_session-6", "type" => "switch_session", "sessionPath" => "/tmp/other-session.jsonl" }
     ], input.string.lines.map { |line| JSON.parse(line) }
   end
 end
