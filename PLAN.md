@@ -70,13 +70,13 @@ Success check:
 
 ### 2. Sidebar session trimming and cwd navigation
 
-- [ ] Show only the latest 5 sessions for each cwd by default.
-- [ ] Keep sessions sorted newest-first inside each cwd.
-- [ ] Add a simple “show all” or “show more” affordance per cwd.
-- [ ] Make cwd groups visually compact and readable for long paths.
-- [ ] Preserve selected-session visibility even if it is older than the latest 5.
-- [ ] Add tests for default trimming and selected-session preservation.
-- [ ] Restart server and report the test URL plus what to verify.
+- [x] Show only the latest 5 sessions for each cwd by default.
+- [x] Keep sessions sorted newest-first inside each cwd.
+- [x] Add a simple “show all” or “show more” affordance per cwd.
+- [x] Make cwd groups visually compact and readable for long paths.
+- [x] Preserve selected-session visibility even if it is older than the latest 5.
+- [x] Add tests for default trimming and selected-session preservation.
+- [x] Restart server and report the test URL plus what to verify.
 
 Success check:
 

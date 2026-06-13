@@ -17,8 +17,46 @@ class PiWebGateway < Sinatra::Base
       ERB::Util.html_escape(value)
     end
 
+    SIDEBAR_SESSION_LIMIT = 5
+
     def selected?(session)
       @selected_session&.path == session.path
+    end
+
+    def visible_sidebar_sessions(cwd, sessions)
+      return sessions if expanded_cwd?(cwd)
+
+      visible = sessions.first(SIDEBAR_SESSION_LIMIT)
+      if @selected_session&.cwd == cwd && !visible.any? { |session| selected?(session) }
+        visible + [@selected_session]
+      else
+        visible
+      end
+    end
+
+    def sidebar_group_overflow?(cwd, sessions)
+      !expanded_cwd?(cwd) && sessions.length > SIDEBAR_SESSION_LIMIT
+    end
+
+    def expanded_cwd?(cwd)
+      expanded_cwds.include?(cwd)
+    end
+
+    def sidebar_group_url(cwd, expanded:)
+      next_expanded_cwds = if expanded
+        (expanded_cwds + [cwd]).uniq
+      else
+        expanded_cwds - [cwd]
+      end
+
+      query = {}
+      query["session"] = @selected_session.path if @selected_session
+      query["expanded_cwd"] = next_expanded_cwds if next_expanded_cwds.any?
+      "/?#{Rack::Utils.build_nested_query(query)}"
+    end
+
+    def expanded_cwds
+      Array(params["expanded_cwd"])
     end
 
     def format_time(time)

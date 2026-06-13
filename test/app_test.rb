@@ -242,6 +242,61 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_trims_sidebar_sessions_to_latest_five_by_default
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 7)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => paths.last }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "Show all 7"
+      assert_includes response.body, "Session 7"
+      assert_includes response.body, "Session 3"
+      refute_includes response.body, "Session 2"
+      refute_includes response.body, "Session 1"
+    end
+  end
+
+  def test_keeps_older_selected_session_visible_when_sidebar_is_trimmed
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 7)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => paths.first }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "Session 1"
+      assert_includes response.body, "selected"
+    end
+  end
+
+  def test_expands_sidebar_cwd_group_to_show_all_sessions
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 7)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => paths.last, "expanded_cwd" => ["/tmp/project"] }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "Show fewer"
+      assert_includes response.body, "Session 7"
+      assert_includes response.body, "Session 1"
+    end
+  end
+
   private
 
   class FakeRpcClient
@@ -303,5 +358,20 @@ class AppTest < Minitest::Test
     path = File.join(session_dir, "session.jsonl")
     File.write(path, JSON.generate({ type: "session", id: "session-1", cwd: "/tmp/project" }) + "\n")
     path
+  end
+
+  def write_sessions(root, count:)
+    session_dir = File.join(root, "--project--")
+    FileUtils.mkdir_p(session_dir)
+
+    (1..count).map do |index|
+      path = File.join(session_dir, "session-#{index}.jsonl")
+      File.write(path, [
+        JSON.generate({ type: "session", id: "session-#{index}", cwd: "/tmp/project" }),
+        JSON.generate({ type: "session_info", name: "Session #{index}" })
+      ].join("\n") + "\n")
+      FileUtils.touch(path, mtime: Time.at(index))
+      path
+    end
   end
 end
