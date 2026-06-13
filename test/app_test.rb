@@ -143,6 +143,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "Slash commands (1)"
       assert_includes response.body, "/review"
       assert_includes response.body, "Review code"
+      refute_includes response.body, "<code>/new</code>"
       assert_includes response.body, "command-filter"
       assert_equal [[ :start, path ], [ :get_commands ]], calls
     end
@@ -557,6 +558,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "promptForm.requestSubmit();"
       assert_includes response.body, "function resizePromptTextarea()"
       assert_includes response.body, "commandList.removeAttribute(\"open\");"
+      assert_includes response.body, "if (commandFilter) commandFilter.value = \"\";"
+      assert_includes response.body, "commandList?.querySelectorAll(\".command\").forEach((command) => { command.hidden = false; });"
       assert_includes response.body, "setComposerState(\"running\", \"Pi is running…\");"
     end
   end

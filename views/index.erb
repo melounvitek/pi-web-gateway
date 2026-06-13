@@ -728,6 +728,9 @@
       resetLiveAssistantTracking();
       appendMessage("user", message, true, true);
       promptTextarea.value = "";
+      commandList?.removeAttribute("open");
+      if (commandFilter) commandFilter.value = "";
+      commandList?.querySelectorAll(".command").forEach((command) => { command.hidden = false; });
       resizePromptTextarea();
       promptTextarea.focus();
       setComposerState("sending", "Sending…");
