@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pi Web Gateway</title>
   <style>
-    body { margin: 0; font-family: system-ui, sans-serif; color: #1f2937; }
-    .layout { display: grid; grid-template-columns: 22rem 1fr; min-height: 100vh; }
-    aside { border-right: 1px solid #e5e7eb; padding: 1rem; overflow-y: auto; background: #f9fafb; }
-    main { padding: 1.5rem; overflow-y: auto; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: system-ui, sans-serif; color: #1f2937; overflow: hidden; }
+    .app-shell { display: grid; grid-template-columns: 22rem minmax(0, 1fr); height: 100vh; min-height: 0; }
+    .session-sidebar { min-height: 0; border-right: 1px solid #e5e7eb; padding: 1rem; overflow-y: auto; background: #f9fafb; }
+    .conversation-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: #ffffff; }
+    .session-header { position: sticky; top: 0; z-index: 2; padding: 1rem 1.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; background: #ffffff; }
+    .conversation-scroll { min-height: 0; overflow-y: auto; padding: 1.5rem; scroll-behavior: smooth; }
+    .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid #e5e7eb; background: #ffffff; }
     h1 { font-size: 1.25rem; margin: 0 0 1rem; }
     h2 { font-size: 0.9rem; margin: 1.25rem 0 0.5rem; color: #4b5563; overflow-wrap: anywhere; }
     a.session { display: block; padding: 0.6rem; margin: 0.25rem 0; border-radius: 0.5rem; color: inherit; text-decoration: none; }
@@ -22,24 +26,24 @@
     .role { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: #4b5563; margin-bottom: 0.4rem; }
     .live-heading { margin-top: 1.5rem; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font-family: inherit; }
-    .prompt-form, .inline-form { display: grid; gap: 0.5rem; margin: 1rem 0; }
-    .session-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; margin: 1rem 0; }
+    .prompt-form, .inline-form { display: grid; gap: 0.5rem; margin: 0; }
+    .session-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; margin: 1rem 0 0; }
     .session-actions form { margin: 0; }
-    .command-list { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 0.75rem; margin: 1rem 0; }
+    .command-list { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 0.75rem; margin: 1rem 0 0; }
     .command-list h3 { font-size: 0.8rem; text-transform: uppercase; color: #4b5563; margin: 0.75rem 0 0.25rem; }
     .command-list h3:first-child { margin-top: 0; }
     .command { font-size: 0.9rem; margin: 0.25rem 0; }
     .command code { font-weight: 700; }
     input, textarea { box-sizing: border-box; font: inherit; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; }
-    textarea { width: 100%; }
+    textarea { width: 100%; resize: vertical; }
     button { justify-self: end; padding: 0.5rem 0.9rem; border: 0; border-radius: 0.5rem; background: #2563eb; color: white; font-weight: 600; cursor: pointer; }
     button.secondary { background: #4b5563; }
     button.danger { background: #dc2626; }
   </style>
 </head>
 <body>
-  <div class="layout">
-    <aside>
+  <div class="app-shell">
+    <aside class="session-sidebar">
       <h1>Pi Sessions</h1>
       <% if @groups.empty? %>
         <p class="empty">No sessions found.</p>
@@ -58,80 +62,88 @@
       <% end %>
     </aside>
 
-    <main>
+    <main class="conversation-panel">
       <% if @selected_session %>
-        <h1><%= h @selected_session.display_name %></h1>
-        <p class="session-meta">
-          <%= h @selected_session.cwd %><br>
-          <%= h @selected_session.path %>
-        </p>
+        <header class="session-header">
+          <h1><%= h @selected_session.display_name %></h1>
+          <p class="session-meta">
+            <%= h @selected_session.cwd %><br>
+            <%= h @selected_session.path %>
+          </p>
 
-        <div class="session-actions">
-          <form method="post" action="/sessions/new">
-            <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-            <button type="submit">New session in this cwd</button>
-          </form>
+          <div class="session-actions">
+            <form method="post" action="/sessions/new">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <button type="submit">New session in this cwd</button>
+            </form>
 
-          <form method="post" action="/abort">
-            <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-            <button type="submit" class="danger">Abort</button>
-          </form>
+            <form method="post" action="/abort">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <button type="submit" class="danger">Abort</button>
+            </form>
 
-          <form method="post" action="/compact">
-            <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-            <input type="text" name="instructions" placeholder="Optional compact instructions">
-            <button type="submit" class="secondary">Compact</button>
-          </form>
+            <form method="post" action="/compact">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <input type="text" name="instructions" placeholder="Optional compact instructions">
+              <button type="submit" class="secondary">Compact</button>
+            </form>
 
-          <form method="post" action="/rename">
-            <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-            <input type="text" name="name" placeholder="Session name">
-            <button type="submit" class="secondary">Rename</button>
-          </form>
-        </div>
+            <form method="post" action="/rename">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <input type="text" name="name" placeholder="Session name">
+              <button type="submit" class="secondary">Rename</button>
+            </form>
+          </div>
 
-        <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
-        <% if @commands.any? %>
-          <section class="command-list">
-            <% ["extension", "prompt", "skill", "other"].each do |source| %>
-              <% next unless commands_by_source[source]&.any? %>
-              <h3><%= h source %> commands</h3>
-              <% commands_by_source[source].each do |command| %>
-                <div class="command">
-                  <code>/<%= h command["name"] %></code>
-                  <% if command["description"].to_s != "" %>
-                    — <%= h command["description"] %>
-                  <% end %>
-                </div>
+          <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
+          <% if @commands.any? %>
+            <section class="command-list">
+              <% ["extension", "prompt", "skill", "other"].each do |source| %>
+                <% next unless commands_by_source[source]&.any? %>
+                <h3><%= h source %> commands</h3>
+                <% commands_by_source[source].each do |command| %>
+                  <div class="command">
+                    <code>/<%= h command["name"] %></code>
+                    <% if command["description"].to_s != "" %>
+                      — <%= h command["description"] %>
+                    <% end %>
+                  </div>
+                <% end %>
               <% end %>
-            <% end %>
+            </section>
+          <% end %>
+        </header>
+
+        <section class="conversation-scroll" id="conversation-scroll">
+          <% if @messages.empty? %>
+            <p class="empty">No messages in this session.</p>
+          <% end %>
+
+          <% @messages.each do |message| %>
+            <article class="message">
+              <div class="role"><%= h message.role %></div>
+              <pre><%= h message.text %></pre>
+            </article>
+          <% end %>
+
+          <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
+            <h2 class="live-heading">Live output</h2>
+            <p class="empty" id="live-empty">Waiting for Pi events…</p>
           </section>
-        <% end %>
-
-        <% if @messages.empty? %>
-          <p class="empty">No messages in this session.</p>
-        <% end %>
-
-        <% @messages.each do |message| %>
-          <article class="message">
-            <div class="role"><%= h message.role %></div>
-            <pre><%= h message.text %></pre>
-          </article>
-        <% end %>
-
-        <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
-          <h2 class="live-heading">Live output</h2>
-          <p class="empty" id="live-empty">Waiting for Pi events…</p>
         </section>
 
-        <form method="post" action="/prompt" class="prompt-form">
+        <form method="post" action="/prompt" class="prompt-form composer">
           <input type="hidden" name="session" value="<%= h @selected_session.path %>">
           <textarea name="message" rows="4" placeholder="Ask Pi… use /command for extension commands, prompt templates, and skills"></textarea>
           <button type="submit">Send</button>
         </form>
       <% else %>
-        <h1>No session selected</h1>
-        <p class="empty">Create a Pi session first, then refresh this page.</p>
+        <header class="session-header">
+          <h1>No session selected</h1>
+        </header>
+        <section class="conversation-scroll" id="conversation-scroll">
+          <p class="empty">Create a Pi session first, then refresh this page.</p>
+        </section>
       <% end %>
     </main>
   </div>
@@ -139,12 +151,17 @@
     const liveOutput = document.getElementById("live-output");
     const liveEmpty = document.getElementById("live-empty");
     const promptForm = document.querySelector(".prompt-form");
-    const main = document.querySelector("main");
+    const conversationScroll = document.getElementById("conversation-scroll");
     let liveMessage = null;
     let statusLine = null;
 
-    function scrollToBottom() {
-      main?.scrollTo({ top: main.scrollHeight, behavior: "smooth" });
+    function nearConversationBottom() {
+      if (!conversationScroll) return false;
+      return conversationScroll.scrollHeight - conversationScroll.scrollTop - conversationScroll.clientHeight < 120;
+    }
+
+    function scrollToBottom(behavior = "smooth") {
+      conversationScroll?.scrollTo({ top: conversationScroll.scrollHeight, behavior });
     }
 
     function removeLiveEmpty() {
@@ -175,8 +192,9 @@
       return "";
     }
 
-    function appendMessage(roleName, text, className = "message") {
+    function appendMessage(roleName, text, className = "message", forceScroll = false) {
       removeLiveEmpty();
+      const shouldScroll = forceScroll || nearConversationBottom();
 
       const article = document.createElement("article");
       article.className = className;
@@ -190,19 +208,20 @@
 
       article.append(role, body);
       liveOutput.append(article);
-      scrollToBottom();
+      if (shouldScroll) scrollToBottom();
       return { article, body };
     }
 
-    function showStatus(text) {
+    function showStatus(text, forceScroll = false) {
       removeLiveEmpty();
+      const shouldScroll = forceScroll || nearConversationBottom();
       if (!statusLine) {
         statusLine = document.createElement("div");
         statusLine.className = "status";
         liveOutput.append(statusLine);
       }
       statusLine.textContent = text;
-      scrollToBottom();
+      if (shouldScroll) scrollToBottom();
     }
 
     function renderMessageEvent(event) {
@@ -210,11 +229,12 @@
       const text = messageText(message);
       if (!text) return;
 
+      const shouldScroll = nearConversationBottom();
       if (!liveMessage || event.type === "message_start") {
-        liveMessage = appendMessage(message.role || "assistant", text, "event");
+        liveMessage = appendMessage(message.role || "assistant", text, "event", shouldScroll);
       } else {
         liveMessage.body.textContent = text;
-        scrollToBottom();
+        if (shouldScroll) scrollToBottom();
       }
     }
 
@@ -260,20 +280,20 @@
       const formData = new FormData(promptForm);
       formData.set("message", message);
 
-      appendMessage("user", message);
+      appendMessage("user", message, "message", true);
       textarea.value = "";
-      showStatus("Sending…");
+      showStatus("Sending…", true);
 
       const response = await fetch(promptForm.action, { method: "POST", body: formData, redirect: "manual" });
       if (!response.ok && response.type !== "opaqueredirect") {
-        showStatus("Prompt failed to send");
+        showStatus("Prompt failed to send", true);
       }
       scrollToBottom();
     });
 
     if (liveOutput) {
       setInterval(() => pollEvents().catch(() => {}), 1000);
-      scrollToBottom();
+      requestAnimationFrame(() => scrollToBottom("auto"));
     }
   </script>
 </body>

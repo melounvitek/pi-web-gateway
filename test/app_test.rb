@@ -218,6 +218,30 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_discord_like_scrolling_shell
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :active_rpc_client, nil
+      PiWebGateway.set :active_rpc_session, nil
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "app-shell"
+      assert_includes response.body, "session-sidebar"
+      assert_includes response.body, "conversation-panel"
+      assert_includes response.body, "session-header"
+      assert_includes response.body, "conversation-scroll"
+      assert_includes response.body, "composer"
+      assert_includes response.body, "nearConversationBottom"
+    end
+  end
+
   private
 
   class FakeRpcClient
