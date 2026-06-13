@@ -100,7 +100,22 @@ Success check:
 - User and assistant messages are visually distinct.
 - Live assistant output still appears correctly.
 
-### 4. Compact expandable Pi/tool output
+### 4. Fix live message role rendering regression
+
+- [ ] Inspect live RPC event payloads for prompt, assistant response, status, and custom/session rename events.
+- [ ] Ensure optimistic prompt bubbles remain `user` only and are not reused for assistant output.
+- [ ] Render assistant live response text as `assistant`, not `user`.
+- [ ] Render `custom`/session-status events as status/system-style messages, not chat user messages.
+- [ ] Add focused tests or fixtures for live event role mapping where practical.
+- [ ] Restart server and report the test URL plus what to verify.
+
+Success check:
+
+- In a new clean web session, user prompts appear as blue/right `USER` bubbles.
+- Assistant replies appear as assistant-styled messages with `ASSISTANT`, not `USER`.
+- Session rename/custom status events do not look like user chat messages.
+
+### 5. Compact expandable Pi/tool output
 
 - [ ] Detect Pi tool/thinking/status content in historical messages where possible.
 - [ ] Render noisy Pi output as compact cards by default.
@@ -117,7 +132,7 @@ Success check:
 - Clicking/expanding reveals the full details when needed.
 - Errors remain visible.
 
-### 5. Markdown rendering for assistant messages
+### 6. Markdown rendering for assistant messages
 
 - [ ] Add a markdown renderer dependency.
 - [ ] Add HTML sanitization for rendered markdown.
@@ -134,7 +149,9 @@ Success check:
 - Unsafe HTML is not executed or emitted unsanitized.
 - Existing plain sessions still render cleanly.
 
-### 6. Composer and command UX polish
+### 7. Composer and command UX polish
+
+Note: the command discovery block is temporarily hidden in the UI so it does not block testing the chat experience; restore/redesign it in this step.
 
 - [ ] Add `Cmd/Ctrl+Enter` to send the prompt.
 - [ ] Improve textarea sizing and focus behavior.
@@ -151,7 +168,7 @@ Success check:
 - Commands are discoverable but not visually noisy.
 - The running/abort state is clear.
 
-### 7. Visual polish pass
+### 8. Visual polish pass
 
 - [ ] Improve spacing, typography, colors, borders, and hover states.
 - [ ] Consider a dark Discord-like theme as the default.

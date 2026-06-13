@@ -109,7 +109,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_renders_commands_for_selected_session
+  def test_hides_commands_for_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       calls = []
@@ -127,8 +127,8 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "/review"
-      assert_includes response.body, "Review code"
+      refute_includes response.body, "/review"
+      refute_includes response.body, "Review code"
       assert_equal [[ :start, path ], [ :get_commands ]], calls
     end
   end

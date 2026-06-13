@@ -113,22 +113,25 @@
             </form>
           </div>
 
-          <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
-          <% if @commands.any? %>
-            <section class="command-list">
-              <% ["extension", "prompt", "skill", "other"].each do |source| %>
-                <% next unless commands_by_source[source]&.any? %>
-                <h3><%= h source %> commands</h3>
-                <% commands_by_source[source].each do |command| %>
-                  <div class="command">
-                    <code>/<%= h command["name"] %></code>
-                    <% if command["description"].to_s != "" %>
-                      — <%= h command["description"] %>
-                    <% end %>
-                  </div>
+          <%# Temporarily hidden until command discovery UI is redesigned. %>
+          <% if false %>
+            <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
+            <% if @commands.any? %>
+              <section class="command-list">
+                <% ["extension", "prompt", "skill", "other"].each do |source| %>
+                  <% next unless commands_by_source[source]&.any? %>
+                  <h3><%= h source %> commands</h3>
+                  <% commands_by_source[source].each do |command| %>
+                    <div class="command">
+                      <code>/<%= h command["name"] %></code>
+                      <% if command["description"].to_s != "" %>
+                        — <%= h command["description"] %>
+                      <% end %>
+                    </div>
+                  <% end %>
                 <% end %>
-              <% end %>
-            </section>
+              </section>
+            <% end %>
           <% end %>
         </header>
 
