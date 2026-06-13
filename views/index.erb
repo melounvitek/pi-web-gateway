@@ -22,6 +22,10 @@
     .attachment img { width: 2rem; height: 2rem; border-radius: 0.35rem; object-fit: cover; }
     .attachment button { padding: 0.1rem 0.35rem; background: transparent; border: 1px solid var(--border); color: var(--muted); }
     .attachment button:hover { color: var(--text); background: var(--panel-soft); transform: none; }
+    .composer-input-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; }
+    .image-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .attach-button { display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.75rem; border-radius: 0.55rem; background: #4e5058; color: var(--text); font-weight: 800; cursor: pointer; }
+    .attach-button:hover { background: #5c5f66; }
     h1 { font-size: 1.25rem; line-height: 1.2; margin: 0 0 1rem; letter-spacing: -0.01em; }
     h2 { font-size: 0.78rem; margin: 0; color: var(--muted-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em; }
     .cwd-group { margin-bottom: 0.75rem; }
@@ -124,12 +128,16 @@
     .session-abort-button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 999px; font-size: 1rem; line-height: 1; }
     .copy-button { margin-left: auto; padding: 0.2rem 0.5rem; font-size: 0.75rem; background: transparent; border: 1px solid var(--border); color: var(--muted); }
     .copy-button:hover { color: var(--text); background: var(--panel-softer); transform: none; }
-    .mobile-session-toggle, .mobile-sessions-button { display: none; }
+    .jump-to-latest { position: sticky; bottom: 0.75rem; z-index: 3; display: none; margin: 0.5rem auto 0; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
+    .jump-to-latest.is-visible { display: block; }
+    .mobile-session-toggle, .mobile-sessions-button, .mobile-sidebar-backdrop { display: none; }
     @supports (height: 100dvh) { .app-shell { height: 100dvh; } }
     @media (max-width: 760px) {
-      .app-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; }
-      .session-sidebar { display: none; max-height: 45dvh; padding: 0.75rem; border-right: 0; border-bottom: 1px solid var(--border); }
-      .mobile-session-toggle:checked + .session-sidebar { display: block; }
+      .app-shell { display: block; height: 100dvh; }
+      .session-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; display: block; width: min(21rem, calc(100vw - 3rem)); max-height: none; padding: calc(0.75rem + env(safe-area-inset-top)) 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); border-right: 1px solid var(--border); border-bottom: 0; transform: translateX(-105%); transition: transform 160ms ease; }
+      .mobile-session-toggle:checked + .session-sidebar { transform: translateX(0); }
+      .mobile-sidebar-backdrop { position: fixed; inset: 0; z-index: 9; background: rgba(0, 0, 0, 0.46); }
+      .mobile-session-toggle:checked ~ .mobile-sidebar-backdrop { display: block; }
       .mobile-sessions-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; padding: 0.45rem 0.7rem; border-radius: 0.55rem; background: #4e5058; color: var(--text); font-size: 0.85rem; font-weight: 700; cursor: pointer; }
       .mobile-session-toggle:checked ~ .conversation-panel .mobile-sessions-label { display: none; }
       .mobile-session-toggle:not(:checked) ~ .conversation-panel .mobile-sessions-hide-label { display: none; }
@@ -138,7 +146,7 @@
       .cwd-header { margin: 0.85rem 0 0.4rem; }
       a.session { padding: 0.55rem 0.65rem; }
       a.session.selected::before { left: -0.75rem; }
-      .conversation-panel { min-height: 0; }
+      .conversation-panel { height: 100dvh; min-height: 0; }
       .session-header { padding: 0.75rem 1rem 0.6rem; gap: 0.75rem; }
       .session-header h1 { font-size: 1rem; }
       .session-abort-button { width: 2.4rem; height: 2.4rem; }
@@ -150,11 +158,14 @@
       .message-body--markdown { line-height: 1.5; }
       .message-body--markdown pre { font-size: 0.82rem; }
       .composer { padding: 0.65rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
+      .composer-input-row { grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.45rem; }
+      .attach-button, .send-button { min-height: 2.85rem; padding: 0 0.8rem; }
       .command-list { max-height: 30dvh; overflow-y: auto; }
       .composer-controls { flex-direction: column; align-items: stretch; gap: 0.45rem; }
       .session-status-bar { justify-content: flex-start; flex-wrap: wrap; gap: 0.35rem 0.7rem; font-size: 0.72rem; }
       input, textarea { font-size: 16px; }
       textarea { max-height: 8rem; }
+      textarea::placeholder { font-size: 0.95rem; }
       .attachment { max-width: 100%; }
       .attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .session-sidebar, .conversation-scroll, .command-list { scrollbar-width: none; }
@@ -210,6 +221,7 @@
         </section>
       <% end %>
     </aside>
+    <label for="mobile-session-toggle" class="mobile-sidebar-backdrop" aria-label="Hide sessions"></label>
 
     <main class="conversation-panel">
       <% if @selected_session %>
@@ -259,6 +271,7 @@
           <% end %>
 
           <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>"></section>
+          <button type="button" class="jump-to-latest">New messages ↓</button>
         </section>
 
         <div class="composer">
@@ -290,7 +303,12 @@
             <form method="post" action="/prompt" class="prompt-form" enctype="multipart/form-data">
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
               <div class="attachment-tray" aria-live="polite"></div>
-              <textarea name="message" rows="1" autofocus placeholder="Ask Pi… Enter sends, Shift+Enter adds a line. Paste or drop images to attach."></textarea>
+              <div class="composer-input-row">
+                <input class="image-input" id="image-input" type="file" accept="image/*" multiple>
+                <label for="image-input" class="attach-button" title="Attach images" aria-label="Attach images">＋</label>
+                <textarea name="message" rows="1" placeholder="Ask Pi… Attach images or type a message."></textarea>
+                <button type="submit" class="send-button">Send</button>
+              </div>
               <div class="composer-controls">
                 <span class="composer-state" data-state="idle">Ready</span>
                 <div class="session-status-bar" id="session-status-bar" data-status-url="/status?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
@@ -319,11 +337,13 @@
     const promptTextarea = promptForm?.querySelector("textarea");
     const sendButton = promptForm?.querySelector(".send-button");
     const attachmentTray = promptForm?.querySelector(".attachment-tray");
+    const imageInput = promptForm?.querySelector(".image-input");
     const composerState = document.querySelector(".composer-state");
     const abortButton = document.querySelector(".abort-button");
     const commandList = document.getElementById("command-list");
     const commandFilter = commandList?.querySelector(".command-filter");
     const conversationScroll = document.getElementById("conversation-scroll");
+    const jumpToLatestButton = document.querySelector(".jump-to-latest");
     const sessionStatusBar = document.getElementById("session-status-bar");
     let liveAssistantMessage = null;
     let liveAssistantSegments = new Map();
@@ -336,8 +356,17 @@
       return conversationScroll.scrollHeight - conversationScroll.scrollTop - conversationScroll.clientHeight < 120;
     }
 
+    function updateJumpToLatest() {
+      jumpToLatestButton?.classList.toggle("is-visible", !nearConversationBottom());
+    }
+
     function scrollToBottom(behavior = "smooth") {
       conversationScroll?.scrollTo({ top: conversationScroll.scrollHeight, behavior });
+      jumpToLatestButton?.classList.remove("is-visible");
+    }
+
+    function shouldAutofocusPrompt() {
+      return window.matchMedia?.("(pointer: fine)").matches !== false;
     }
 
     function setStatusItem(key, label, value) {
@@ -684,6 +713,7 @@
       article.append(body);
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
+      else if (live) jumpToLatestButton?.classList.add("is-visible");
       return { article, body, compact: false };
     }
 
@@ -734,6 +764,7 @@
       article.append(header, details);
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
+      else if (live) jumpToLatestButton?.classList.add("is-visible");
       return { article, body, summaryText, rawBody, compact: true };
     }
 
@@ -809,6 +840,7 @@
       }
 
       if (shouldScroll) scrollToBottom();
+      else jumpToLatestButton?.classList.add("is-visible");
       return entry;
     }
 
@@ -911,7 +943,7 @@
     }
 
     promptTextarea?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+      if (event.key === "Enter" && !event.shiftKey && shouldAutofocusPrompt()) {
         event.preventDefault();
         promptForm.requestSubmit();
       }
@@ -932,6 +964,14 @@
     promptForm?.addEventListener("drop", (event) => {
       if (addImageFiles(event.dataTransfer?.files || [])) event.preventDefault();
     });
+
+    imageInput?.addEventListener("change", () => {
+      addImageFiles(imageInput.files || []);
+      imageInput.value = "";
+    });
+
+    conversationScroll?.addEventListener("scroll", updateJumpToLatest, { passive: true });
+    jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
 
     promptTextarea?.addEventListener("input", () => {
       resizePromptTextarea();
@@ -1022,7 +1062,7 @@
       if (commandFilter) commandFilter.value = "";
       commandList?.querySelectorAll(".command").forEach((command) => { command.hidden = false; });
       resizePromptTextarea();
-      promptTextarea.focus();
+      if (shouldAutofocusPrompt()) promptTextarea.focus();
       setComposerState("sending", "Sending…");
       showStatus("Sending…", true);
 
@@ -1040,7 +1080,7 @@
       setInterval(() => pollEvents().catch(() => {}), 1000);
       requestAnimationFrame(() => {
         resizePromptTextarea();
-        promptTextarea?.focus();
+        if (shouldAutofocusPrompt()) promptTextarea?.focus();
         scrollToBottom("auto");
       });
     }
