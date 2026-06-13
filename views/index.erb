@@ -18,6 +18,7 @@
     .empty { color: #6b7280; }
     .message, .event { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 0.9rem; margin-bottom: 0.75rem; }
     .event { background: #f8fafc; }
+    .status { color: #6b7280; font-size: 0.85rem; margin-bottom: 0.75rem; }
     .role { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: #4b5563; margin-bottom: 0.4rem; }
     .live-heading { margin-top: 1.5rem; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font-family: inherit; }
@@ -85,30 +86,106 @@
   <script>
     const liveOutput = document.getElementById("live-output");
     const liveEmpty = document.getElementById("live-empty");
+    const promptForm = document.querySelector(".prompt-form");
+    const main = document.querySelector("main");
+    let liveMessage = null;
+    let statusLine = null;
 
-    function eventText(event) {
-      return event.text || event.delta || event.message || event.error || JSON.stringify(event, null, 2);
+    function scrollToBottom() {
+      main?.scrollTo({ top: main.scrollHeight, behavior: "smooth" });
     }
 
-    function eventTitle(event) {
-      return event.name || event.type || "event";
+    function removeLiveEmpty() {
+      liveEmpty?.remove();
     }
 
-    function appendEvent(event) {
-      if (liveEmpty) liveEmpty.remove();
+    function contentText(content) {
+      return (Array.isArray(content) ? content : [content]).map((part) => {
+        if (!part) return "";
+        if (typeof part === "string") return part;
+        if (part.text) return part.text;
+        if (part.thinking) return part.thinking;
+        if (part.type === "toolCall") return `[tool: ${part.name || "tool"}]`;
+        if (part.type === "toolResult") return part.output || part.result || "[tool result]";
+        return "";
+      }).filter(Boolean).join("\n");
+    }
+
+    function eventMessage(event) {
+      return event.message || event.delta || event.item || event;
+    }
+
+    function messageText(message) {
+      if (!message) return "";
+      if (typeof message === "string") return message;
+      if (message.text) return message.text;
+      if (message.content) return contentText(message.content);
+      return "";
+    }
+
+    function appendMessage(roleName, text, className = "message") {
+      removeLiveEmpty();
 
       const article = document.createElement("article");
-      article.className = "event";
+      article.className = className;
 
       const role = document.createElement("div");
       role.className = "role";
-      role.textContent = eventTitle(event);
+      role.textContent = roleName;
 
       const body = document.createElement("pre");
-      body.textContent = eventText(event);
+      body.textContent = text;
 
       article.append(role, body);
       liveOutput.append(article);
+      scrollToBottom();
+      return { article, body };
+    }
+
+    function showStatus(text) {
+      removeLiveEmpty();
+      if (!statusLine) {
+        statusLine = document.createElement("div");
+        statusLine.className = "status";
+        liveOutput.append(statusLine);
+      }
+      statusLine.textContent = text;
+      scrollToBottom();
+    }
+
+    function renderMessageEvent(event) {
+      const message = eventMessage(event);
+      const text = messageText(message);
+      if (!text) return;
+
+      if (!liveMessage || event.type === "message_start") {
+        liveMessage = appendMessage(message.role || "assistant", text, "event");
+      } else {
+        liveMessage.body.textContent = text;
+        scrollToBottom();
+      }
+    }
+
+    function renderEvent(event) {
+      if (["agent_start", "turn_start"].includes(event.type)) {
+        showStatus("Pi is thinking…");
+        return;
+      }
+
+      if (["message_start", "message_update", "message_end"].includes(event.type)) {
+        renderMessageEvent(event);
+        return;
+      }
+
+      if (["turn_end", "agent_end"].includes(event.type)) {
+        showStatus("Done");
+        liveMessage = null;
+        return;
+      }
+
+      if (event.error) {
+        appendMessage("error", event.error, "event");
+      }
     }
 
     async function pollEvents() {
@@ -118,11 +195,27 @@
       if (!response.ok) return;
 
       const payload = await response.json();
-      payload.events.forEach(appendEvent);
+      payload.events.forEach(renderEvent);
     }
+
+    promptForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const textarea = promptForm.querySelector("textarea");
+      const message = textarea.value.trim();
+      if (!message) return;
+
+      appendMessage("user", message);
+      textarea.value = "";
+      showStatus("Sending…");
+
+      await fetch(promptForm.action, { method: "POST", body: new FormData(promptForm), redirect: "manual" });
+      scrollToBottom();
+    });
 
     if (liveOutput) {
       setInterval(() => pollEvents().catch(() => {}), 1000);
+      scrollToBottom();
     }
   </script>
 </body>
