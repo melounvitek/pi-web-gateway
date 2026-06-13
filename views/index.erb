@@ -208,6 +208,7 @@
     const promptForm = document.querySelector(".prompt-form");
     const conversationScroll = document.getElementById("conversation-scroll");
     let liveAssistantMessage = null;
+    let liveAssistantSegments = new Map();
     let liveAssistantSeen = false;
     let statusLine = null;
 
@@ -251,13 +252,14 @@
     function contentSegments(content, message = {}) {
       const parts = Array.isArray(content) ? content : [content];
       const groups = [];
-      parts.forEach((part) => {
+      parts.forEach((part, index) => {
         const compact = message.role === "toolResult" || compactContentPart(part);
         const lastGroup = groups[groups.length - 1];
         if (lastGroup && lastGroup.compact === compact) {
           lastGroup.parts.push(part);
+          lastGroup.endIndex = index;
         } else {
-          groups.push({ compact, parts: [part] });
+          groups.push({ compact, parts: [part], startIndex: index, endIndex: index });
         }
       });
 
@@ -268,7 +270,9 @@
           text,
           compact: group.compact,
           summary: message.toolName || [...new Set(labels)].join(" + ") || "tool output",
-          expanded: message.isError === true
+          expanded: message.isError === true,
+          startIndex: group.startIndex,
+          endIndex: group.endIndex
         };
       }).filter((segment) => segment.text);
     }
@@ -355,7 +359,7 @@
       article.append(header, body);
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
-      return { article, body };
+      return { article, body, compact: false };
     }
 
     function appendCompactMessage(roleName, summary, text, expanded = false, live = true, forceScroll = false) {
@@ -390,7 +394,7 @@
       article.append(header, details);
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
-      return { article, body };
+      return { article, body, summaryText, compact: true };
     }
 
     function showStatus(text, forceScroll = false) {
@@ -403,12 +407,54 @@
       }
     }
 
+    function resetLiveAssistantTracking() {
+      liveAssistantMessage = null;
+      liveAssistantSegments = new Map();
+      liveAssistantSeen = false;
+    }
+
+    function segmentIdentity(event, segment, fallbackIndex) {
+      const update = event.assistantMessageEvent || {};
+      const contentIndex = segment.startIndex ?? update.contentIndex ?? fallbackIndex;
+      return `${contentIndex}-${segment.compact ? "compact" : "text"}`;
+    }
+
+    function updateLiveSegment(entry, roleName, segment, shouldScroll) {
+      if (entry.compact !== segment.compact) return null;
+
+      if (segment.compact) {
+        entry.summaryText.textContent = segment.summary;
+        entry.body.textContent = segment.text;
+      } else {
+        entry.body.textContent = segment.text;
+        if (roleName === "assistant") renderAssistantMarkdown(entry.body, segment.text).catch(() => {});
+      }
+
+      if (shouldScroll) scrollToBottom();
+      return entry;
+    }
+
+    function upsertLiveAssistantSegment(event, roleName, segment, fallbackIndex, shouldScroll) {
+      const key = segmentIdentity(event, segment, fallbackIndex);
+      const existing = liveAssistantSegments.get(key);
+      const updated = existing && updateLiveSegment(existing, roleName, segment, shouldScroll);
+      if (updated) return updated;
+
+      const entry = segment.compact ?
+        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll) :
+        appendMessage("assistant", segment.text, true, shouldScroll);
+      liveAssistantSegments.set(key, entry);
+      return entry;
+    }
+
     function renderMessageEvent(event) {
       const message = eventMessage(event);
-      const segments = message?.content ? contentSegments(message.content, message) : [{ text: messageText(message), compact: false, summary: "" }].filter((segment) => segment.text);
+      const segments = message?.content ? contentSegments(message.content, message) : [{ text: messageText(message), compact: false, summary: "", startIndex: 0, endIndex: 0 }].filter((segment) => segment.text);
+      const roleName = liveEventRole(event, message);
+
+      if (roleName === "assistant" && event.type === "message_start") resetLiveAssistantTracking();
       if (segments.length === 0) return;
 
-      const roleName = liveEventRole(event, message);
       const shouldScroll = nearConversationBottom();
 
       if (roleName === "user") {
@@ -427,27 +473,10 @@
       }
 
       liveAssistantSeen = true;
-      if (segments.length > 1) {
-        segments.forEach((segment) => {
-          if (segment.compact) {
-            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll);
-          } else {
-            liveAssistantMessage = appendMessage("assistant", segment.text, true, shouldScroll);
-          }
-        });
-        return;
-      }
-
-      const segment = segments[0];
-      if (!liveAssistantMessage || event.type === "message_start" || segment.compact) {
-        liveAssistantMessage = segment.compact ?
-          appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll) :
-          appendMessage("assistant", segment.text, true, shouldScroll);
-      } else {
-        liveAssistantMessage.body.textContent = segment.text;
-        renderAssistantMarkdown(liveAssistantMessage.body, segment.text).catch(() => {});
-        if (shouldScroll) scrollToBottom();
-      }
+      segments.forEach((segment, index) => {
+        const entry = upsertLiveAssistantSegment(event, roleName, segment, index, shouldScroll);
+        if (!segment.compact) liveAssistantMessage = entry;
+      });
     }
 
     function renderEvent(event) {
@@ -468,8 +497,7 @@
 
       if (["turn_end", "agent_end"].includes(event.type)) {
         if (liveAssistantSeen) showStatus("Done");
-        liveAssistantMessage = null;
-        liveAssistantSeen = false;
+        resetLiveAssistantTracking();
         return;
       }
 
@@ -498,8 +526,7 @@
       const formData = new FormData(promptForm);
       formData.set("message", message);
 
-      liveAssistantMessage = null;
-      liveAssistantSeen = false;
+      resetLiveAssistantTracking();
       appendMessage("user", message, true, true);
       textarea.value = "";
       showStatus("Sending…", true);

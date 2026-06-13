@@ -488,6 +488,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, "let liveAssistantMessage = null;"
+      assert_includes response.body, "let liveAssistantSegments = new Map();"
       assert_includes response.body, "let liveAssistantSeen = false;"
       assert_includes response.body, 'if (roleName === "user") {'
       assert_includes response.body, 'appendMessage("assistant", segment.text, true, shouldScroll);'
@@ -496,7 +497,31 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'if (["custom", "system", "status"].includes(role)) return "status";'
       assert_includes response.body, "showStatus(eventStatusText(event));"
       assert_includes response.body, 'if (liveAssistantSeen) showStatus("Done");'
-      assert_includes response.body, "liveAssistantMessage = null;\n      liveAssistantSeen = false;\n      appendMessage(\"user\", message, true, true);"
+      assert_includes response.body, "resetLiveAssistantTracking();\n      appendMessage(\"user\", message, true, true);"
+    end
+  end
+
+  def test_live_event_script_updates_streaming_segments_in_place
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "function segmentIdentity(event, segment, fallbackIndex)"
+      assert_includes response.body, "event.assistantMessageEvent || {}"
+      assert_includes response.body, "segment.startIndex ?? update.contentIndex ?? fallbackIndex"
+      assert_includes response.body, "function upsertLiveAssistantSegment(event, roleName, segment, fallbackIndex, shouldScroll)"
+      assert_includes response.body, "const existing = liveAssistantSegments.get(key);"
+      assert_includes response.body, "const updated = existing && updateLiveSegment(existing, roleName, segment, shouldScroll);"
+      assert_includes response.body, "liveAssistantSegments.set(key, entry);"
+      assert_includes response.body, "if (roleName === \"assistant\" && event.type === \"message_start\") resetLiveAssistantTracking();"
+      assert_includes response.body, "if ([\"turn_end\", \"agent_end\"].includes(event.type)) {\n        if (liveAssistantSeen) showStatus(\"Done\");\n        resetLiveAssistantTracking();"
     end
   end
 

@@ -161,15 +161,15 @@ Observed behavior:
 - Historical session JSONL does not appear to contain those duplicates; the duplication is produced by browser-side live rendering.
 - The likely cause is that live rendering does not have a robust per-live-message/segment identity and can append instead of update when event shapes change, including for normal assistant text after the recent mixed-segment/live-markdown changes.
 
-- [ ] Reproduce with a live prompt that emits thinking/tool updates.
-- [ ] Inspect actual live RPC event shapes for `message_start`, `message_update`, and `message_end` with compact segments.
-- [ ] Track all live assistant segments, including normal visible reply text and compact assistant/tool segments, by stable message/segment identity where available.
-- [ ] Update existing compact thinking/tool cards and visible assistant reply bubbles in place on incremental `message_update` instead of appending duplicates.
-- [ ] Start a new compact card or assistant reply bubble only for a real new segment/message identity or `message_start` boundary.
-- [ ] Reset live segment tracking on `turn_end`, `agent_end`, new prompt submit, and session switch/page load.
-- [ ] Preserve mixed-message behavior: compact thinking/tool card plus separate visible markdown assistant reply.
-- [ ] Add focused tests for live compact update behavior where practical.
-- [ ] Restart server and report the test URL plus what to verify.
+- [x] Reproduce with a live prompt that emits thinking/tool updates.
+- [x] Inspect actual live RPC event shapes for `message_start`, `message_update`, and `message_end` with compact segments.
+- [x] Track all live assistant segments, including normal visible reply text and compact assistant/tool segments, by stable message/segment identity where available.
+- [x] Update existing compact thinking/tool cards and visible assistant reply bubbles in place on incremental `message_update` instead of appending duplicates.
+- [x] Start a new compact card or assistant reply bubble only for a real new segment/message identity or `message_start` boundary.
+- [x] Reset live segment tracking on `turn_end`, `agent_end`, new prompt submit, and session switch/page load.
+- [x] Preserve mixed-message behavior: compact thinking/tool card plus separate visible markdown assistant reply.
+- [x] Add focused tests for live compact update behavior where practical.
+- [x] Restart server and report the test URL plus what to verify.
 
 Success check:
 
