@@ -1,10 +1,5 @@
 # AGENTS.md
 
-## Git workflow
-
-- By default, make changes directly on `master`.
-- This repository has a GitHub remote.
-
 ## Local server
 
 The dev server usually runs as Puma on `100.103.198.74:4567`, logging to `/tmp/pi-web-gateway.log`.
