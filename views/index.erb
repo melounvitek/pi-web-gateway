@@ -138,7 +138,7 @@
               <div class="session-title">
                 <%= h session.display_name %>
                 <% if rpc_clients.active?(session.path) %>
-                  <span class="session-running-indicator">active</span>
+                  <span class="session-running-indicator" title="RPC process running" aria-label="RPC process running"></span>
                 <% end %>
               </div>
               <div class="session-meta">

@@ -19,8 +19,6 @@ class AppTest < Minitest::Test
       path = write_session(dir)
       calls = []
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
         FakeRpcClient.new(calls)
@@ -44,8 +42,6 @@ class AppTest < Minitest::Test
       File.binwrite(image_path, "fake image data")
       calls = []
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
         FakeRpcClient.new(calls)
@@ -224,13 +220,58 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_creates_pending_session_when_new_client_has_not_persisted_session_file
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 2)
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :new_rpc_client_factory, [->(cwd) {
+        calls << [:start_new, cwd]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/sessions/new",
+        params: { "session" => paths.first }
+      )
+
+      assert_equal 303, response.status
+      assert_match %r{pending-[^&]+\.jsonl}, response["Location"]
+      refute_includes response["Location"], Rack::Utils.escape(paths.last)
+      assert_equal [[ :start_new, "/tmp/project" ], [ :get_state ]], calls
+    end
+  end
+
+  def test_remaps_pending_client_when_real_session_file_appears
+    Dir.mktmpdir do |dir|
+      real_path = write_session(dir)
+      pending_path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(pending_path, FakeRpcClient.new(calls, [{ "type" => "from-pending" }], real_path))
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_rpc_cwds, { pending_path => "/tmp/project" }
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/events",
+        params: { "session" => real_path }
+      )
+
+      assert_equal 200, response.status
+      assert_equal({ "events" => [{ "type" => "from-pending" }] }, JSON.parse(response.body))
+      assert registry.active?(real_path)
+      refute registry.active?(pending_path)
+      refute_includes PiWebGateway.pending_rpc_cwds, pending_path
+      assert_equal [[:get_state], [:drain_events]], calls
+    end
+  end
+
   def test_renders_compact_command_discovery_for_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       calls = []
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
         FakeRpcClient.new(calls, [{ "name" => "review", "source" => "skill", "description" => "Review code" }])
@@ -297,8 +338,6 @@ class AppTest < Minitest::Test
       path = write_session(dir)
       calls = []
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
         FakeRpcClient.new(calls)
@@ -319,8 +358,6 @@ class AppTest < Minitest::Test
       path = write_session(dir)
       calls = []
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
         FakeRpcClient.new(calls)
@@ -341,8 +378,6 @@ class AppTest < Minitest::Test
       path = write_session(dir)
       calls = []
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(session_path) {
         calls << [:start, session_path]
         FakeRpcClient.new(calls)
@@ -380,8 +415,6 @@ class AppTest < Minitest::Test
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_client, nil
-      PiWebGateway.set :active_rpc_session, nil
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
       response = Rack::MockRequest.new(PiWebGateway).get(
@@ -740,9 +773,9 @@ class AppTest < Minitest::Test
     Dir.mktmpdir do |dir|
       path = write_session_with_messages(dir, [{ role: "assistant", text: "Copy me" }])
       PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :active_rpc_session, path
-      PiWebGateway.set :active_rpc_client, FakeRpcClient.new([])
-      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeRpcClient.new([]) })
+      registry.register(path, FakeRpcClient.new([]))
+      PiWebGateway.set :rpc_client_registry, registry
 
       response = Rack::MockRequest.new(PiWebGateway).get(
         "/",
@@ -752,6 +785,7 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_includes response.body, "color-scheme: dark"
       assert_includes response.body, "session-running-indicator"
+      refute_includes response.body, ">active</span>"
       assert_includes response.body, "copy-button"
       assert_includes response.body, "navigator.clipboard.writeText"
       assert_includes response.body, "window.isSecureContext"
