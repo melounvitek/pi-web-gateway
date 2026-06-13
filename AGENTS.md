@@ -2,7 +2,6 @@
 
 ## Git workflow
 
-- Do not create new branches unless explicitly asked.
 - By default, make changes directly on `master`.
 - This repository has a GitHub remote.
 
