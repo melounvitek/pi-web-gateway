@@ -207,14 +207,14 @@ Success check:
 
 Note: the command discovery block is temporarily hidden in the UI so it does not block testing the chat experience; restore/redesign it in this step.
 
-- [ ] Send the prompt with `Enter`, and insert new lines with `Shift+Enter`.
-- [ ] Improve textarea sizing and focus behavior.
-- [ ] Keep abort close to the composer while Pi is running.
-- [ ] Make slash commands easier to discover without occupying too much vertical space.
-- [ ] Consider lightweight slash-command filtering/autocomplete.
-- [ ] Show clearer sending/running/done states.
-- [ ] Add tests for rendered command UI where practical.
-- [ ] Restart server and report the test URL plus what to verify.
+- [x] Send the prompt with `Enter`, and insert new lines with `Shift+Enter`.
+- [x] Improve textarea sizing and focus behavior.
+- [x] Keep abort close to the composer while Pi is running.
+- [x] Make slash commands easier to discover without occupying too much vertical space.
+- [x] Consider lightweight slash-command filtering/autocomplete.
+- [x] Show clearer sending/running/done states.
+- [x] Add tests for rendered command UI where practical.
+- [x] Restart server and report the test URL plus what to verify.
 
 Success check:
 

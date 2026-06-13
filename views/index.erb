@@ -13,6 +13,7 @@
     .session-header { position: sticky; top: 0; z-index: 2; padding: 1rem 1.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; background: #ffffff; }
     .conversation-scroll { min-height: 0; overflow-y: auto; padding: 1.5rem; scroll-behavior: smooth; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid #e5e7eb; background: #ffffff; }
+    .composer-inner { display: grid; gap: 0.6rem; }
     h1 { font-size: 1.25rem; margin: 0 0 1rem; }
     h2 { font-size: 0.85rem; margin: 1.25rem 0 0.5rem; color: #4b5563; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cwd-group { margin-bottom: 0.75rem; }
@@ -59,13 +60,20 @@
     .prompt-form, .inline-form { display: grid; gap: 0.5rem; margin: 0; }
     .session-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; margin: 1rem 0 0; }
     .session-actions form { margin: 0; }
-    .command-list { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 0.75rem; margin: 1rem 0 0; }
-    .command-list h3 { font-size: 0.8rem; text-transform: uppercase; color: #4b5563; margin: 0.75rem 0 0.25rem; }
-    .command-list h3:first-child { margin-top: 0; }
+    .command-list { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 0.75rem; background: #f9fafb; }
+    .command-list summary { cursor: pointer; font-size: 0.85rem; font-weight: 700; color: #4b5563; }
+    .command-list h3 { font-size: 0.75rem; text-transform: uppercase; color: #4b5563; margin: 0.75rem 0 0.25rem; }
+    .command-list h3:first-child { margin-top: 0.75rem; }
+    .command-filter { width: 100%; margin-top: 0.6rem; padding: 0.45rem 0.6rem; font-size: 0.9rem; }
     .command { font-size: 0.9rem; margin: 0.25rem 0; }
     .command code { font-weight: 700; }
+    .composer-controls { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+    .composer-state { font-size: 0.85rem; color: #6b7280; }
+    .composer-state[data-state="running"], .composer-state[data-state="sending"] { color: #2563eb; font-weight: 600; }
+    .composer-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .abort-form { display: none; }
     input, textarea { box-sizing: border-box; font: inherit; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; }
-    textarea { width: 100%; resize: vertical; }
+    textarea { width: 100%; resize: none; min-height: 3.25rem; max-height: 12rem; line-height: 1.4; }
     button { justify-self: end; padding: 0.5rem 0.9rem; border: 0; border-radius: 0.5rem; background: #2563eb; color: white; font-weight: 600; cursor: pointer; }
     button.secondary { background: #4b5563; }
     button.danger { background: #dc2626; }
@@ -115,11 +123,6 @@
               <button type="submit">New session in this cwd</button>
             </form>
 
-            <form method="post" action="/abort">
-              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-              <button type="submit" class="danger">Abort</button>
-            </form>
-
             <form method="post" action="/compact">
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
               <input type="text" name="instructions" placeholder="Optional compact instructions">
@@ -133,26 +136,6 @@
             </form>
           </div>
 
-          <%# Temporarily hidden until command discovery UI is redesigned. %>
-          <% if false %>
-            <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
-            <% if @commands.any? %>
-              <section class="command-list">
-                <% ["extension", "prompt", "skill", "other"].each do |source| %>
-                  <% next unless commands_by_source[source]&.any? %>
-                  <h3><%= h source %> commands</h3>
-                  <% commands_by_source[source].each do |command| %>
-                    <div class="command">
-                      <code>/<%= h command["name"] %></code>
-                      <% if command["description"].to_s != "" %>
-                        — <%= h command["description"] %>
-                      <% end %>
-                    </div>
-                  <% end %>
-                <% end %>
-              </section>
-            <% end %>
-          <% end %>
         </header>
 
         <section class="conversation-scroll" id="conversation-scroll">
@@ -195,11 +178,45 @@
           </section>
         </section>
 
-        <form method="post" action="/prompt" class="prompt-form composer">
-          <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-          <textarea name="message" rows="4" placeholder="Ask Pi… use /command for extension commands, prompt templates, and skills"></textarea>
-          <button type="submit">Send</button>
-        </form>
+        <div class="composer">
+          <div class="composer-inner">
+            <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
+            <% if @commands.any? %>
+              <details class="command-list" id="command-list">
+                <summary>Slash commands (<%= h @commands.length %>)</summary>
+                <input class="command-filter" type="search" placeholder="Filter commands…" aria-label="Filter slash commands">
+                <% ["extension", "prompt", "skill", "other"].each do |source| %>
+                  <% next unless commands_by_source[source]&.any? %>
+                  <h3><%= h source %> commands</h3>
+                  <% commands_by_source[source].each do |command| %>
+                    <div class="command" data-command-name="<%= h command["name"] %>" data-command-text="/<%= h command["name"] %> <%= h command["description"] %>">
+                      <code>/<%= h command["name"] %></code>
+                      <% if command["description"].to_s != "" %>
+                        — <%= h command["description"] %>
+                      <% end %>
+                    </div>
+                  <% end %>
+                <% end %>
+              </details>
+            <% end %>
+
+            <form method="post" action="/abort" class="abort-form" id="abort-form">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+            </form>
+
+            <form method="post" action="/prompt" class="prompt-form">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <textarea name="message" rows="1" autofocus placeholder="Ask Pi… Enter sends, Shift+Enter adds a line. Type / for commands."></textarea>
+              <div class="composer-controls">
+                <span class="composer-state" data-state="idle">Ready</span>
+                <div class="composer-actions">
+                  <button type="submit" class="danger" form="abort-form">Abort running Pi</button>
+                  <button type="submit" class="send-button">Send</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
       <% else %>
         <header class="session-header">
           <h1>No session selected</h1>
@@ -214,6 +231,11 @@
     const liveOutput = document.getElementById("live-output");
     const liveEmpty = document.getElementById("live-empty");
     const promptForm = document.querySelector(".prompt-form");
+    const promptTextarea = promptForm?.querySelector("textarea");
+    const sendButton = promptForm?.querySelector(".send-button");
+    const composerState = document.querySelector(".composer-state");
+    const commandList = document.getElementById("command-list");
+    const commandFilter = commandList?.querySelector(".command-filter");
     const conversationScroll = document.getElementById("conversation-scroll");
     let liveAssistantMessage = null;
     let liveAssistantSegments = new Map();
@@ -232,6 +254,19 @@
 
     function removeLiveEmpty() {
       liveEmpty?.remove();
+    }
+
+    function setComposerState(state, label) {
+      if (!composerState) return;
+      composerState.dataset.state = state;
+      composerState.textContent = label;
+      if (sendButton) sendButton.textContent = state === "sending" ? "Sending…" : "Send";
+    }
+
+    function resizePromptTextarea() {
+      if (!promptTextarea) return;
+      promptTextarea.style.height = "auto";
+      promptTextarea.style.height = `${promptTextarea.scrollHeight}px`;
     }
 
     function compactContentPart(part) {
@@ -532,6 +567,7 @@
 
     function renderEvent(event) {
       if (["agent_start", "turn_start"].includes(event.type)) {
+        setComposerState("running", "Pi is running…");
         showStatus("Pi is thinking…");
         return;
       }
@@ -548,6 +584,7 @@
 
       if (["turn_end", "agent_end"].includes(event.type)) {
         if (liveAssistantSeen) showStatus("Done");
+        setComposerState("done", "Done");
         resetLiveAssistantTracking();
         return;
       }
@@ -567,11 +604,44 @@
       payload.events.forEach(renderEvent);
     }
 
+    promptTextarea?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        promptForm.requestSubmit();
+      }
+    });
+
+    promptTextarea?.addEventListener("input", () => {
+      resizePromptTextarea();
+      if (!commandList) return;
+
+      if (promptTextarea.value.trimStart().startsWith("/")) {
+        commandList.setAttribute("open", "");
+      } else {
+        commandList.removeAttribute("open");
+      }
+    });
+
+    commandFilter?.addEventListener("input", () => {
+      const query = commandFilter.value.trim().toLowerCase();
+      commandList.querySelectorAll(".command").forEach((command) => {
+        command.hidden = query && !command.dataset.commandText.toLowerCase().includes(query);
+      });
+    });
+
+    commandList?.querySelectorAll(".command").forEach((command) => {
+      command.addEventListener("click", () => {
+        if (!promptTextarea) return;
+        promptTextarea.value = `/${command.dataset.commandName} `;
+        resizePromptTextarea();
+        promptTextarea.focus();
+      });
+    });
+
     promptForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
 
-      const textarea = promptForm.querySelector("textarea");
-      const message = textarea.value.trim();
+      const message = promptTextarea.value.trim();
       if (!message) return;
 
       const formData = new FormData(promptForm);
@@ -579,19 +649,29 @@
 
       resetLiveAssistantTracking();
       appendMessage("user", message, true, true);
-      textarea.value = "";
+      promptTextarea.value = "";
+      resizePromptTextarea();
+      promptTextarea.focus();
+      setComposerState("sending", "Sending…");
       showStatus("Sending…", true);
 
       const response = await fetch(promptForm.action, { method: "POST", body: formData, redirect: "manual" });
       if (!response.ok && response.type !== "opaqueredirect") {
+        setComposerState("error", "Prompt failed");
         showStatus("Prompt failed to send", true);
+      } else {
+        setComposerState("running", "Pi is running…");
       }
       scrollToBottom();
     });
 
     if (liveOutput) {
       setInterval(() => pollEvents().catch(() => {}), 1000);
-      requestAnimationFrame(() => scrollToBottom("auto"));
+      requestAnimationFrame(() => {
+        resizePromptTextarea();
+        promptTextarea?.focus();
+        scrollToBottom("auto");
+      });
     }
   </script>
 </body>

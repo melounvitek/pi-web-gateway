@@ -122,7 +122,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_hides_commands_for_selected_session
+  def test_renders_compact_command_discovery_for_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       calls = []
@@ -140,8 +140,10 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      refute_includes response.body, "/review"
-      refute_includes response.body, "Review code"
+      assert_includes response.body, "Slash commands (1)"
+      assert_includes response.body, "/review"
+      assert_includes response.body, "Review code"
+      assert_includes response.body, "command-filter"
       assert_equal [[ :start, path ], [ :get_commands ]], calls
     end
   end
@@ -251,6 +253,10 @@ class AppTest < Minitest::Test
       assert_includes response.body, "session-header"
       assert_includes response.body, "conversation-scroll"
       assert_includes response.body, "composer"
+      assert_includes response.body, "composer-controls"
+      assert_includes response.body, "composer-state"
+      assert_includes response.body, "Enter sends, Shift+Enter adds a line"
+      assert_includes response.body, "Abort running Pi"
       assert_includes response.body, "nearConversationBottom"
     end
   end
@@ -548,6 +554,10 @@ class AppTest < Minitest::Test
       assert_includes response.body, "showStatus(eventStatusText(event));"
       assert_includes response.body, 'if (liveAssistantSeen) showStatus("Done");'
       assert_includes response.body, "resetLiveAssistantTracking();\n      appendMessage(\"user\", message, true, true);"
+      assert_includes response.body, "promptForm.requestSubmit();"
+      assert_includes response.body, "function resizePromptTextarea()"
+      assert_includes response.body, "commandList.removeAttribute(\"open\");"
+      assert_includes response.body, "setComposerState(\"running\", \"Pi is running…\");"
     end
   end
 
@@ -571,7 +581,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "const updated = existing && updateLiveSegment(existing, roleName, segment, shouldScroll);"
       assert_includes response.body, "liveAssistantSegments.set(key, entry);"
       assert_includes response.body, "if (roleName === \"assistant\" && event.type === \"message_start\") resetLiveAssistantTracking();"
-      assert_includes response.body, "if ([\"turn_end\", \"agent_end\"].includes(event.type)) {\n        if (liveAssistantSeen) showStatus(\"Done\");\n        resetLiveAssistantTracking();"
+      assert_includes response.body, "if ([\"turn_end\", \"agent_end\"].includes(event.type)) {\n        if (liveAssistantSeen) showStatus(\"Done\");\n        setComposerState(\"done\", \"Done\");\n        resetLiveAssistantTracking();"
     end
   end
 
