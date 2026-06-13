@@ -31,23 +31,10 @@ class PiSessionStore
   end
 
   def messages(path)
-    read_entries(path).filter_map do |entry|
-      next unless entry["type"] == "message"
+    read_entries(path).flat_map do |entry|
+      next [] unless entry["type"] == "message"
 
-      message = entry["message"] || {}
-      role = message["role"]
-      text = content_text(message["content"])
-      next if role.nil? || text.empty?
-
-      Message.new(
-        role: role,
-        text: text,
-        timestamp: parse_time(entry["timestamp"]),
-        compact: compact_message?(message),
-        summary: compact_summary(message),
-        expanded: message["isError"] == true,
-        error: message["isError"] == true
-      )
+      messages_from_entry(entry)
     end
   end
 
@@ -101,6 +88,51 @@ class PiSessionStore
     end
   end
 
+  def messages_from_entry(entry)
+    message = entry["message"] || {}
+    role = message["role"]
+    return [] if role.nil?
+
+    if role == "assistant"
+      assistant_messages_from_entry(message, parse_time(entry["timestamp"]))
+    else
+      text = content_text(message["content"])
+      return [] if text.empty?
+
+      [Message.new(
+        role: role,
+        text: text,
+        timestamp: parse_time(entry["timestamp"]),
+        compact: compact_message?(message),
+        summary: compact_summary(message),
+        expanded: message["isError"] == true,
+        error: message["isError"] == true
+      )]
+    end
+  end
+
+  def assistant_messages_from_entry(message, timestamp)
+    content_groups(message["content"]).filter_map do |compact, parts|
+      text = content_text(parts)
+      next if text.empty?
+
+      Message.new(
+        role: "assistant",
+        text: text,
+        timestamp: timestamp,
+        compact: compact,
+        summary: compact ? compact_summary(message.merge("content" => parts)) : nil,
+        expanded: false,
+        error: false
+      )
+    end
+  end
+
+  def content_groups(content)
+    Array(content).slice_when { |before_part, after_part| compact_part?(before_part) != compact_part?(after_part) }
+      .map { |parts| [compact_part?(parts.first), parts] }
+  end
+
   def content_text(content)
     Array(content).filter_map do |part|
       next part if part.is_a?(String)
@@ -108,6 +140,10 @@ class PiSessionStore
 
       part["text"] || part["thinking"] || tool_text(part)
     end.join("\n")
+  end
+
+  def compact_part?(part)
+    part.is_a?(Hash) && ["thinking", "toolCall", "toolResult"].include?(part["type"])
   end
 
   def compact_message?(message)

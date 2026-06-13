@@ -48,6 +48,33 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_splits_mixed_assistant_thinking_from_visible_text
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "Private reasoning" },
+              { type: "text", text: "## Visible answer" }
+            ]
+          }
+        }
+      ])
+
+      messages = PiSessionStore.new(root: dir).messages(path)
+
+      assert_equal ["assistant", "assistant"], messages.map(&:role)
+      assert_equal ["Private reasoning", "## Visible answer"], messages.map(&:text)
+      assert_equal [true, false], messages.map(&:compact)
+      assert_equal "thinking", messages.first.summary
+    end
+  end
+
   def test_reads_messages_for_a_selected_session
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")

@@ -224,34 +224,53 @@
       liveEmpty?.remove();
     }
 
-    function contentInfo(content, message = {}) {
-      const parts = Array.isArray(content) ? content : [content];
-      const labels = [];
-      const text = parts.map((part) => {
-        if (!part) return "";
-        if (typeof part === "string") return part;
-        if (part.text) return part.text;
-        if (part.type === "thinking" || part.thinking) {
-          labels.push("thinking");
-          return part.thinking || "[thinking]";
-        }
-        if (part.type === "toolCall") {
-          labels.push(part.name || "tool");
-          const args = part.arguments ? `\n${JSON.stringify(part.arguments, null, 2)}` : "";
-          return `[tool: ${part.name || "tool"}]${args}`;
-        }
-        if (part.type === "toolResult") {
-          labels.push(part.name || part.toolName || "tool result");
-          return part.output || part.result || "[tool result]";
-        }
-        return "";
-      }).filter(Boolean).join("\n");
+    function compactContentPart(part) {
+      return part && typeof part === "object" && ["thinking", "toolCall", "toolResult"].includes(part.type);
+    }
 
-      const compact = message.role === "toolResult" || (message.role === "assistant" && parts.length > 0 && parts.every((part) => {
-        return part && typeof part === "object" && ["thinking", "toolCall", "toolResult"].includes(part.type);
-      }));
-      const summary = message.toolName || [...new Set(labels)].join(" + ") || "tool output";
-      return { text, compact, summary, expanded: message.isError === true };
+    function contentPartText(part) {
+      if (!part) return "";
+      if (typeof part === "string") return part;
+      if (part.text) return part.text;
+      if (part.type === "thinking" || part.thinking) return part.thinking || "[thinking]";
+      if (part.type === "toolCall") {
+        const args = part.arguments ? `\n${JSON.stringify(part.arguments, null, 2)}` : "";
+        return `[tool: ${part.name || "tool"}]${args}`;
+      }
+      if (part.type === "toolResult") return part.output || part.result || "[tool result]";
+      return "";
+    }
+
+    function contentPartLabel(part) {
+      if (!part || typeof part !== "object") return null;
+      if (part.type === "thinking" || part.thinking) return "thinking";
+      if (part.type === "toolCall" || part.type === "toolResult") return part.name || part.toolName || "tool";
+      return null;
+    }
+
+    function contentSegments(content, message = {}) {
+      const parts = Array.isArray(content) ? content : [content];
+      const groups = [];
+      parts.forEach((part) => {
+        const compact = message.role === "toolResult" || compactContentPart(part);
+        const lastGroup = groups[groups.length - 1];
+        if (lastGroup && lastGroup.compact === compact) {
+          lastGroup.parts.push(part);
+        } else {
+          groups.push({ compact, parts: [part] });
+        }
+      });
+
+      return groups.map((group) => {
+        const text = group.parts.map(contentPartText).filter(Boolean).join("\n");
+        const labels = group.parts.map(contentPartLabel).filter(Boolean);
+        return {
+          text,
+          compact: group.compact,
+          summary: message.toolName || [...new Set(labels)].join(" + ") || "tool output",
+          expanded: message.isError === true
+        };
+      }).filter((segment) => segment.text);
     }
 
     function eventMessage(event) {
@@ -262,7 +281,7 @@
       if (!message) return "";
       if (typeof message === "string") return message;
       if (message.text) return message.text;
-      if (message.content) return contentInfo(message.content, message).text;
+      if (message.content) return contentSegments(message.content, message).map((segment) => segment.text).join("\n");
       return "";
     }
 
@@ -374,9 +393,8 @@
 
     function renderMessageEvent(event) {
       const message = eventMessage(event);
-      const info = message?.content ? contentInfo(message.content, message) : { text: messageText(message), compact: false, summary: "" };
-      const text = info.text;
-      if (!text) return;
+      const segments = message?.content ? contentSegments(message.content, message) : [{ text: messageText(message), compact: false, summary: "" }].filter((segment) => segment.text);
+      if (segments.length === 0) return;
 
       const roleName = liveEventRole(event, message);
       const shouldScroll = nearConversationBottom();
@@ -386,21 +404,35 @@
       }
 
       if (roleName !== "assistant") {
-        if (info.compact) {
-          appendCompactMessage(roleName, info.summary, info.text, info.expanded, true, shouldScroll);
-        } else {
-          appendMessage(roleName, text, true, shouldScroll);
-        }
+        segments.forEach((segment) => {
+          if (segment.compact) {
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll);
+          } else {
+            appendMessage(roleName, segment.text, true, shouldScroll);
+          }
+        });
         return;
       }
 
       liveAssistantSeen = true;
-      if (!liveAssistantMessage || event.type === "message_start") {
-        liveAssistantMessage = info.compact ?
-          appendCompactMessage(roleName, info.summary, info.text, info.expanded, true, shouldScroll) :
-          appendMessage("assistant", text, true, shouldScroll);
+      if (segments.length > 1) {
+        segments.forEach((segment) => {
+          if (segment.compact) {
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll);
+          } else {
+            liveAssistantMessage = appendMessage("assistant", segment.text, true, shouldScroll);
+          }
+        });
+        return;
+      }
+
+      const segment = segments[0];
+      if (!liveAssistantMessage || event.type === "message_start" || segment.compact) {
+        liveAssistantMessage = segment.compact ?
+          appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll) :
+          appendMessage("assistant", segment.text, true, shouldScroll);
       } else {
-        liveAssistantMessage.body.textContent = text;
+        liveAssistantMessage.body.textContent = segment.text;
         if (shouldScroll) scrollToBottom();
       }
     }

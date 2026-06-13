@@ -330,6 +330,37 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_mixed_assistant_thinking_separately_from_markdown_answer
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "Private reasoning" },
+              { type: "text", text: "## Visible answer" }
+            ]
+          }
+        }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, '<summary><span class="compact-summary">thinking</span></summary>'
+      assert_includes response.body, "Private reasoning"
+      assert_includes response.body, 'class="message-body message-body--markdown"'
+      assert_includes response.body, "<h2>Visible answer</h2>"
+    end
+  end
+
   def test_renders_assistant_markdown_and_sanitizes_html
     Dir.mktmpdir do |dir|
       path = write_session_with_messages(dir, [
@@ -424,8 +455,8 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "function contentInfo(content, message = {})"
-      assert_includes response.body, "appendCompactMessage(roleName, info.summary, info.text, info.expanded"
+      assert_includes response.body, "function contentSegments(content, message = {})"
+      assert_includes response.body, "appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded"
       assert_includes response.body, "part.type === \"toolCall\""
       assert_includes response.body, "part.type === \"thinking\""
     end
@@ -446,7 +477,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "let liveAssistantMessage = null;"
       assert_includes response.body, "let liveAssistantSeen = false;"
       assert_includes response.body, 'if (roleName === "user") {'
-      assert_includes response.body, 'appendMessage("assistant", text, true, shouldScroll);'
+      assert_includes response.body, 'appendMessage("assistant", segment.text, true, shouldScroll);'
       assert_includes response.body, 'if (["custom", "system", "status"].includes(role)) return "status";'
       assert_includes response.body, "showStatus(eventStatusText(event));"
       assert_includes response.body, 'if (liveAssistantSeen) showStatus("Done");'
