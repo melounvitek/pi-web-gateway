@@ -205,11 +205,17 @@
       const message = textarea.value.trim();
       if (!message) return;
 
+      const formData = new FormData(promptForm);
+      formData.set("message", message);
+
       appendMessage("user", message);
       textarea.value = "";
       showStatus("Sending…");
 
-      await fetch(promptForm.action, { method: "POST", body: new FormData(promptForm), redirect: "manual" });
+      const response = await fetch(promptForm.action, { method: "POST", body: formData, redirect: "manual" });
+      if (!response.ok && response.type !== "opaqueredirect") {
+        showStatus("Prompt failed to send");
+      }
       scrollToBottom();
     });
 
