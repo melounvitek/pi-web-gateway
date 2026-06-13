@@ -207,7 +207,7 @@ Success check:
 
 Note: the command discovery block is temporarily hidden in the UI so it does not block testing the chat experience; restore/redesign it in this step.
 
-- [ ] Add `Cmd/Ctrl+Enter` to send the prompt.
+- [ ] Send the prompt with `Enter`, and insert new lines with `Shift+Enter`.
 - [ ] Improve textarea sizing and focus behavior.
 - [ ] Keep abort close to the composer while Pi is running.
 - [ ] Make slash commands easier to discover without occupying too much vertical space.
@@ -218,7 +218,7 @@ Note: the command discovery block is temporarily hidden in the UI so it does not
 
 Success check:
 
-- Sending prompts feels fast from the keyboard.
+- Sending prompts feels fast from the keyboard with plain `Enter`.
 - Commands are discoverable but not visually noisy.
 - The running/abort state is clear.
 
