@@ -94,10 +94,10 @@ Success check:
 
 Success check:
 
-- [ ] Selecting a session starts/attaches RPC.
-- [ ] Sending a browser prompt goes through Pi.
-- [ ] The native session file is updated by Pi.
-- [ ] `get_messages` returns the new conversation state.
+- [x] Selecting a session starts/attaches RPC.
+- [x] Sending a browser prompt goes through Pi.
+- [x] The native session file is updated by Pi.
+- [x] `get_messages` returns the new conversation state.
 
 ### 3. Live output rendering
 
