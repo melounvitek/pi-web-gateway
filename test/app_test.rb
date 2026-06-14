@@ -35,6 +35,29 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_json_prompt_redirect_preserves_expanded_sidebar_groups
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/prompt",
+        params: { "session" => path, "message" => "Hello Pi", "expanded_cwd" => [project_cwd(dir)] },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      payload = JSON.parse(response.body)
+      assert_includes payload.fetch("redirect"), Rack::Utils.escape(path)
+      assert_includes payload.fetch("redirect"), "expanded_cwd"
+    end
+  end
+
   def test_name_slash_command_renames_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -338,6 +361,33 @@ class AppTest < Minitest::Test
       assert_equal 303, response.status
       assert_match %r{pending-[^&]+\.jsonl}, response["Location"]
       refute_includes response["Location"], Rack::Utils.escape(paths.last)
+      assert_equal [[ :start_new, project_cwd(dir) ], [ :get_state ]], calls
+    end
+  end
+
+  def test_creates_new_native_session_as_json
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      new_path = File.join(File.dirname(path), "new-session.jsonl")
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :new_rpc_client_factory, [->(cwd) {
+        calls << [:start_new, cwd]
+        FakeRpcClient.new(calls, [], new_path)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/sessions/new",
+        params: { "session" => path, "expanded_cwd" => [project_cwd(dir)] },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      assert_equal "application/json", response.content_type
+      payload = JSON.parse(response.body)
+      assert_equal new_path, payload.fetch("session")
+      assert_includes payload.fetch("redirect"), Rack::Utils.escape(new_path)
+      assert_includes payload.fetch("redirect"), "expanded_cwd"
       assert_equal [[ :start_new, project_cwd(dir) ], [ :get_state ]], calls
     end
   end
@@ -717,6 +767,33 @@ class AppTest < Minitest::Test
       assert_includes response.body, "Show fewer"
       assert_includes response.body, "Session 7"
       assert_includes response.body, "Session 1"
+    end
+  end
+
+  def test_returns_session_fragment_for_selected_session
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 7)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/session_fragment",
+        params: { "session" => paths.first, "expanded_cwd" => [project_cwd(dir)] }
+      )
+
+      assert_equal 200, response.status
+      assert_equal "application/json", response.content_type
+      payload = JSON.parse(response.body)
+      assert_equal paths.first, payload.fetch("session")
+      assert_equal "Session 1", payload.fetch("title")
+      assert_includes payload.fetch("url"), Rack::Utils.escape(paths.first)
+      assert_includes payload.fetch("url"), "expanded_cwd"
+      assert_includes payload.fetch("sidebar_html"), "session-sidebar"
+      assert_includes payload.fetch("sidebar_html"), "expanded_cwd"
+      assert_includes payload.fetch("sidebar_html"), "selected"
+      assert_includes payload.fetch("conversation_html"), "conversation-panel"
+      assert_includes payload.fetch("conversation_html"), "expanded_cwd"
+      assert_includes payload.fetch("conversation_html"), paths.first
     end
   end
 
@@ -1180,6 +1257,84 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (storedEntry === entry) liveBashToolCalls.delete(key);"
       assert_includes response.body, "markLiveEntryRendered(bashCallEntry, bashCallEntry.article.dataset.role || \"assistant\", mergedText)"
       assert_includes response.body, "article.dataset.messageTimestamp = timestampKey;"
+    end
+  end
+
+  def test_session_switching_script_replaces_session_regions
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "function bindSessionDom()"
+      assert_includes response.body, "function switchSession(url, { push = true, focus = true } = {})"
+      assert_includes response.body, "const switchGeneration = ++sessionSwitchGeneration;\n      resetSessionViewState();"
+      assert_includes response.body, "fetch(sessionFragmentUrl(url), { headers: { \"Accept\": \"application/json\" } })"
+      assert_includes response.body, "if (switchGeneration !== sessionSwitchGeneration) return;"
+      assert_includes response.body, "sessionSidebar.outerHTML = payload.sidebar_html;"
+      assert_includes response.body, "conversationPanel.outerHTML = payload.conversation_html;"
+      assert_includes response.body, "history.pushState({ session: payload.session }"
+      assert_includes response.body, "window.addEventListener(\"popstate\""
+      assert_includes response.body, "document.getElementById(\"mobile-session-toggle\").checked = false;"
+    end
+  end
+
+  def test_session_switching_script_resets_polling_and_attachments
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "const generation = sessionViewGeneration;"
+      assert_includes response.body, "if (generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value) return;"
+      assert_includes response.body, "const payload = await response.json().catch(() => null);\n        if (generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value) return;"
+      assert_includes response.body, "function refreshSessionStatus(generation = sessionViewGeneration)"
+      assert_includes response.body, "if (!response.ok || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;"
+      assert_includes response.body, "refreshSessionStatus(generation).catch(() => {});"
+      assert_includes response.body, "function resetSessionViewState()"
+      assert_includes response.body, "clearTimeout(eventPollTimer);"
+      assert_includes response.body, "eventPollInFlight = false;"
+      assert_includes response.body, "sessionViewGeneration += 1;"
+      assert_includes response.body, "if (!response.ok || generation !== sessionViewGeneration) return;"
+      assert_includes response.body, "if (generation === sessionViewGeneration) {"
+      assert_includes response.body, "scheduleNextEventPoll();"
+      assert_includes response.body, "resetLiveAssistantTracking();"
+      assert_includes response.body, "resetEventPollBackoff();"
+      assert_includes response.body, "autoScrollEnabled = true;"
+      assert_includes response.body, "clearAttachments();"
+    end
+  end
+
+  def test_session_switching_script_intercepts_sidebar_new_sessions
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "event.target.closest('.session-sidebar form[action=\"/sessions/new\"]')"
+      assert_includes response.body, "headers: { \"Accept\": \"application/json\" }"
+      assert_includes response.body, "const switchGeneration = sessionSwitchGeneration;"
+      assert_includes response.body, "const viewGeneration = sessionViewGeneration;"
+      assert_includes response.body, "if (switchGeneration !== sessionSwitchGeneration || viewGeneration !== sessionViewGeneration) return;"
+      assert_includes response.body, "await switchSession(payload.redirect || `/?session=${encodeURIComponent(payload.session)}`"
     end
   end
 

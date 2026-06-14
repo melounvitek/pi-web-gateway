@@ -1,0 +1,110 @@
+    <main class="conversation-panel">
+      <% if @selected_session %>
+        <header class="session-header">
+          <label for="mobile-session-toggle" class="mobile-sessions-button"><span class="mobile-sessions-label">Sessions</span><span class="mobile-sessions-hide-label">Hide</span></label>
+          <h1><%= h @selected_session.display_name %></h1>
+          <button type="submit" class="danger abort-button session-abort-button" form="abort-form" disabled title="Abort running Pi" aria-label="Abort running Pi"><span aria-hidden="true">⏹</span></button>
+        </header>
+
+        <section class="conversation-scroll" id="conversation-scroll">
+          <% if @messages.empty? %>
+            <p class="empty">No messages in this session.</p>
+          <% end %>
+
+          <% @messages.each do |message| %>
+            <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>" data-message-fingerprint="<%= h message_fingerprint(message.role, message.text, message.timestamp) %>">
+              <header class="message-header">
+                <div class="role"><%= h message_role_label(message.role) %></div>
+                <% if message_metadata(message) %>
+                  <div class="message-meta"><%= h message_metadata(message) %></div>
+                <% end %>
+                <% if message.role == "assistant" && !message.compact && !message.thinking %>
+                  <button type="button" class="copy-button" data-copy-target="message">Copy</button>
+                <% end %>
+              </header>
+              <% if message.thinking %>
+                <div class="message-body message-body--thinking"><span class="thinking-prefix">Thinking:</span> <%= render_message_body(message) %></div>
+              <% elsif message.compact %>
+                <details class="message-details"<%= " open" if message.expanded %>>
+                  <summary><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></summary>
+                  <pre class="message-body"><%= h message.text %></pre>
+                  <% if message.raw_details.to_s != "" %>
+                    <details class="raw-details">
+                      <summary>Raw details</summary>
+                      <pre><%= h message.raw_details %></pre>
+                    </details>
+                  <% end %>
+                </details>
+              <% else %>
+                <% if message.role == "assistant" %>
+                  <div class="message-body message-body--markdown"><%= render_message_body(message) %></div>
+                <% else %>
+                  <pre class="message-body"><%= render_message_body(message) %></pre>
+                <% end %>
+              <% end %>
+            </article>
+          <% end %>
+
+          <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>"></section>
+          <button type="button" class="jump-to-latest">lastest ↓</button>
+        </section>
+
+        <div class="composer">
+          <div class="composer-inner">
+            <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
+            <% if @commands.any? %>
+              <details class="command-list" id="command-list">
+                <summary>Slash commands (<%= h @commands.length %>)</summary>
+                <input class="command-filter" type="search" placeholder="Filter commands…" aria-label="Filter slash commands">
+                <% ["extension", "prompt", "skill", "other"].each do |source| %>
+                  <% next unless commands_by_source[source]&.any? %>
+                  <h3><%= h source %> commands</h3>
+                  <% commands_by_source[source].each do |command| %>
+                    <div class="command" data-command-name="<%= h command["name"] %>" data-command-text="/<%= h command["name"] %> <%= h command["description"] %>">
+                      <code>/<%= h command["name"] %></code>
+                      <% if command["description"].to_s != "" %>
+                        — <%= h command["description"] %>
+                      <% end %>
+                    </div>
+                  <% end %>
+                <% end %>
+              </details>
+            <% end %>
+
+            <form method="post" action="/abort" class="abort-form" id="abort-form">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+            </form>
+
+            <form method="post" action="/prompt" class="prompt-form" enctype="multipart/form-data">
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <% expanded_cwds.each do |expanded_cwd| %>
+                <input type="hidden" name="expanded_cwd[]" value="<%= h expanded_cwd %>">
+              <% end %>
+              <span class="composer-state" data-state="idle" aria-live="polite"></span>
+              <div class="attachment-tray" aria-live="polite"></div>
+              <div class="composer-input-row">
+                <input class="image-input" id="image-input" type="file" accept="image/*" multiple>
+                <label for="image-input" class="attach-button" title="Attach images" aria-label="Attach images">＋</label>
+                <textarea name="message" rows="1" placeholder="Ask Pi… Enter to send, Shift+Enter for newline."></textarea>
+                <button type="submit" class="send-button">Send</button>
+              </div>
+              <div class="composer-controls">
+                <div class="session-status-bar" id="session-status-bar" data-status-url="/status?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
+                  <% session_status_items(@session_status).each do |label, value| %>
+                    <span class="session-status-item" data-status-key="<%= h label.downcase %>"><span class="session-status-label"><%= h label %></span> <span class="session-status-value"><%= h value %></span></span>
+                  <% end %>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% else %>
+        <header class="session-header">
+          <label for="mobile-session-toggle" class="mobile-sessions-button"><span class="mobile-sessions-label">Sessions</span><span class="mobile-sessions-hide-label">Hide</span></label>
+          <h1>No session selected</h1>
+        </header>
+        <section class="conversation-scroll" id="conversation-scroll">
+          <p class="empty empty-state">Create a Pi session first, then refresh this page.</p>
+        </section>
+      <% end %>
+    </main>

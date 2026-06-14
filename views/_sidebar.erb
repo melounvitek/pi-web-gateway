@@ -1,0 +1,48 @@
+    <aside class="session-sidebar">
+      <h1>Pi Sessions</h1>
+      <% if @groups.empty? %>
+        <p class="empty">No sessions found.</p>
+      <% end %>
+
+      <% @groups.each do |cwd, sessions| %>
+        <section class="cwd-group">
+          <div class="cwd-header">
+            <h2 title="<%= h cwd %>"><%= h File.basename(cwd) %></h2>
+            <form method="post" action="/sessions/new">
+              <input type="hidden" name="session" value="<%= h sessions.first.path %>">
+              <% expanded_cwds.each do |expanded_cwd| %>
+                <input type="hidden" name="expanded_cwd[]" value="<%= h expanded_cwd %>">
+              <% end %>
+              <button type="submit" class="sidebar-icon-button" title="New session in this directory" aria-label="New session in this directory">+</button>
+            </form>
+          </div>
+          <% visible_sidebar_sessions(cwd, sessions).each do |session| %>
+            <a class="session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>">
+              <div class="session-title">
+                <%= h session.display_name %>
+                <% if rpc_clients.active?(session.path) %>
+                  <span class="session-running-indicator" title="RPC process running" aria-label="RPC process running"></span>
+                <% end %>
+              </div>
+              <div class="session-meta">
+                <%= h session.message_count %> messages · updated <%= h format_time(session.modified_at) %>
+              </div>
+            </a>
+            <%# Rename UI placeholder: hidden for now until the sidebar interaction is polished. %>
+            <% if false && selected?(session) %>
+              <form method="post" action="/rename" class="session-rename">
+                <input type="hidden" name="session" value="<%= h session.path %>">
+                <input type="text" name="name" value="<%= h session.display_name %>" aria-label="Session name">
+                <button type="submit" class="secondary">Rename</button>
+              </form>
+            <% end %>
+          <% end %>
+
+          <% if sidebar_group_overflow?(cwd, sessions) %>
+            <a class="cwd-toggle" href="<%= h sidebar_group_url(cwd, expanded: true) %>">Show all <%= h sessions.length %></a>
+          <% elsif expanded_cwd?(cwd) && sessions.length > 5 %>
+            <a class="cwd-toggle" href="<%= h sidebar_group_url(cwd, expanded: false) %>">Show fewer</a>
+          <% end %>
+        </section>
+      <% end %>
+    </aside>

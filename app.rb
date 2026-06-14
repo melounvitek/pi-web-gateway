@@ -69,6 +69,12 @@ class PiWebGateway < Sinatra::Base
       expanded_cwds.include?(cwd)
     end
 
+    def session_url(session_path)
+      query = { "session" => session_path }
+      query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
+      "/?#{Rack::Utils.build_nested_query(query)}"
+    end
+
     def sidebar_group_url(cwd, expanded:)
       next_expanded_cwds = if expanded
         (expanded_cwds + [cwd]).uniq
@@ -215,15 +221,20 @@ class PiWebGateway < Sinatra::Base
   end
 
   get "/" do
-    @store = PiSessionStore.new(root: settings.sessions_root, delete_missing_cwds: true)
-    @groups = @store.grouped_sessions
-    append_pending_active_session(@groups)
-    @selected_session = find_selected_session(@groups.values.flatten)
-    @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path) : []
-    @session_status = @selected_session && File.exist?(@selected_session.path) ? @store.status(@selected_session.path) : nil
-    @commands = @selected_session && command_session_available?(@selected_session.path) ? commands_for(@selected_session.path) : []
-
+    prepare_session_view
     erb :index
+  end
+
+  get "/session_fragment" do
+    prepare_session_view
+    content_type :json
+    JSON.generate(
+      url: session_view_url,
+      title: @selected_session&.display_name.to_s,
+      session: @selected_session&.path,
+      sidebar_html: erb(:_sidebar, layout: false),
+      conversation_html: erb(:_conversation, layout: false)
+    )
   end
 
   post "/prompt" do
@@ -240,7 +251,7 @@ class PiWebGateway < Sinatra::Base
     else
       with_rpc_client(session_path) { |client| client.prompt(message, images) }
     end
-    redirect_path = session_redirect_path(session_path)
+    redirect_path = session_redirect_path(session_path, expanded_cwds: expanded_cwds)
     if json_request?
       content_type :json
       payload = { session: session_path, redirect: redirect_path }
@@ -262,7 +273,13 @@ class PiWebGateway < Sinatra::Base
     new_session_path = session_file_from(client.get_state) || pending_session_path(cwd)
     rpc_clients.register(new_session_path, client)
     remember_pending_rpc_cwd(new_session_path, cwd) unless File.exist?(new_session_path)
-    redirect "/?session=#{Rack::Utils.escape(new_session_path)}"
+    redirect_path = session_redirect_path(new_session_path, expanded_cwds: expanded_cwds)
+    if json_request?
+      content_type :json
+      JSON.generate(session: new_session_path, redirect: redirect_path)
+    else
+      redirect redirect_path
+    end
   end
 
   post "/abort" do
@@ -318,6 +335,23 @@ class PiWebGateway < Sinatra::Base
     request.env["HTTP_ACCEPT"].to_s.include?("application/json")
   end
 
+  def prepare_session_view
+    @store = PiSessionStore.new(root: settings.sessions_root, delete_missing_cwds: true)
+    @groups = @store.grouped_sessions
+    append_pending_active_session(@groups)
+    @selected_session = find_selected_session(@groups.values.flatten)
+    @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path) : []
+    @session_status = @selected_session && File.exist?(@selected_session.path) ? @store.status(@selected_session.path) : nil
+    @commands = @selected_session && command_session_available?(@selected_session.path) ? commands_for(@selected_session.path) : []
+  end
+
+  def session_view_url
+    query = {}
+    query["session"] = @selected_session.path if @selected_session
+    query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
+    "/?#{Rack::Utils.build_nested_query(query)}"
+  end
+
   def session_name_slash_command(message)
     match = message.strip.match(%r{\A/(name|rename)(?:[ \t]+([^\r\n]+))?\z})
     return nil unless match
@@ -326,8 +360,10 @@ class PiWebGateway < Sinatra::Base
     name ? { name: name } : { error: "Usage: /#{match[1]} <name>" }
   end
 
-  def session_redirect_path(session_path)
-    "/?session=#{Rack::Utils.escape(session_path)}"
+  def session_redirect_path(session_path, expanded_cwds: [])
+    query = { "session" => session_path }
+    query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
+    "/?#{Rack::Utils.build_nested_query(query)}"
   end
 
   def prompt_images_from(upload_param)

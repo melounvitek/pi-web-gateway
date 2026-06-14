@@ -415,24 +415,25 @@ Determine whether session open/create flows can be made smoother without full pa
 
 ### Checklist
 
-- [ ] Inspect current session open and new-session flows to identify what triggers full page reloads.
-- [ ] Identify which page regions must update when switching sessions or creating a new one.
-- [ ] Check whether HTMX is already available or would need to be introduced.
-- [ ] Weigh HTMX pros and cons for this app versus plain JavaScript or keeping full reloads.
-- [ ] Decide how browser history, back/forward navigation, and deep links should behave.
-- [ ] Decide how polling, auto-scroll state, input contents, and focus should reset or transfer across session switches.
+- [x] Inspect current session open and new-session flows to identify what triggers full page reloads.
+- [x] Identify which page regions must update when switching sessions or creating a new one.
+- [x] Check whether HTMX is already available or would need to be introduced.
+- [x] Weigh HTMX pros and cons for this app versus plain JavaScript or keeping full reloads.
+- [x] Decide how browser history, back/forward navigation, and deep links should behave.
+- [x] Decide how polling, auto-scroll state, input contents, and focus should reset or transfer across session switches.
 - [ ] Ensure session rename events update the visible session title/sidebar state without a manual refresh.
-- [ ] Propose the smallest safe implementation strategy.
-- [ ] Implement the approved no-full-reload behavior for existing session switches.
-- [ ] Implement the approved no-full-reload behavior for creating/opening a new session.
+- [x] Propose the smallest safe implementation strategy.
+- [x] Implement the approved no-full-reload behavior for existing session switches.
+- [x] Implement the approved no-full-reload behavior for creating/opening a new session.
 - [ ] Verify direct links, browser back/forward, refresh, and rapid session switching.
-- [ ] Note whether a gateway restart is needed.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
 - HTMX is a preferred option to evaluate, not a requirement.
 - Avoid duplicating large amounts of rendering logic between server and client.
 - Do not sacrifice reliable session state or shareable URLs just to avoid reloads.
+- Implemented with plain JavaScript and server-rendered sidebar/conversation fragments. Existing session clicks and sidebar new-session form submissions fetch fragments, replace only the sidebar/conversation regions, update history, reset polling/live state/attachments/scroll state, close the mobile sidebar, and preserve expanded cwd query parameters. Automated tests pass; manual browser verification remains open. Gateway restart is needed for the running web UI to pick up these Sinatra/template/frontend changes.
 
 ---
 

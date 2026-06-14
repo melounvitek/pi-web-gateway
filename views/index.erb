@@ -184,176 +184,28 @@
 <body>
   <div class="app-shell">
     <input type="checkbox" class="mobile-session-toggle" id="mobile-session-toggle">
-    <aside class="session-sidebar">
-      <h1>Pi Sessions</h1>
-      <% if @groups.empty? %>
-        <p class="empty">No sessions found.</p>
-      <% end %>
-
-      <% @groups.each do |cwd, sessions| %>
-        <section class="cwd-group">
-          <div class="cwd-header">
-            <h2 title="<%= h cwd %>"><%= h File.basename(cwd) %></h2>
-            <form method="post" action="/sessions/new">
-              <input type="hidden" name="session" value="<%= h sessions.first.path %>">
-              <button type="submit" class="sidebar-icon-button" title="New session in this directory" aria-label="New session in this directory">+</button>
-            </form>
-          </div>
-          <% visible_sidebar_sessions(cwd, sessions).each do |session| %>
-            <a class="session <%= "selected" if selected?(session) %>" href="/?session=<%= h Rack::Utils.escape(session.path) %>">
-              <div class="session-title">
-                <%= h session.display_name %>
-                <% if rpc_clients.active?(session.path) %>
-                  <span class="session-running-indicator" title="RPC process running" aria-label="RPC process running"></span>
-                <% end %>
-              </div>
-              <div class="session-meta">
-                <%= h session.message_count %> messages · updated <%= h format_time(session.modified_at) %>
-              </div>
-            </a>
-            <%# Rename UI placeholder: hidden for now until the sidebar interaction is polished. %>
-            <% if false && selected?(session) %>
-              <form method="post" action="/rename" class="session-rename">
-                <input type="hidden" name="session" value="<%= h session.path %>">
-                <input type="text" name="name" value="<%= h session.display_name %>" aria-label="Session name">
-                <button type="submit" class="secondary">Rename</button>
-              </form>
-            <% end %>
-          <% end %>
-
-          <% if sidebar_group_overflow?(cwd, sessions) %>
-            <a class="cwd-toggle" href="<%= h sidebar_group_url(cwd, expanded: true) %>">Show all <%= h sessions.length %></a>
-          <% elsif expanded_cwd?(cwd) && sessions.length > 5 %>
-            <a class="cwd-toggle" href="<%= h sidebar_group_url(cwd, expanded: false) %>">Show fewer</a>
-          <% end %>
-        </section>
-      <% end %>
-    </aside>
+    <%= erb :_sidebar, layout: false %>
     <label for="mobile-session-toggle" class="mobile-sidebar-backdrop" aria-label="Hide sessions"></label>
 
-    <main class="conversation-panel">
-      <% if @selected_session %>
-        <header class="session-header">
-          <label for="mobile-session-toggle" class="mobile-sessions-button"><span class="mobile-sessions-label">Sessions</span><span class="mobile-sessions-hide-label">Hide</span></label>
-          <h1><%= h @selected_session.display_name %></h1>
-          <button type="submit" class="danger abort-button session-abort-button" form="abort-form" disabled title="Abort running Pi" aria-label="Abort running Pi"><span aria-hidden="true">⏹</span></button>
-        </header>
-
-        <section class="conversation-scroll" id="conversation-scroll">
-          <% if @messages.empty? %>
-            <p class="empty">No messages in this session.</p>
-          <% end %>
-
-          <% @messages.each do |message| %>
-            <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>" data-message-fingerprint="<%= h message_fingerprint(message.role, message.text, message.timestamp) %>">
-              <header class="message-header">
-                <div class="role"><%= h message_role_label(message.role) %></div>
-                <% if message_metadata(message) %>
-                  <div class="message-meta"><%= h message_metadata(message) %></div>
-                <% end %>
-                <% if message.role == "assistant" && !message.compact && !message.thinking %>
-                  <button type="button" class="copy-button" data-copy-target="message">Copy</button>
-                <% end %>
-              </header>
-              <% if message.thinking %>
-                <div class="message-body message-body--thinking"><span class="thinking-prefix">Thinking:</span> <%= render_message_body(message) %></div>
-              <% elsif message.compact %>
-                <details class="message-details"<%= " open" if message.expanded %>>
-                  <summary><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></summary>
-                  <pre class="message-body"><%= h message.text %></pre>
-                  <% if message.raw_details.to_s != "" %>
-                    <details class="raw-details">
-                      <summary>Raw details</summary>
-                      <pre><%= h message.raw_details %></pre>
-                    </details>
-                  <% end %>
-                </details>
-              <% else %>
-                <% if message.role == "assistant" %>
-                  <div class="message-body message-body--markdown"><%= render_message_body(message) %></div>
-                <% else %>
-                  <pre class="message-body"><%= render_message_body(message) %></pre>
-                <% end %>
-              <% end %>
-            </article>
-          <% end %>
-
-          <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>"></section>
-          <button type="button" class="jump-to-latest">lastest ↓</button>
-        </section>
-
-        <div class="composer">
-          <div class="composer-inner">
-            <% commands_by_source = @commands.group_by { |command| command["source"] || "other" } %>
-            <% if @commands.any? %>
-              <details class="command-list" id="command-list">
-                <summary>Slash commands (<%= h @commands.length %>)</summary>
-                <input class="command-filter" type="search" placeholder="Filter commands…" aria-label="Filter slash commands">
-                <% ["extension", "prompt", "skill", "other"].each do |source| %>
-                  <% next unless commands_by_source[source]&.any? %>
-                  <h3><%= h source %> commands</h3>
-                  <% commands_by_source[source].each do |command| %>
-                    <div class="command" data-command-name="<%= h command["name"] %>" data-command-text="/<%= h command["name"] %> <%= h command["description"] %>">
-                      <code>/<%= h command["name"] %></code>
-                      <% if command["description"].to_s != "" %>
-                        — <%= h command["description"] %>
-                      <% end %>
-                    </div>
-                  <% end %>
-                <% end %>
-              </details>
-            <% end %>
-
-            <form method="post" action="/abort" class="abort-form" id="abort-form">
-              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-            </form>
-
-            <form method="post" action="/prompt" class="prompt-form" enctype="multipart/form-data">
-              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
-              <span class="composer-state" data-state="idle" aria-live="polite"></span>
-              <div class="attachment-tray" aria-live="polite"></div>
-              <div class="composer-input-row">
-                <input class="image-input" id="image-input" type="file" accept="image/*" multiple>
-                <label for="image-input" class="attach-button" title="Attach images" aria-label="Attach images">＋</label>
-                <textarea name="message" rows="1" placeholder="Ask Pi… Enter to send, Shift+Enter for newline."></textarea>
-                <button type="submit" class="send-button">Send</button>
-              </div>
-              <div class="composer-controls">
-                <div class="session-status-bar" id="session-status-bar" data-status-url="/status?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
-                  <% session_status_items(@session_status).each do |label, value| %>
-                    <span class="session-status-item" data-status-key="<%= h label.downcase %>"><span class="session-status-label"><%= h label %></span> <span class="session-status-value"><%= h value %></span></span>
-                  <% end %>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      <% else %>
-        <header class="session-header">
-          <label for="mobile-session-toggle" class="mobile-sessions-button"><span class="mobile-sessions-label">Sessions</span><span class="mobile-sessions-hide-label">Hide</span></label>
-          <h1>No session selected</h1>
-        </header>
-        <section class="conversation-scroll" id="conversation-scroll">
-          <p class="empty empty-state">Create a Pi session first, then refresh this page.</p>
-        </section>
-      <% end %>
-    </main>
+    <%= erb :_conversation, layout: false %>
   </div>
   <script>
-    const liveOutput = document.getElementById("live-output");
-    const promptForm = document.querySelector(".prompt-form");
-    const promptTextarea = promptForm?.querySelector("textarea");
-    const promptSessionInput = promptForm?.querySelector('input[name="session"]');
-    const sendButton = promptForm?.querySelector(".send-button");
-    const attachmentTray = promptForm?.querySelector(".attachment-tray");
-    const imageInput = promptForm?.querySelector(".image-input");
-    const composerState = document.querySelector(".composer-state");
-    const abortButton = document.querySelector(".abort-button");
-    const commandList = document.getElementById("command-list");
-    const commandFilter = commandList?.querySelector(".command-filter");
-    const conversationScroll = document.getElementById("conversation-scroll");
-    const jumpToLatestButton = document.querySelector(".jump-to-latest");
-    const sessionStatusBar = document.getElementById("session-status-bar");
+    let sessionSidebar = null;
+    let conversationPanel = null;
+    let liveOutput = null;
+    let promptForm = null;
+    let promptTextarea = null;
+    let promptSessionInput = null;
+    let sendButton = null;
+    let attachmentTray = null;
+    let imageInput = null;
+    let composerState = null;
+    let abortButton = null;
+    let commandList = null;
+    let commandFilter = null;
+    let conversationScroll = null;
+    let jumpToLatestButton = null;
+    let sessionStatusBar = null;
     let liveAssistantMessage = null;
     let liveAssistantSegments = new Map();
     let liveAssistantSeen = false;
@@ -365,6 +217,27 @@
     let autoScrollEnabled = true;
     let programmaticScroll = false;
     let scheduledAutoScrollFrame = null;
+    let sessionViewGeneration = 0;
+    let sessionSwitchGeneration = 0;
+
+    function bindSessionDom() {
+      sessionSidebar = document.querySelector(".session-sidebar");
+      conversationPanel = document.querySelector(".conversation-panel");
+      liveOutput = document.getElementById("live-output");
+      promptForm = document.querySelector(".prompt-form");
+      promptTextarea = promptForm?.querySelector("textarea") || null;
+      promptSessionInput = promptForm?.querySelector('input[name="session"]') || null;
+      sendButton = promptForm?.querySelector(".send-button") || null;
+      attachmentTray = promptForm?.querySelector(".attachment-tray") || null;
+      imageInput = promptForm?.querySelector(".image-input") || null;
+      composerState = document.querySelector(".composer-state");
+      abortButton = document.querySelector(".abort-button");
+      commandList = document.getElementById("command-list");
+      commandFilter = commandList?.querySelector(".command-filter") || null;
+      conversationScroll = document.getElementById("conversation-scroll");
+      jumpToLatestButton = document.querySelector(".jump-to-latest");
+      sessionStatusBar = document.getElementById("session-status-bar");
+    }
 
     function nearConversationBottom() {
       if (!conversationScroll) return false;
@@ -500,12 +373,15 @@
       updateStatusFromMessage(event.message);
     }
 
-    async function refreshSessionStatus() {
-      if (!sessionStatusBar) return;
+    async function refreshSessionStatus(generation = sessionViewGeneration) {
+      const statusBar = sessionStatusBar;
+      const statusUrl = statusBar?.dataset.statusUrl;
+      if (!statusBar || !statusUrl) return;
 
-      const response = await fetch(sessionStatusBar.dataset.statusUrl);
-      if (!response.ok) return;
+      const response = await fetch(statusUrl);
+      if (!response.ok || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
       const status = await response.json();
+      if (generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
       setStatusItem("ctx", "CTX", status.context);
       setStatusItem("model", "Model", status.model);
       setStatusItem("thinking", "Thinking", status.thinking);
@@ -1133,133 +1009,34 @@
       if (!liveOutput) return;
       if (eventPollInFlight) return;
 
+      const generation = sessionViewGeneration;
       eventPollInFlight = true;
       try {
         const response = await fetch(liveOutput.dataset.eventsUrl);
-        if (!response.ok) return;
+        if (!response.ok || generation !== sessionViewGeneration) return;
 
         const payload = await response.json();
+        if (generation !== sessionViewGeneration) return;
         emptyEventPollCount = payload.events.length > 0 ? 0 : emptyEventPollCount + 1;
         payload.events.forEach((event) => {
           updateStatusFromEvent(event);
           renderEvent(event);
         });
-        if (payload.events.length > 0) refreshSessionStatus().catch(() => {});
+        if (payload.events.length > 0) refreshSessionStatus(generation).catch(() => {});
       } finally {
-        eventPollInFlight = false;
-        scheduleNextEventPoll();
+        if (generation === sessionViewGeneration) {
+          eventPollInFlight = false;
+          scheduleNextEventPoll();
+        }
       }
     }
 
-    promptTextarea?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && shouldAutofocusPrompt()) {
-        event.preventDefault();
-        promptForm.requestSubmit();
-      }
-    });
-
-    promptTextarea?.addEventListener("paste", (event) => {
-      const items = [...(event.clipboardData?.items || [])];
-      const files = items.map((item) => item.kind === "file" ? item.getAsFile() : null).filter(Boolean);
-      if (addImageFiles(files)) event.preventDefault();
-    });
-
-    promptForm?.addEventListener("dragover", (event) => {
-      if ([...(event.dataTransfer?.items || [])].some((item) => item.type.startsWith("image/"))) {
-        event.preventDefault();
-      }
-    });
-
-    promptForm?.addEventListener("drop", (event) => {
-      if (addImageFiles(event.dataTransfer?.files || [])) event.preventDefault();
-    });
-
-    imageInput?.addEventListener("change", () => {
-      addImageFiles(imageInput.files || []);
-      imageInput.value = "";
-    });
-
-    conversationScroll?.addEventListener("scroll", () => {
-      if (!programmaticScroll) autoScrollEnabled = nearConversationBottom();
-      updateJumpToLatest();
-    }, { passive: true });
-    jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
-
-    window.addEventListener("resize", updatePromptPlaceholder);
-
-    promptTextarea?.addEventListener("input", () => {
-      resizePromptTextarea();
-      if (!commandList) return;
-
-      if (promptTextarea.value.startsWith("/")) {
-        commandList.classList.add("is-visible");
-        commandList.setAttribute("open", "");
-      } else {
-        commandList.classList.remove("is-visible");
-        commandList.removeAttribute("open");
-      }
-    });
-
-    commandFilter?.addEventListener("input", () => {
-      const query = commandFilter.value.trim().toLowerCase();
-      commandList.querySelectorAll(".command").forEach((command) => {
-        command.hidden = query && !command.dataset.commandText.toLowerCase().includes(query);
-      });
-    });
-
-    async function copyText(text) {
-      if (navigator.clipboard?.writeText && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      textarea.style.top = "0";
-      document.body.append(textarea);
-      textarea.select();
-
-      try {
-        return document.execCommand("copy");
-      } finally {
-        textarea.remove();
-      }
-    }
-
-    document.addEventListener("click", async (event) => {
-      const button = event.target.closest(".copy-button");
-      if (!button) return;
-
-      const article = button.closest(".message");
-      const body = article?.querySelector(".message-body");
-      const text = body?.innerText || body?.textContent;
-      if (!text) return;
-
-      const original = button.textContent;
-      try {
-        const copied = await copyText(text);
-        button.textContent = copied ? "Copied" : "Copy failed";
-      } catch (_error) {
-        button.textContent = "Copy failed";
-      }
-      setTimeout(() => { button.textContent = original; }, 1200);
-    });
-
-    commandList?.querySelectorAll(".command").forEach((command) => {
-      command.addEventListener("click", () => {
-        if (!promptTextarea) return;
-        promptTextarea.value = `/${command.dataset.commandName} `;
-        resizePromptTextarea();
-        promptTextarea.focus();
-      });
-    });
-
-    promptForm?.addEventListener("submit", async (event) => {
+    async function submitPrompt(event) {
       event.preventDefault();
 
+      const generation = sessionViewGeneration;
+      const switchGeneration = sessionSwitchGeneration;
+      const submittedSession = promptSessionInput?.value;
       const message = promptTextarea.value.trim();
       if (!message && pendingImages.length === 0) return;
 
@@ -1286,11 +1063,14 @@
       showStatus(renameCommand ? "Renaming session…" : "Sending…", true);
 
       const response = await fetch(promptForm.action, { method: "POST", body: formData, headers: { "Accept": "application/json" }, redirect: "manual" });
+      if (generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value) return;
+
       if (!response.ok && response.type !== "opaqueredirect") {
         setComposerState("error", "Prompt failed");
         showStatus("Prompt failed to send", true);
       } else if (response.ok) {
         const payload = await response.json().catch(() => null);
+        if (generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value) return;
         if (payload?.command === "rename") {
           if (payload.error) {
             setComposerState("error", payload.error);
@@ -1301,7 +1081,7 @@
           return;
         }
         if (payload?.session && promptSessionInput && payload.session !== promptSessionInput.value) {
-          window.location.href = payload.redirect || `/?session=${encodeURIComponent(payload.session)}`;
+          await switchSession(payload.redirect || `/?session=${encodeURIComponent(payload.session)}`, { push: true, focus: true });
           return;
         }
         setComposerState("running", "Pi is running…");
@@ -1309,18 +1089,209 @@
         setComposerState("running", "Pi is running…");
       }
       scrollToBottom();
+    }
+
+    function bindSessionControls() {
+      promptTextarea?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey && shouldAutofocusPrompt()) {
+          event.preventDefault();
+          promptForm.requestSubmit();
+        }
+      });
+
+      promptTextarea?.addEventListener("paste", (event) => {
+        const items = [...(event.clipboardData?.items || [])];
+        const files = items.map((item) => item.kind === "file" ? item.getAsFile() : null).filter(Boolean);
+        if (addImageFiles(files)) event.preventDefault();
+      });
+
+      promptForm?.addEventListener("dragover", (event) => {
+        if ([...(event.dataTransfer?.items || [])].some((item) => item.type.startsWith("image/"))) {
+          event.preventDefault();
+        }
+      });
+
+      promptForm?.addEventListener("drop", (event) => {
+        if (addImageFiles(event.dataTransfer?.files || [])) event.preventDefault();
+      });
+
+      imageInput?.addEventListener("change", () => {
+        addImageFiles(imageInput.files || []);
+        imageInput.value = "";
+      });
+
+      conversationScroll?.addEventListener("scroll", () => {
+        if (!programmaticScroll) autoScrollEnabled = nearConversationBottom();
+        updateJumpToLatest();
+      }, { passive: true });
+      jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
+
+      promptTextarea?.addEventListener("input", () => {
+        resizePromptTextarea();
+        if (!commandList) return;
+
+        if (promptTextarea.value.startsWith("/")) {
+          commandList.classList.add("is-visible");
+          commandList.setAttribute("open", "");
+        } else {
+          commandList.classList.remove("is-visible");
+          commandList.removeAttribute("open");
+        }
+      });
+
+      commandFilter?.addEventListener("input", () => {
+        const query = commandFilter.value.trim().toLowerCase();
+        commandList.querySelectorAll(".command").forEach((command) => {
+          command.hidden = query && !command.dataset.commandText.toLowerCase().includes(query);
+        });
+      });
+
+      promptForm?.addEventListener("submit", submitPrompt);
+    }
+
+    async function copyText(text) {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      document.body.append(textarea);
+      textarea.select();
+
+      try {
+        return document.execCommand("copy");
+      } finally {
+        textarea.remove();
+      }
+    }
+
+    function resetSessionViewState() {
+      sessionViewGeneration += 1;
+      clearTimeout(eventPollTimer);
+      if (scheduledAutoScrollFrame) cancelAnimationFrame(scheduledAutoScrollFrame);
+      eventPollTimer = null;
+      eventPollInFlight = false;
+      scheduledAutoScrollFrame = null;
+      resetLiveAssistantTracking();
+      resetEventPollBackoff();
+      autoScrollEnabled = true;
+      clearAttachments();
+    }
+
+    function sessionFragmentUrl(url) {
+      const target = new URL(url, window.location.href);
+      const fragmentUrl = new URL("/session_fragment", window.location.origin);
+      target.searchParams.forEach((value, key) => fragmentUrl.searchParams.append(key, value));
+      return fragmentUrl;
+    }
+
+    async function switchSession(url, { push = true, focus = true } = {}) {
+      const switchGeneration = ++sessionSwitchGeneration;
+      resetSessionViewState();
+      const response = await fetch(sessionFragmentUrl(url), { headers: { "Accept": "application/json" } });
+      if (switchGeneration !== sessionSwitchGeneration) return;
+      if (!response.ok) {
+        window.location.href = url;
+        return;
+      }
+
+      const payload = await response.json();
+      if (switchGeneration !== sessionSwitchGeneration) return;
+      resetSessionViewState();
+      sessionSidebar.outerHTML = payload.sidebar_html;
+      conversationPanel.outerHTML = payload.conversation_html;
+      bindSessionDom();
+      bindSessionControls();
+      if (push) history.pushState({ session: payload.session }, payload.title || "", payload.url || url);
+      document.title = payload.title ? `${payload.title} · Pi Web Gateway` : "Pi Web Gateway";
+      document.getElementById("mobile-session-toggle").checked = false;
+      initializeSessionView({ focus });
+    }
+
+    function normalLeftClick(event) {
+      return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+    }
+
+    document.addEventListener("click", async (event) => {
+      const link = event.target.closest(".session-sidebar a.session");
+      if (!link || !normalLeftClick(event)) return;
+
+      event.preventDefault();
+      await switchSession(link.href, { push: true, focus: true });
     });
 
-    if (liveOutput) {
-      scheduleNextEventPoll(0);
-      document.addEventListener("visibilitychange", () => scheduleNextEventPoll());
-      requestAnimationFrame(() => {
-        updatePromptPlaceholder();
-        resizePromptTextarea();
-        if (shouldAutofocusPrompt()) promptTextarea?.focus();
-        applyAutoScroll("auto");
-      });
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest('.session-sidebar form[action="/sessions/new"]');
+      if (!form) return;
+
+      event.preventDefault();
+      const switchGeneration = sessionSwitchGeneration;
+      const viewGeneration = sessionViewGeneration;
+      const response = await fetch(form.action, { method: "POST", body: new FormData(form), headers: { "Accept": "application/json" } });
+      if (switchGeneration !== sessionSwitchGeneration || viewGeneration !== sessionViewGeneration) return;
+      if (!response.ok) {
+        form.submit();
+        return;
+      }
+
+      const payload = await response.json();
+      if (switchGeneration !== sessionSwitchGeneration || viewGeneration !== sessionViewGeneration) return;
+      await switchSession(payload.redirect || `/?session=${encodeURIComponent(payload.session)}`, { push: true, focus: true });
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest(".copy-button");
+      if (!button) return;
+
+      const article = button.closest(".message");
+      const body = article?.querySelector(".message-body");
+      const text = body?.innerText || body?.textContent;
+      if (!text) return;
+
+      const original = button.textContent;
+      try {
+        const copied = await copyText(text);
+        button.textContent = copied ? "Copied" : "Copy failed";
+      } catch (_error) {
+        button.textContent = "Copy failed";
+      }
+      setTimeout(() => { button.textContent = original; }, 1200);
+    });
+
+    document.addEventListener("click", (event) => {
+      const command = event.target.closest(".command");
+      if (!command || !commandList?.contains(command) || !promptTextarea) return;
+
+      promptTextarea.value = `/${command.dataset.commandName} `;
+      resizePromptTextarea();
+      promptTextarea.focus();
+    });
+
+    function initializeSessionView({ focus = true } = {}) {
+      if (liveOutput) {
+        scheduleNextEventPoll(0);
+        requestAnimationFrame(() => {
+          updatePromptPlaceholder();
+          resizePromptTextarea();
+          if (focus && shouldAutofocusPrompt()) promptTextarea?.focus();
+          applyAutoScroll("auto");
+        });
+      }
     }
+
+    window.addEventListener("resize", updatePromptPlaceholder);
+    window.addEventListener("visibilitychange", () => scheduleNextEventPoll());
+    window.addEventListener("popstate", () => switchSession(window.location.href, { push: false, focus: false }));
+
+    bindSessionDom();
+    bindSessionControls();
+    initializeSessionView();
   </script>
 </body>
 </html>
