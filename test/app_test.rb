@@ -1274,7 +1274,7 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_includes response.body, "function bindSessionDom()"
       assert_includes response.body, "function switchSession(url, { push = true, focus = true } = {})"
-      assert_includes response.body, "const switchGeneration = ++sessionSwitchGeneration;\n      resetSessionViewState();"
+      assert_includes response.body, "const switchGeneration = ++sessionSwitchGeneration;\n      let navigatingAway = false;\n      showSessionSwitching();\n      resetSessionViewState();"
       assert_includes response.body, "fetch(sessionFragmentUrl(url), { headers: { \"Accept\": \"application/json\" } })"
       assert_includes response.body, "if (switchGeneration !== sessionSwitchGeneration) return;"
       assert_includes response.body, "sessionSidebar.outerHTML = payload.sidebar_html;"

@@ -132,6 +132,11 @@
     .copy-button:hover { color: var(--text); background: var(--panel-softer); transform: none; }
     .jump-to-latest { position: sticky; bottom: 0.75rem; z-index: 3; display: none; margin: 0.5rem auto 0; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
     .jump-to-latest.is-visible { display: block; }
+    .session-switch-overlay { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; background: rgba(24, 24, 30, 0.5); backdrop-filter: blur(2px); }
+    body.session-switching .session-switch-overlay { display: grid; }
+    .session-switch-indicator { display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 999px; background: rgba(30, 30, 36, 0.94); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); font-weight: 700; }
+    .session-switch-spinner { width: 1.1rem; height: 1.1rem; border: 2px solid rgba(138, 190, 183, 0.25); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
+    @keyframes session-switch-spin { to { transform: rotate(360deg); } }
     .mobile-session-toggle, .mobile-sessions-button, .mobile-sidebar-backdrop { display: none; }
     @supports (height: 100dvh) { .app-shell { height: 100dvh; } }
     @media (max-width: 760px) {
@@ -188,6 +193,9 @@
     <label for="mobile-session-toggle" class="mobile-sidebar-backdrop" aria-label="Hide sessions"></label>
 
     <%= erb :_conversation, layout: false %>
+  </div>
+  <div class="session-switch-overlay" role="status" aria-live="polite" aria-label="Switching session">
+    <div class="session-switch-indicator"><span class="session-switch-spinner" aria-hidden="true"></span> Switching session…</div>
   </div>
   <script>
     let sessionSidebar = null;
@@ -1191,27 +1199,45 @@
       return fragmentUrl;
     }
 
+    function showSessionSwitching() {
+      document.body.classList.add("session-switching");
+    }
+
+    function hideSessionSwitching() {
+      document.body.classList.remove("session-switching");
+    }
+
     async function switchSession(url, { push = true, focus = true } = {}) {
       const switchGeneration = ++sessionSwitchGeneration;
+      let navigatingAway = false;
+      showSessionSwitching();
       resetSessionViewState();
-      const response = await fetch(sessionFragmentUrl(url), { headers: { "Accept": "application/json" } });
-      if (switchGeneration !== sessionSwitchGeneration) return;
-      if (!response.ok) {
-        window.location.href = url;
-        return;
-      }
+      try {
+        const response = await fetch(sessionFragmentUrl(url), { headers: { "Accept": "application/json" } });
+        if (switchGeneration !== sessionSwitchGeneration) return;
+        if (!response.ok) {
+          navigatingAway = true;
+          window.location.href = url;
+          return;
+        }
 
-      const payload = await response.json();
-      if (switchGeneration !== sessionSwitchGeneration) return;
-      resetSessionViewState();
-      sessionSidebar.outerHTML = payload.sidebar_html;
-      conversationPanel.outerHTML = payload.conversation_html;
-      bindSessionDom();
-      bindSessionControls();
-      if (push) history.pushState({ session: payload.session }, payload.title || "", payload.url || url);
-      document.title = payload.title ? `${payload.title} · Pi Web Gateway` : "Pi Web Gateway";
-      document.getElementById("mobile-session-toggle").checked = false;
-      initializeSessionView({ focus });
+        const payload = await response.json();
+        if (switchGeneration !== sessionSwitchGeneration) return;
+        resetSessionViewState();
+        sessionSidebar.outerHTML = payload.sidebar_html;
+        conversationPanel.outerHTML = payload.conversation_html;
+        bindSessionDom();
+        bindSessionControls();
+        if (push) history.pushState({ session: payload.session }, payload.title || "", payload.url || url);
+        document.title = payload.title ? `${payload.title} · Pi Web Gateway` : "Pi Web Gateway";
+        document.getElementById("mobile-session-toggle").checked = false;
+        initializeSessionView({ focus });
+      } catch (_error) {
+        navigatingAway = true;
+        window.location.href = url;
+      } finally {
+        if (!navigatingAway && switchGeneration === sessionSwitchGeneration) hideSessionSwitching();
+      }
     }
 
     function normalLeftClick(event) {
