@@ -153,16 +153,16 @@ Make live event delivery robust enough that the web UI remains responsive even w
 
 ### Checklist
 
-- [ ] Inspect current `/events` server behavior and confirm whether it can create or remap RPC clients during polling.
-- [ ] Inspect the browser polling loop for overlapping requests, retry behavior, and behavior across multiple open tabs.
-- [ ] Reproduce or reason through how `/events` requests can occupy all Puma threads.
-- [ ] Evaluate simple client-side mitigations such as preventing overlapping polls, backing off while idle, and pausing in hidden tabs.
-- [ ] Evaluate server-side mitigations such as fast nonblocking drains, request timeouts, stale client cleanup, and avoiding RPC client creation from passive polling.
+- [x] Inspect current `/events` server behavior and confirm whether it can create or remap RPC clients during polling.
+- [x] Inspect the browser polling loop for overlapping requests, retry behavior, and behavior across multiple open tabs.
+- [x] Reproduce or reason through how `/events` requests can occupy all Puma threads.
+- [x] Evaluate simple client-side mitigations such as preventing overlapping polls, backing off while idle, and pausing in hidden tabs.
+- [x] Evaluate server-side mitigations such as fast nonblocking drains, request timeouts, stale client cleanup, and avoiding RPC client creation from passive polling.
 - [ ] Consider whether Server-Sent Events, WebSockets, or a single shared poll loop would be a better long-term fit.
-- [ ] Propose the smallest safe improvement before implementation.
-- [ ] Add or update tests where practical.
+- [x] Propose the smallest safe improvement before implementation.
+- [x] Add or update tests where practical.
 - [ ] Verify the page stays responsive under multiple open tabs and idle sessions.
-- [ ] Note whether a gateway restart is needed.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
