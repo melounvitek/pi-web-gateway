@@ -242,7 +242,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_remaps_pending_client_when_real_session_file_appears
+  def test_event_poll_does_not_remap_pending_client_when_real_session_file_appears
     Dir.mktmpdir do |dir|
       real_path = write_session(dir)
       pending_path = File.join(dir, "pending-session.jsonl")
@@ -259,11 +259,35 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_equal({ "events" => [{ "type" => "from-pending" }] }, JSON.parse(response.body))
+      assert_equal({ "events" => [] }, JSON.parse(response.body))
+      refute registry.active?(real_path)
+      assert registry.active?(pending_path)
+      assert_includes PiWebGateway.pending_rpc_cwds, pending_path
+      assert_empty calls
+    end
+  end
+
+  def test_prompt_remaps_pending_client_when_real_session_file_appears
+    Dir.mktmpdir do |dir|
+      real_path = write_session(dir)
+      pending_path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(pending_path, FakeRpcClient.new(calls, [], real_path))
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_rpc_cwds, { pending_path => project_cwd(dir) }
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/prompt",
+        params: { "session" => real_path, "message" => "Continue" }
+      )
+
+      assert_equal 303, response.status
       assert registry.active?(real_path)
       refute registry.active?(pending_path)
       refute_includes PiWebGateway.pending_rpc_cwds, pending_path
-      assert_equal [[:get_state], [:drain_events]], calls
+      assert_equal [[:get_state], [:prompt, "Continue"]], calls
     end
   end
 
@@ -847,6 +871,28 @@ class AppTest < Minitest::Test
       assert_includes response.body, '["bash", "read", "edit", "write"].includes(segment.toolName)'
       assert_includes response.body, "part.type === \"toolCall\""
       assert_includes response.body, "part.type === \"thinking\""
+    end
+  end
+
+  def test_live_event_script_schedules_non_overlapping_polls
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "let eventPollInFlight = false;"
+      assert_includes response.body, "function scheduleNextEventPoll(delay = eventPollDelay())"
+      assert_includes response.body, "if (eventPollInFlight) return;"
+      assert_includes response.body, "eventPollInFlight = true;"
+      assert_includes response.body, "eventPollInFlight = false;"
+      assert_includes response.body, "document.hidden ? 5000 : 1000"
+      refute_includes response.body, "setInterval(() => pollEvents()"
     end
   end
 

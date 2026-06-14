@@ -253,7 +253,6 @@ class PiWebGateway < Sinatra::Base
   get "/events" do
     session_path = params.fetch("session")
     content_type :json
-    remap_pending_rpc_client(session_path) unless rpc_clients.active?(session_path)
     events = rpc_clients.drain_events(session_path)
     JSON.generate(events: events)
   end

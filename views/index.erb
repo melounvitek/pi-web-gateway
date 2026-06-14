@@ -358,6 +358,8 @@
     let liveAssistantSeen = false;
     let liveBashToolCalls = new Map();
     let pendingImages = [];
+    let eventPollTimer = null;
+    let eventPollInFlight = false;
 
     function nearConversationBottom() {
       if (!conversationScroll) return false;
@@ -942,18 +944,35 @@
       }
     }
 
+    function eventPollDelay() {
+      return document.hidden ? 5000 : 1000;
+    }
+
+    function scheduleNextEventPoll(delay = eventPollDelay()) {
+      if (!liveOutput) return;
+      clearTimeout(eventPollTimer);
+      eventPollTimer = setTimeout(() => pollEvents().catch(() => {}), delay);
+    }
+
     async function pollEvents() {
       if (!liveOutput) return;
+      if (eventPollInFlight) return;
 
-      const response = await fetch(liveOutput.dataset.eventsUrl);
-      if (!response.ok) return;
+      eventPollInFlight = true;
+      try {
+        const response = await fetch(liveOutput.dataset.eventsUrl);
+        if (!response.ok) return;
 
-      const payload = await response.json();
-      payload.events.forEach((event) => {
-        updateStatusFromEvent(event);
-        renderEvent(event);
-      });
-      if (payload.events.length > 0) refreshSessionStatus().catch(() => {});
+        const payload = await response.json();
+        payload.events.forEach((event) => {
+          updateStatusFromEvent(event);
+          renderEvent(event);
+        });
+        if (payload.events.length > 0) refreshSessionStatus().catch(() => {});
+      } finally {
+        eventPollInFlight = false;
+        scheduleNextEventPoll();
+      }
     }
 
     promptTextarea?.addEventListener("keydown", (event) => {
@@ -1093,7 +1112,8 @@
     });
 
     if (liveOutput) {
-      setInterval(() => pollEvents().catch(() => {}), 1000);
+      scheduleNextEventPoll(0);
+      document.addEventListener("visibilitychange", () => scheduleNextEventPoll());
       requestAnimationFrame(() => {
         updatePromptPlaceholder();
         resizePromptTextarea();
