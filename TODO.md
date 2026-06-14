@@ -404,12 +404,12 @@ Relevant starting points likely include:
 - session navigation links/forms in `views/`
 - routes for opening existing sessions and creating new sessions in `app.rb`
 - session list/sidebar rendering, if separate from the main session view
-- frontend JavaScript that handles current session state, polling, scrolling, input focus, and message updates
+- frontend JavaScript that handles current session state, polling, scrolling, input focus, message updates, and live session rename propagation
 - any existing HTMX usage or dependency setup
 
 ### Goal
 
-Determine whether session open/create flows can be made smoother without full page reloads, then implement a minimal approach that updates only the necessary UI while preserving correct URL/history, session state, polling, focus, and scrolling behavior.
+Determine whether session open/create flows can be made smoother without full page reloads, then implement a minimal approach that updates only the necessary UI while preserving correct URL/history, session state, polling, focus, scrolling behavior, and live propagation of session renames.
 
 ### Checklist
 
@@ -419,6 +419,7 @@ Determine whether session open/create flows can be made smoother without full pa
 - [ ] Weigh HTMX pros and cons for this app versus plain JavaScript or keeping full reloads.
 - [ ] Decide how browser history, back/forward navigation, and deep links should behave.
 - [ ] Decide how polling, auto-scroll state, input contents, and focus should reset or transfer across session switches.
+- [ ] Ensure session rename events update the visible session title/sidebar state without a manual refresh.
 - [ ] Propose the smallest safe implementation strategy.
 - [ ] Implement the approved no-full-reload behavior for existing session switches.
 - [ ] Implement the approved no-full-reload behavior for creating/opening a new session.
