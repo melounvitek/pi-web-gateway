@@ -241,13 +241,14 @@ Produce and, if approved, implement a notification system that alerts the user a
 
 ### Checklist
 
-- [ ] Inspect how the web UI currently detects session state changes and new messages.
-- [ ] Determine whether browser notifications are sufficient or whether another mechanism is needed.
-- [ ] Identify which events are worth notifying about and which would be too noisy.
-- [ ] Design notification permission flow and fallback behavior when permission is denied or unavailable.
-- [ ] Design snooze behavior, including available durations, persistence, and how to unsnooze.
-- [ ] Define duplicate-suppression rules so repeated polling does not resend the same notification.
-- [ ] Propose a minimal first implementation scope.
+- [ ] First establish a valid HTTPS origin for the gateway, ideally via Tailscale MagicDNS/custom port or a reverse proxy, because browser notifications and PWA push require a secure context.
+- [x] Inspect how the web UI currently detects session state changes and new messages.
+- [x] Determine whether browser notifications are sufficient or whether another mechanism is needed.
+- [x] Identify which events are worth notifying about and which would be too noisy.
+- [x] Design notification permission flow and fallback behavior when permission is denied or unavailable.
+- [x] Design snooze behavior, including available durations, persistence, and how to unsnooze.
+- [x] Define duplicate-suppression rules so repeated polling does not resend the same notification.
+- [x] Propose a minimal first implementation scope.
 - [ ] Implement the approved notification behavior.
 - [ ] Verify notifications, snooze, duplicate suppression, and permission-denied behavior.
 - [ ] Note whether a gateway restart is needed.
@@ -255,6 +256,8 @@ Produce and, if approved, implement a notification system that alerts the user a
 ### Notes
 
 - Prefer opt-in notifications; do not surprise the user with permission prompts on page load.
+- HTTPS is the first implementation prerequisite. Without it, desktop browser notifications are unlikely to work from the current `http://100.103.198.74:4567` origin, and iPhone Home Screen/PWA push will not work.
+- For iPhone Home Screen usage, plan for PWA-compatible notifications: manifest/service worker first, then Web Push if notifications must work after the app is closed.
 - Snooze should suppress non-critical notifications, but critical errors may need separate consideration.
 - Keep notification text concise and avoid exposing sensitive prompt or tool-output details unnecessarily.
 
