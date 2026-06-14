@@ -427,3 +427,41 @@ Determine whether session open/create flows can be made smoother without full pa
 - HTMX is a preferred option to evaluate, not a requirement.
 - Avoid duplicating large amounts of rendering logic between server and client.
 - Do not sacrifice reliable session state or shareable URLs just to avoid reloads.
+
+---
+
+## Feature: Add a scroll-up button
+
+### Context
+
+The web gateway already has a scroll-down button for quickly returning to newer content. It should also investigate adding a similar scroll-up button so the user can quickly jump upward in the session, likely toward older messages or the top of the current session view.
+
+Future sessions should inspect the existing scroll-down button behavior and reuse its visual style, placement, visibility logic, and accessibility patterns where appropriate.
+
+Relevant starting points likely include:
+
+- frontend JavaScript that manages the existing scroll-down button
+- session/message templates in `views/`
+- CSS for floating scroll controls
+- auto-scroll behavior and session scrolling logic
+
+### Goal
+
+Provide a matching scroll-up control that helps users navigate long sessions without fighting the existing auto-scroll and scroll-down behavior.
+
+### Checklist
+
+- [ ] Inspect the existing scroll-down button implementation and visibility rules.
+- [ ] Decide what scroll-up should do: jump to top, jump one viewport, or jump to previous important message boundary.
+- [ ] Decide when the scroll-up button should be visible or hidden.
+- [ ] Reuse the existing scroll button styling and accessibility approach where possible.
+- [ ] Implement the approved scroll-up behavior.
+- [ ] Verify interaction with auto-scroll, manual scrolling, and the existing scroll-down button.
+- [ ] Verify behavior on long sessions and small screens.
+- [ ] Note whether a gateway restart is needed.
+
+### Notes
+
+- Keep the behavior predictable and avoid adding visual clutter.
+- Consider whether the button should appear only after the user has scrolled down far enough from the top.
+- Ensure it does not interfere with the prompt input or floating scroll-down control.
