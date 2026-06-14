@@ -37,12 +37,12 @@ The web interface uses a color palette and visual tone that better matches Pi in
 
 ### Checklist
 
-- [ ] Inspect the current web UI styling and identify where colors are defined.
-- [ ] Inspect Pi CLI/TUI theme colors or documented defaults for reference.
-- [ ] Propose a minimal palette mapping for the web UI.
-- [ ] Apply the palette with the smallest practical styling change.
-- [ ] Verify the UI still renders correctly.
-- [ ] Note whether a gateway restart is needed.
+- [x] Inspect the current web UI styling and identify where colors are defined.
+- [x] Inspect Pi CLI/TUI theme colors or documented defaults for reference.
+- [x] Propose a minimal palette mapping for the web UI.
+- [x] Apply the palette with the smallest practical styling change.
+- [x] Verify the UI still renders correctly.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
