@@ -291,6 +291,57 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_prompt_with_pending_path_redirects_to_real_session_when_real_session_file_appears
+    Dir.mktmpdir do |dir|
+      real_path = write_session(dir)
+      pending_path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(pending_path, FakeRpcClient.new(calls, [], real_path))
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_rpc_cwds, { pending_path => project_cwd(dir) }
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/prompt",
+        params: { "session" => pending_path, "message" => "Continue" }
+      )
+
+      assert_equal 303, response.status
+      assert_includes response["Location"], Rack::Utils.escape(real_path)
+      refute_includes response["Location"], Rack::Utils.escape(pending_path)
+      assert registry.active?(real_path)
+      refute registry.active?(pending_path)
+      refute_includes PiWebGateway.pending_rpc_cwds, pending_path
+      assert_equal [[:get_state], [:prompt, "Continue"]], calls
+    end
+  end
+
+  def test_json_prompt_with_pending_path_returns_real_session_redirect
+    Dir.mktmpdir do |dir|
+      real_path = write_session(dir)
+      pending_path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(pending_path, FakeRpcClient.new(calls, [], real_path))
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_rpc_cwds, { pending_path => project_cwd(dir) }
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/prompt",
+        "HTTP_ACCEPT" => "application/json",
+        params: { "session" => pending_path, "message" => "Continue" }
+      )
+      payload = JSON.parse(response.body)
+
+      assert_equal 200, response.status
+      assert_equal real_path, payload["session"]
+      assert_includes payload["redirect"], Rack::Utils.escape(real_path)
+      assert_equal [[:get_state], [:prompt, "Continue"]], calls
+    end
+  end
+
   def test_deletes_sessions_whose_cwd_no_longer_exists
     Dir.mktmpdir do |dir|
       stale_dir = File.join(dir, "--stale--")

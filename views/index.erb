@@ -343,6 +343,7 @@
     const liveOutput = document.getElementById("live-output");
     const promptForm = document.querySelector(".prompt-form");
     const promptTextarea = promptForm?.querySelector("textarea");
+    const promptSessionInput = promptForm?.querySelector('input[name="session"]');
     const sendButton = promptForm?.querySelector(".send-button");
     const attachmentTray = promptForm?.querySelector(".attachment-tray");
     const imageInput = promptForm?.querySelector(".image-input");
@@ -1101,10 +1102,17 @@
       setComposerState("sending", "Sending…");
       showStatus("Sending…", true);
 
-      const response = await fetch(promptForm.action, { method: "POST", body: formData, redirect: "manual" });
+      const response = await fetch(promptForm.action, { method: "POST", body: formData, headers: { "Accept": "application/json" }, redirect: "manual" });
       if (!response.ok && response.type !== "opaqueredirect") {
         setComposerState("error", "Prompt failed");
         showStatus("Prompt failed to send", true);
+      } else if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (payload?.session && promptSessionInput && payload.session !== promptSessionInput.value) {
+          window.location.href = payload.redirect || `/?session=${encodeURIComponent(payload.session)}`;
+          return;
+        }
+        setComposerState("running", "Pi is running…");
       } else {
         setComposerState("running", "Pi is running…");
       }

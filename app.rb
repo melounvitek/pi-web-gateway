@@ -208,13 +208,19 @@ class PiWebGateway < Sinatra::Base
   end
 
   post "/prompt" do
-    session_path = params.fetch("session")
+    session_path = canonical_rpc_session_path(params.fetch("session"))
     message = params.fetch("message").to_s
     images = prompt_images_from(params["images"])
     halt 400, "Message cannot be empty" if message.strip.empty? && images.empty?
 
     with_rpc_client(session_path) { |client| client.prompt(message, images) }
-    redirect "/?session=#{Rack::Utils.escape(session_path)}"
+    redirect_path = session_redirect_path(session_path)
+    if json_request?
+      content_type :json
+      JSON.generate(session: session_path, redirect: redirect_path)
+    else
+      redirect redirect_path
+    end
   end
 
   post "/sessions/new" do
@@ -229,20 +235,20 @@ class PiWebGateway < Sinatra::Base
   end
 
   post "/abort" do
-    session_path = params.fetch("session")
+    session_path = canonical_rpc_session_path(params.fetch("session"))
     with_rpc_client(session_path) { |client| client.abort }
     redirect "/?session=#{Rack::Utils.escape(session_path)}"
   end
 
   post "/compact" do
-    session_path = params.fetch("session")
+    session_path = canonical_rpc_session_path(params.fetch("session"))
     instructions = params["instructions"].to_s.strip
     with_rpc_client(session_path) { |client| client.compact(instructions.empty? ? nil : instructions) }
     redirect "/?session=#{Rack::Utils.escape(session_path)}"
   end
 
   post "/rename" do
-    session_path = params.fetch("session")
+    session_path = canonical_rpc_session_path(params.fetch("session"))
     name = params.fetch("name").to_s.strip
     halt 400, "Name cannot be empty" if name.empty?
 
@@ -276,6 +282,14 @@ class PiWebGateway < Sinatra::Base
   end
 
   private
+
+  def json_request?
+    request.env["HTTP_ACCEPT"].to_s.include?("application/json")
+  end
+
+  def session_redirect_path(session_path)
+    "/?session=#{Rack::Utils.escape(session_path)}"
+  end
 
   def prompt_images_from(upload_param)
     uploads = Array(upload_param).compact
@@ -360,8 +374,28 @@ class PiWebGateway < Sinatra::Base
   end
 
   def with_rpc_client(session_path)
-    remap_pending_rpc_client(session_path) unless rpc_clients.active?(session_path)
+    session_path = canonical_rpc_session_path(session_path)
     rpc_clients.with_client(session_path) { |client| yield client }
+  end
+
+  def canonical_rpc_session_path(session_path)
+    remapped_path = remap_active_pending_rpc_client(session_path)
+    return remapped_path if remapped_path
+
+    remap_pending_rpc_client(session_path) unless rpc_clients.active?(session_path)
+    session_path
+  end
+
+  def remap_active_pending_rpc_client(session_path)
+    cwd = pending_rpc_cwd(session_path)
+    return unless cwd && rpc_clients.active?(session_path)
+
+    real_path = session_file_from(rpc_clients.client_for(session_path).get_state)
+    return unless real_path && File.exist?(real_path) && session_cwd(real_path) == cwd
+
+    rpc_clients.move(session_path, real_path)
+    forget_pending_rpc_cwd(session_path)
+    real_path
   end
 
   def remap_pending_rpc_client(session_path)
