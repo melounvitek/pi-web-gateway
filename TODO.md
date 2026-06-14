@@ -194,14 +194,14 @@ Edit tool-call cards provide useful human-readable information when opened, so t
 
 ### Checklist
 
-- [ ] Inspect how tool calls are currently rendered and summarized.
-- [ ] Inspect the stored structure for `edit` tool-call arguments/results.
-- [ ] Identify why `edit` currently shows only generic information.
-- [ ] Design a concise edit summary format, such as file path plus changed snippets or a small diff-like preview.
-- [ ] Implement the summary with safe truncation for large edits.
-- [ ] Preserve access to raw details for debugging.
-- [ ] Verify rendering for simple single-file edits and multi-edit calls.
-- [ ] Note whether a gateway restart is needed.
+- [x] Inspect how tool calls are currently rendered and summarized.
+- [x] Inspect the stored structure for `edit` tool-call arguments/results.
+- [x] Identify why `edit` currently shows only generic information.
+- [x] Design a concise edit summary format, such as file path plus changed snippets or a small diff-like preview.
+- [x] Implement the summary with safe truncation for large edits.
+- [x] Preserve access to raw details for debugging.
+- [x] Verify rendering for simple single-file edits and multi-edit calls.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
