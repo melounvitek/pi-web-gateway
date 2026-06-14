@@ -7,6 +7,7 @@
         </header>
 
         <section class="conversation-scroll" id="conversation-scroll">
+          <button type="button" class="jump-button jump-to-oldest">oldest ↑</button>
           <% if @messages.empty? %>
             <p class="empty">No messages in this session.</p>
           <% end %>
@@ -46,7 +47,7 @@
           <% end %>
 
           <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>" data-events-after="<%= h rpc_clients.event_sequence(@selected_session.path) %>"></section>
-          <button type="button" class="jump-to-latest">lastest ↓</button>
+          <button type="button" class="jump-button jump-to-latest">latest ↓</button>
         </section>
 
         <div class="composer">

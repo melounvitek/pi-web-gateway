@@ -134,8 +134,10 @@
     .session-abort-button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 999px; font-size: 1rem; line-height: 1; }
     .copy-button { margin-left: auto; padding: 0.2rem 0.5rem; font-size: 0.75rem; background: transparent; border: 1px solid var(--border); color: var(--muted); }
     .copy-button:hover { color: var(--text); background: var(--panel-softer); transform: none; }
-    .jump-to-latest { position: sticky; bottom: 0.75rem; z-index: 3; display: none; margin: 0.5rem auto 0; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
-    .jump-to-latest.is-visible { display: block; }
+    .jump-button { position: sticky; z-index: 3; display: none; margin: 0.5rem auto; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
+    .jump-button.is-visible { display: block; }
+    .jump-to-oldest { top: 0.75rem; }
+    .jump-to-latest { bottom: 0.75rem; }
     .session-switch-overlay { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; background: rgba(24, 24, 30, 0.5); backdrop-filter: blur(2px); }
     body.session-switching .session-switch-overlay { display: grid; }
     .session-switch-indicator { display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 999px; background: rgba(30, 30, 36, 0.94); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); font-weight: 700; }
@@ -220,6 +222,7 @@
     let commandList = null;
     let commandFilter = null;
     let conversationScroll = null;
+    let jumpToOldestButton = null;
     let jumpToLatestButton = null;
     let sessionStatusBar = null;
     let reconnectBanner = null;
@@ -259,10 +262,16 @@
       commandList = document.getElementById("command-list");
       commandFilter = commandList?.querySelector(".command-filter") || null;
       conversationScroll = document.getElementById("conversation-scroll");
+      jumpToOldestButton = document.querySelector(".jump-to-oldest");
       jumpToLatestButton = document.querySelector(".jump-to-latest");
       sessionStatusBar = document.getElementById("session-status-bar");
       reconnectBanner = document.querySelector(".session-reconnect");
       reconnectButton = document.querySelector(".reconnect-button");
+    }
+
+    function nearConversationTop() {
+      if (!conversationScroll) return false;
+      return conversationScroll.scrollTop < 120;
     }
 
     function nearConversationBottom() {
@@ -270,8 +279,17 @@
       return conversationScroll.scrollHeight - conversationScroll.scrollTop - conversationScroll.clientHeight < 120;
     }
 
-    function updateJumpToLatest() {
-      jumpToLatestButton?.classList.toggle("is-visible", !nearConversationBottom());
+    function latestReadableAssistantMessageIsVisible() {
+      const latestAssistant = latestReadableAssistantMessage();
+      if (!conversationScroll || !latestAssistant) return false;
+      const scrollRect = conversationScroll.getBoundingClientRect();
+      const elementRect = latestAssistant.getBoundingClientRect();
+      return elementRect.bottom > scrollRect.top && elementRect.top < scrollRect.bottom;
+    }
+
+    function updateScrollJumpButtons() {
+      jumpToOldestButton?.classList.toggle("is-visible", !nearConversationTop());
+      jumpToLatestButton?.classList.toggle("is-visible", !nearConversationBottom() && !latestReadableAssistantMessageIsVisible());
     }
 
     function latestReadableAssistantMessage() {
@@ -309,7 +327,7 @@
           conversationScroll.scrollTo({ top: conversationScroll.scrollHeight, behavior });
         }
       });
-      jumpToLatestButton?.classList.remove("is-visible");
+      updateScrollJumpButtons();
     }
 
     function scheduleAutoScroll(behavior = "auto") {
@@ -321,13 +339,22 @@
       }));
     }
 
+    function scrollToTop(behavior = "smooth") {
+      if (!conversationScroll) return;
+      autoScrollEnabled = false;
+      withProgrammaticScroll(() => {
+        conversationScroll.scrollTo({ top: 0, behavior });
+      });
+      updateScrollJumpButtons();
+    }
+
     function scrollToBottom(behavior = "auto") {
       if (!conversationScroll) return;
       autoScrollEnabled = true;
       withProgrammaticScroll(() => {
         conversationScroll.scrollTo({ top: conversationScroll.scrollHeight, behavior });
       });
-      jumpToLatestButton?.classList.remove("is-visible");
+      updateScrollJumpButtons();
     }
 
     function followLiveOutput(forceScroll = false) {
@@ -338,7 +365,7 @@
 
     function afterLiveOutputChange(shouldScroll, live = true) {
       if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();
-      else if (live) jumpToLatestButton?.classList.add("is-visible");
+      else if (live) updateScrollJumpButtons();
     }
 
     function shouldAutofocusPrompt() {
@@ -1320,8 +1347,9 @@
 
       conversationScroll?.addEventListener("scroll", () => {
         if (!programmaticScroll) autoScrollEnabled = nearConversationBottom();
-        updateJumpToLatest();
+        updateScrollJumpButtons();
       }, { passive: true });
+      jumpToOldestButton?.addEventListener("click", () => scrollToTop());
       jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
       reconnectButton?.addEventListener("click", reconnectSession);
 

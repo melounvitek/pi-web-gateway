@@ -458,20 +458,21 @@ Provide a matching scroll-up control that helps users navigate long sessions wit
 
 ### Checklist
 
-- [ ] Inspect the existing scroll-down button implementation and visibility rules.
-- [ ] Decide what scroll-up should do: jump to top, jump one viewport, or jump to previous important message boundary.
-- [ ] Decide when the scroll-up button should be visible or hidden.
-- [ ] Reuse the existing scroll button styling and accessibility approach where possible.
-- [ ] Implement the approved scroll-up behavior.
-- [ ] Verify interaction with auto-scroll, manual scrolling, and the existing scroll-down button.
+- [x] Inspect the existing scroll-down button implementation and visibility rules.
+- [x] Decide what scroll-up should do: jump to top, jump one viewport, or jump to previous important message boundary.
+- [x] Decide when the scroll-up button should be visible or hidden.
+- [x] Reuse the existing scroll button styling and accessibility approach where possible.
+- [x] Implement the approved scroll-up behavior.
+- [x] Verify interaction with auto-scroll, manual scrolling, and the existing scroll-down button.
 - [ ] Verify behavior on long sessions and small screens.
-- [ ] Note whether a gateway restart is needed.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
 - Keep the behavior predictable and avoid adding visual clutter.
 - Consider whether the button should appear only after the user has scrolled down far enough from the top.
 - Ensure it does not interfere with the prompt input or floating scroll-down control.
+- Implemented a matching `oldest ↑` button that appears after scrolling away from the top and jumps to the top of the conversation. The `latest ↓` button now hides while the latest assistant message is visible, which avoids prompting a jump down while reading a long latest reply. Automated tests pass; manual verification on long sessions/small screens remains open. Gateway restart is needed for the running web UI to pick up the frontend/template changes.
 
 ---
 

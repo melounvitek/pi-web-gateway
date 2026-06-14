@@ -766,7 +766,10 @@ class AppTest < Minitest::Test
       refute_includes response.body, "Optional compact instructions"
       refute_includes response.body, ">Compact</button>"
       assert_includes response.body, "nearConversationBottom"
+      assert_includes response.body, "jump-to-oldest"
       assert_includes response.body, "jump-to-latest"
+      assert_includes response.body, "latest ↓"
+      refute_includes response.body, "lastest ↓"
       assert_includes response.body, "mobile-sidebar-backdrop"
       assert_includes response.body, "scrollbar-gutter: stable"
       assert_includes response.body, "scrollbar-width: none"
@@ -1278,6 +1281,8 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_includes response.body, "let autoScrollEnabled = true;"
       assert_includes response.body, "let programmaticScroll = false;"
+      assert_includes response.body, "function nearConversationTop()"
+      assert_includes response.body, "function latestReadableAssistantMessageIsVisible()"
       assert_includes response.body, "function applyAutoScroll(behavior = \"auto\")"
       assert_includes response.body, "requestAnimationFrame(() => requestAnimationFrame"
       assert_includes response.body, "function latestReadableAssistantMessage()"
@@ -1287,6 +1292,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (autoScrollEnabled && body.closest(\".message\") === latestReadableAssistantMessage()) scheduleAutoScroll();"
       assert_includes response.body, "if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();"
       assert_includes response.body, "applyAutoScroll(\"auto\");"
+      assert_includes response.body, "scrollToTop"
       assert_includes response.body, "autoScrollEnabled = true;"
     end
   end
