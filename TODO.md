@@ -162,6 +162,7 @@ Make live event delivery robust enough that the web UI remains responsive even w
 - [x] Propose the smallest safe improvement before implementation.
 - [x] Add or update tests where practical.
 - [ ] Verify the page stays responsive under multiple open tabs and idle sessions.
+- [ ] Evaluate follow-up mitigations for very large active `/events` responses, such as event batch limits or response compression.
 - [x] Note whether a gateway restart is needed.
 
 ### Notes
