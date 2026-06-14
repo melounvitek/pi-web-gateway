@@ -2,7 +2,7 @@
       <% if @selected_session %>
         <header class="session-header">
           <label for="mobile-session-toggle" class="mobile-sessions-button"><span class="mobile-sessions-label">Sessions</span><span class="mobile-sessions-hide-label">Hide</span></label>
-          <h1><%= h @selected_session.display_name %></h1>
+          <h1 title="<%= h @selected_session.display_name %>"><%= h @selected_session.display_name %></h1>
           <button type="submit" class="danger abort-button session-abort-button" form="abort-form" disabled title="Abort running Pi" aria-label="Abort running Pi"><span aria-hidden="true">⏹</span></button>
         </header>
 
