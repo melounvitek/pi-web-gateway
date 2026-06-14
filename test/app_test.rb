@@ -1029,6 +1029,33 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_live_event_script_keeps_active_sessions_pinned_after_layout
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "let autoScrollEnabled = true;"
+      assert_includes response.body, "let programmaticScroll = false;"
+      assert_includes response.body, "function applyAutoScroll(behavior = \"auto\")"
+      assert_includes response.body, "requestAnimationFrame(() => requestAnimationFrame"
+      assert_includes response.body, "function latestReadableAssistantMessage()"
+      assert_includes response.body, "function latestMessageElement()"
+      assert_includes response.body, "if (latestAssistant && latestAssistant === latestMessageElement() && latestAssistant.offsetHeight > conversationScroll.clientHeight)"
+      assert_includes response.body, "autoScrollEnabled = nearConversationBottom();"
+      assert_includes response.body, "if (autoScrollEnabled && body.closest(\".message\") === latestReadableAssistantMessage()) scheduleAutoScroll();"
+      assert_includes response.body, "if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();"
+      assert_includes response.body, "applyAutoScroll(\"auto\");"
+      assert_includes response.body, "autoScrollEnabled = true;"
+    end
+  end
+
   def test_live_event_script_schedules_non_overlapping_polls
     Dir.mktmpdir do |dir|
       path = write_session(dir)

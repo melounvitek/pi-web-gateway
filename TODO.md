@@ -74,21 +74,23 @@ The session view reliably follows new content during active updates, including b
 
 ### Checklist
 
-- [ ] Inspect the current session rendering and scroll-management code.
-- [ ] Identify when auto-scroll currently decides it is active or inactive.
-- [ ] Reproduce or reason through the stuck-scroll case with many tool calls.
-- [ ] Design a robust scroll policy for active updates.
-- [ ] Implement bottom-pinning for normal active updates.
-- [ ] Implement the long-latest-reply exception: align the latest model reply's top with the viewport top when that reply is taller than the visible area.
-- [ ] Ensure user-initiated upward scrolling is not immediately overridden if the user intentionally leaves the bottom.
+- [x] Inspect the current session rendering and scroll-management code.
+- [x] Identify when auto-scroll currently decides it is active or inactive.
+- [x] Reproduce or reason through the stuck-scroll case with many tool calls.
+- [x] Design a robust scroll policy for active updates.
+- [x] Implement bottom-pinning for normal active updates.
+- [x] Implement the long-latest-reply exception: align the latest model reply's top with the viewport top when that reply is taller than the visible area.
+- [x] Ensure user-initiated upward scrolling is not immediately overridden if the user intentionally leaves the bottom.
 - [ ] Verify behavior for rapid tool-call updates and long assistant replies.
-- [ ] Note whether a gateway restart is needed.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
 - Be careful not to create scroll jitter.
 - Prefer requestAnimationFrame or another DOM-settled timing mechanism if scroll calculations happen before layout is complete.
 - Future sessions should preserve the user's ability to manually scroll up and read older content.
+- Implemented explicit auto-scroll state, double `requestAnimationFrame` post-layout scroll scheduling, and a tall latest-assistant-message top-alignment exception. Automated tests pass; manual browser verification for rapid tool bursts and long replies remains open.
+- Gateway restart is needed for the deployed web UI to pick up these frontend changes.
 
 ---
 

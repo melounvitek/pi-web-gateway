@@ -13,7 +13,7 @@
     .conversation-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: var(--panel); }
     .session-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.5rem 0.75rem; border-bottom: 1px solid var(--border); background: rgba(30, 30, 36, 0.96); backdrop-filter: blur(8px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
     .session-header h1 { min-width: 0; margin: 0; overflow-wrap: anywhere; }
-    .conversation-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 1.5rem; scroll-behavior: smooth; }
+    .conversation-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 1.5rem; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid var(--border); background: rgba(30, 30, 36, 0.97); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.16); }
     .composer-inner { display: grid; gap: 0.6rem; }
     .attachment-tray { display: none; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem; border: 1px dashed var(--border); border-radius: 0.55rem; background: var(--panel-soft); }
@@ -362,6 +362,9 @@
     let eventPollTimer = null;
     let eventPollInFlight = false;
     let emptyEventPollCount = 0;
+    let autoScrollEnabled = true;
+    let programmaticScroll = false;
+    let scheduledAutoScrollFrame = null;
 
     function nearConversationBottom() {
       if (!conversationScroll) return false;
@@ -372,9 +375,71 @@
       jumpToLatestButton?.classList.toggle("is-visible", !nearConversationBottom());
     }
 
-    function scrollToBottom(behavior = "smooth") {
-      conversationScroll?.scrollTo({ top: conversationScroll.scrollHeight, behavior });
+    function latestReadableAssistantMessage() {
+      const messages = conversationScroll?.querySelectorAll('[data-role="assistant"].message--assistant:not(.message--thinking):not(.message--compact)');
+      return messages?.[messages.length - 1] || null;
+    }
+
+    function latestMessageElement() {
+      const messages = conversationScroll?.querySelectorAll('.message');
+      return messages?.[messages.length - 1] || null;
+    }
+
+    function scrollElementTopIntoView(element, behavior = "smooth") {
+      if (!conversationScroll || !element) return;
+      const scrollRect = conversationScroll.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const top = conversationScroll.scrollTop + elementRect.top - scrollRect.top;
+      conversationScroll.scrollTo({ top, behavior });
+    }
+
+    function withProgrammaticScroll(callback) {
+      programmaticScroll = true;
+      callback();
+      setTimeout(() => { programmaticScroll = false; }, 120);
+    }
+
+    function applyAutoScroll(behavior = "auto") {
+      if (!conversationScroll || !autoScrollEnabled) return;
+
+      withProgrammaticScroll(() => {
+        const latestAssistant = latestReadableAssistantMessage();
+        if (latestAssistant && latestAssistant === latestMessageElement() && latestAssistant.offsetHeight > conversationScroll.clientHeight) {
+          scrollElementTopIntoView(latestAssistant, behavior);
+        } else {
+          conversationScroll.scrollTo({ top: conversationScroll.scrollHeight, behavior });
+        }
+      });
       jumpToLatestButton?.classList.remove("is-visible");
+    }
+
+    function scheduleAutoScroll(behavior = "auto") {
+      if (!conversationScroll || !autoScrollEnabled) return;
+      if (scheduledAutoScrollFrame) cancelAnimationFrame(scheduledAutoScrollFrame);
+      scheduledAutoScrollFrame = requestAnimationFrame(() => requestAnimationFrame(() => {
+        scheduledAutoScrollFrame = null;
+        applyAutoScroll(behavior);
+      }));
+    }
+
+    function scrollToBottom(behavior = "auto") {
+      if (!conversationScroll) return;
+      autoScrollEnabled = true;
+      withProgrammaticScroll(() => {
+        conversationScroll.scrollTo({ top: conversationScroll.scrollHeight, behavior });
+      });
+      jumpToLatestButton?.classList.remove("is-visible");
+    }
+
+    function followLiveOutput(forceScroll = false) {
+      const shouldScroll = forceScroll || autoScrollEnabled || nearConversationBottom();
+      if (shouldScroll) autoScrollEnabled = true;
+      return shouldScroll;
+    }
+
+    function afterLiveOutputChange(shouldScroll, live = true) {
+      if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();
+      else if (live) jumpToLatestButton?.classList.add("is-visible");
     }
 
     function shouldAutofocusPrompt() {
@@ -701,6 +766,7 @@
           if (body.dataset.plainText === text) {
             body.innerHTML = payload.html;
             delete body.dataset.rendering;
+            if (autoScrollEnabled && body.closest(".message") === latestReadableAssistantMessage()) scheduleAutoScroll();
           }
         } catch (_error) {
         }
@@ -719,7 +785,7 @@
     }
 
     function appendMessage(roleName, text, live = true, forceScroll = false, timestamp = null, options = {}) {
-      const shouldScroll = forceScroll || nearConversationBottom();
+      const shouldScroll = followLiveOutput(forceScroll);
       const roleKey = messageRoleKey(roleName);
 
       const article = document.createElement("article");
@@ -756,13 +822,12 @@
       article.append(header);
       article.append(body);
       liveOutput.append(article);
-      if (shouldScroll) scrollToBottom();
-      else if (live) jumpToLatestButton?.classList.add("is-visible");
+      afterLiveOutputChange(shouldScroll, live);
       return { article, body, compact: false };
     }
 
     function appendCompactMessage(roleName, summary, text, expanded = false, live = true, forceScroll = false, rawDetails = "", timestamp = null, options = {}) {
-      const shouldScroll = forceScroll || nearConversationBottom();
+      const shouldScroll = followLiveOutput(forceScroll);
       const roleKey = messageRoleKey(roleName);
 
       const article = document.createElement("article");
@@ -807,8 +872,7 @@
 
       article.append(header, details);
       liveOutput.append(article);
-      if (shouldScroll) scrollToBottom();
-      else if (live) jumpToLatestButton?.classList.add("is-visible");
+      afterLiveOutputChange(shouldScroll, live);
       return { article, details, body, summaryText, rawBody, compact: true };
     }
 
@@ -883,8 +947,7 @@
         }
       }
 
-      if (shouldScroll) scrollToBottom();
-      else jumpToLatestButton?.classList.add("is-visible");
+      afterLiveOutputChange(shouldScroll);
       return entry;
     }
 
@@ -910,7 +973,7 @@
       if (roleName === "assistant" && event.type === "message_start") resetLiveAssistantTracking();
       if (segments.length === 0) return;
 
-      const shouldScroll = nearConversationBottom();
+      const shouldScroll = followLiveOutput();
       const timestamp = eventTimestamp(event);
 
       if (roleName === "user") {
@@ -927,7 +990,7 @@
             }
             bashCallEntry.article.classList.toggle("message--tool-error", segment.expanded);
             if (segment.expanded && bashCallEntry.details) bashCallEntry.details.open = true;
-            if (shouldScroll) scrollToBottom();
+            afterLiveOutputChange(shouldScroll);
           } else if (segment.compact) {
             appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded });
           } else {
@@ -1040,7 +1103,10 @@
       imageInput.value = "";
     });
 
-    conversationScroll?.addEventListener("scroll", updateJumpToLatest, { passive: true });
+    conversationScroll?.addEventListener("scroll", () => {
+      if (!programmaticScroll) autoScrollEnabled = nearConversationBottom();
+      updateJumpToLatest();
+    }, { passive: true });
     jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
 
     window.addEventListener("resize", updatePromptPlaceholder);
@@ -1164,7 +1230,7 @@
         updatePromptPlaceholder();
         resizePromptTextarea();
         if (shouldAutofocusPrompt()) promptTextarea?.focus();
-        scrollToBottom("auto");
+        applyAutoScroll("auto");
       });
     }
   </script>
