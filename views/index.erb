@@ -258,7 +258,7 @@
               <% if message.thinking %>
                 <div class="message-body message-body--thinking"><span class="thinking-prefix">Thinking:</span> <%= render_message_body(message) %></div>
               <% elsif message.compact %>
-                <details class="message-details">
+                <details class="message-details"<%= " open" if message.expanded %>>
                   <summary><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></summary>
                   <pre class="message-body"><%= h message.text %></pre>
                   <% if message.raw_details.to_s != "" %>
@@ -537,7 +537,7 @@
       if (part.type === "thinking" || part.thinking) return stripThinkingHeading(part.thinking);
       if (part.type === "toolCall") {
         if (part.name === "bash") return bashCommandLine(part);
-        if (["read", "edit", "write"].includes(part.name)) return toolSummaryPlain(part.name, part.arguments || {});
+        if (["read", "edit", "write"].includes(part.name)) return transcriptToolCallText(part.name, part.arguments || {});
         const args = part.arguments ? `\n${JSON.stringify(part.arguments, null, 2)}` : "";
         return `[tool: ${part.name || "tool"}]${args}`;
       }
@@ -549,6 +549,32 @@
       const path = args.path ? ` ${args.path}` : "";
       const range = name === "read" && args.offset && args.limit ? `:${args.offset}-${Number(args.offset) + Number(args.limit) - 1}` : "";
       return `${name}${path}${range}`;
+    }
+
+    function transcriptToolCallText(name, args = {}) {
+      const summary = toolSummaryPlain(name, args);
+      if (name !== "edit") return summary;
+
+      const edits = Array.isArray(args.edits) ? args.edits : [];
+      const editPreview = edits.map((edit, index) => {
+        if (!edit || typeof edit !== "object") return "";
+        return [
+          `Edit ${index + 1}`,
+          previewText("-", edit.oldText),
+          previewText("+", edit.newText)
+        ].filter(Boolean).join("\n");
+      }).filter(Boolean).join("\n\n");
+
+      return [summary, editPreview].filter(Boolean).join("\n");
+    }
+
+    function previewText(prefix, text) {
+      const lines = String(text || "").split("\n");
+      if (lines[lines.length - 1] === "") lines.pop();
+      if (lines.length === 0) return "";
+      const preview = lines.slice(0, 6).map((line) => `${prefix} ${line}`);
+      if (lines.length > 6) preview.push(`${prefix} …`);
+      return preview.join("\n");
     }
 
     function toolSummaryParts(name, args = {}) {
@@ -783,7 +809,7 @@
       liveOutput.append(article);
       if (shouldScroll) scrollToBottom();
       else if (live) jumpToLatestButton?.classList.add("is-visible");
-      return { article, body, summaryText, rawBody, compact: true };
+      return { article, details, body, summaryText, rawBody, compact: true };
     }
 
     function renderToolSummary(container, parts, fallback) {
@@ -869,7 +895,7 @@
       if (updated) return updated;
 
       const entry = segment.compact ?
-        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript }) :
+        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded }) :
         appendMessage("assistant", segment.text, true, shouldScroll, timestamp, { thinking: segment.thinking });
       liveAssistantSegments.set(key, entry);
       if (["bash", "read", "edit", "write"].includes(segment.toolName) && segment.toolCallId && !segment.isToolResult) liveBashToolCalls.set(segment.toolCallId, entry);
@@ -895,14 +921,15 @@
         segments.forEach((segment) => {
           const bashCallEntry = ["bash", "read", "edit", "write"].includes(segment.toolName) && segment.toolCallId && liveBashToolCalls.get(segment.toolCallId);
           if (bashCallEntry && segment.isToolResult) {
-            bashCallEntry.body.textContent = segment.toolTranscript ? segment.text : [bashCallEntry.body.textContent, segment.text].filter(Boolean).join("\n\n");
+            bashCallEntry.body.textContent = segment.toolTranscript && !segment.expanded ? segment.text : [bashCallEntry.body.textContent, segment.text].filter(Boolean).join("\n\n");
             if (bashCallEntry.rawBody) {
               bashCallEntry.rawBody.textContent = [bashCallEntry.rawBody.textContent, segment.rawDetails].filter(Boolean).join("\n\n");
             }
             bashCallEntry.article.classList.toggle("message--tool-error", segment.expanded);
+            if (segment.expanded && bashCallEntry.details) bashCallEntry.details.open = true;
             if (shouldScroll) scrollToBottom();
           } else if (segment.compact) {
-            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript });
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded });
           } else {
             appendMessage(roleName, segment.text, true, shouldScroll, timestamp);
           }

@@ -766,7 +766,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--tool message--compact" data-role="toolResult"'
       assert_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
       assert_includes response.body, 'class="message message--tool message--compact message--tool-error" data-role="toolResult"'
-      refute_includes response.body, '<details class="message-details" open>'
+      assert_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, "Thinking through the problem"
       assert_includes response.body, "file list"
     end
@@ -851,6 +851,107 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_failed_tool_transcripts_open_with_call_context
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "edit-fail", name: "edit", arguments: { path: "TODO.md", edits: [{ oldText: "old item", newText: "new item" }] } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "edit-fail",
+            toolName: "edit",
+            content: [{ type: "text", text: "oldText did not match" }],
+            isError: true
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:01:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "read-fail", name: "read", arguments: { path: "missing.txt" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:01:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "read-fail",
+            toolName: "read",
+            content: [{ type: "text", text: "No such file" }],
+            isError: true
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:02:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "write-fail", name: "write", arguments: { path: "readonly.txt", content: "new contents" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:02:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "write-fail",
+            toolName: "write",
+            content: [{ type: "text", text: "Permission denied" }],
+            isError: true
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:03:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "bash-fail", name: "bash", arguments: { command: "false" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:03:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "bash-fail",
+            toolName: "bash",
+            content: [{ type: "text", text: "Command exited with code 1" }],
+            isError: true
+          }
+        }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, '<details class="message-details" open>'
+      assert_includes response.body, 'class="message message--assistant message--compact message--tool-transcript message--tool-error" data-role="assistant"'
+      assert_includes response.body, 'Edit 1'
+      assert_includes response.body, '- old item'
+      assert_includes response.body, '+ new item'
+      assert_includes response.body, 'oldText did not match'
+      assert_includes response.body, 'read missing.txt'
+      assert_includes response.body, 'No such file'
+      assert_includes response.body, 'write readonly.txt'
+      assert_includes response.body, 'Permission denied'
+      assert_includes response.body, '$ false'
+      assert_includes response.body, 'Command exited with code 1'
+    end
+  end
+
   def test_pairs_historical_bash_tool_call_with_matching_result
     Dir.mktmpdir do |dir|
       tool_call_id = "call_123"
@@ -917,8 +1018,11 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function renderToolSummary(container, parts, fallback)"
       assert_includes response.body, "message--tool-transcript"
       assert_includes response.body, "toolSummaryParts(toolName, toolPart?.arguments || {})"
-      assert_includes response.body, "segment.toolTranscript ? segment.text"
+      assert_includes response.body, "function transcriptToolCallText(name, args = {})"
+      assert_includes response.body, 'if (lines[lines.length - 1] === "") lines.pop();'
+      assert_includes response.body, "segment.toolTranscript && !segment.expanded ? segment.text"
       assert_includes response.body, 'details.open = options.open === true;'
+      assert_includes response.body, 'open: segment.expanded'
       assert_includes response.body, '["bash", "read", "edit", "write"].includes(segment.toolName)'
       assert_includes response.body, "part.type === \"toolCall\""
       assert_includes response.body, "part.type === \"thinking\""

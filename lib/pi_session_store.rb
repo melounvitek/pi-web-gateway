@@ -159,7 +159,7 @@ class PiSessionStore
         timestamp: parse_time(entry["timestamp"]),
         compact: compact_message?(message),
         summary: compact_summary(message),
-        expanded: false,
+        expanded: message["isError"] == true,
         error: message["isError"] == true,
         tool_call_id: message["toolCallId"],
         tool_name: message["toolName"],
@@ -202,7 +202,7 @@ class PiSessionStore
   end
 
   def paired_tool_text(call_message, result_message)
-    return result_message.text if transcript_tool?(call_message.tool_name)
+    return result_message.text if transcript_tool?(call_message.tool_name) && !result_message.error
 
     [call_message.text, result_message.text].reject(&:empty?).join("\n\n")
   end
@@ -331,6 +331,7 @@ class PiSessionStore
     case part["type"]
     when "toolCall"
       return bash_command_line(part) if bash_tool_call?(part)
+      return transcript_tool_call_text(part) if transcript_tool?(part["name"])
 
       name = part["name"] || "tool"
       arguments = part["arguments"]
@@ -338,6 +339,35 @@ class PiSessionStore
     when "toolResult"
       part["output"] || part["result"] || "[tool result]"
     end
+  end
+
+  def transcript_tool_call_text(part)
+    arguments = part["arguments"].is_a?(Hash) ? part["arguments"] : {}
+    summary = [part["name"], arguments["path"]].compact.join(" ")
+    summary += ":#{read_range(arguments)}" if part["name"] == "read" && read_range(arguments)
+    return summary unless part["name"] == "edit"
+
+    edit_preview = Array(arguments["edits"]).each_with_index.map do |edit, index|
+      next unless edit.is_a?(Hash)
+
+      [
+        "Edit #{index + 1}",
+        preview_text("-", edit["oldText"]),
+        preview_text("+", edit["newText"])
+      ].compact.join("\n")
+    end.compact.join("\n\n")
+
+    [summary, edit_preview].reject(&:empty?).join("\n")
+  end
+
+  def preview_text(prefix, text)
+    text = text.to_s
+    return if text.empty?
+
+    lines = text.lines(chomp: true)
+    preview = lines.first(6).map { |line| "#{prefix} #{line}" }
+    preview << "#{prefix} …" if lines.length > 6
+    preview.join("\n")
   end
 
   def bash_tool_call?(part)
