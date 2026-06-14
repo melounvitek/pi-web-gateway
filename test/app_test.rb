@@ -938,11 +938,17 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, "let eventPollInFlight = false;"
+      assert_includes response.body, "let emptyEventPollCount = 0;"
       assert_includes response.body, "function scheduleNextEventPoll(delay = eventPollDelay())"
       assert_includes response.body, "if (eventPollInFlight) return;"
       assert_includes response.body, "eventPollInFlight = true;"
       assert_includes response.body, "eventPollInFlight = false;"
-      assert_includes response.body, "document.hidden ? 5000 : 1000"
+      assert_includes response.body, "if (document.hidden) return 10000;"
+      assert_includes response.body, "if (emptyEventPollCount >= 6) return 5000;"
+      assert_includes response.body, "if (emptyEventPollCount >= 2) return 2000;"
+      assert_includes response.body, "emptyEventPollCount = payload.events.length > 0 ? 0 : emptyEventPollCount + 1;"
+      assert_includes response.body, "resetEventPollBackoff();"
+      assert_includes response.body, "scheduleNextEventPoll(0);"
       refute_includes response.body, "setInterval(() => pollEvents()"
     end
   end
@@ -973,7 +979,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'if (["custom", "system", "status"].includes(role)) return "status";'
       assert_includes response.body, "function showStatus(_text, _forceScroll = false) {}"
       assert_includes response.body, "showStatus(eventStatusText(event));"
-      assert_includes response.body, "resetLiveAssistantTracking();\n      appendMessage(\"user\", [message, pendingImages.length > 0"
+      assert_includes response.body, "resetLiveAssistantTracking();\n      resetEventPollBackoff();\n      scheduleNextEventPoll(0);\n      appendMessage(\"user\", [message, pendingImages.length > 0"
       assert_includes response.body, "true, true, new Date());"
       assert_includes response.body, "promptForm.requestSubmit();"
       assert_includes response.body, "function resizePromptTextarea()"

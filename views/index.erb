@@ -361,6 +361,7 @@
     let pendingImages = [];
     let eventPollTimer = null;
     let eventPollInFlight = false;
+    let emptyEventPollCount = 0;
 
     function nearConversationBottom() {
       if (!conversationScroll) return false;
@@ -946,7 +947,14 @@
     }
 
     function eventPollDelay() {
-      return document.hidden ? 5000 : 1000;
+      if (document.hidden) return 10000;
+      if (emptyEventPollCount >= 6) return 5000;
+      if (emptyEventPollCount >= 2) return 2000;
+      return 1000;
+    }
+
+    function resetEventPollBackoff() {
+      emptyEventPollCount = 0;
     }
 
     function scheduleNextEventPoll(delay = eventPollDelay()) {
@@ -965,6 +973,7 @@
         if (!response.ok) return;
 
         const payload = await response.json();
+        emptyEventPollCount = payload.events.length > 0 ? 0 : emptyEventPollCount + 1;
         payload.events.forEach((event) => {
           updateStatusFromEvent(event);
           renderEvent(event);
@@ -1090,6 +1099,8 @@
       pendingImages.forEach((entry) => formData.append("images[]", entry.file, entry.file.name || "image"));
 
       resetLiveAssistantTracking();
+      resetEventPollBackoff();
+      scheduleNextEventPoll(0);
       appendMessage("user", [message, pendingImages.length > 0 ? `[${imageAttachmentLabel(pendingImages.length)}]` : ""].filter(Boolean).join("\n"), true, true, new Date());
       promptTextarea.value = "";
       clearAttachments();
