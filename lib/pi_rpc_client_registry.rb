@@ -82,11 +82,11 @@ class PiRpcClientRegistry
     old_client&.close
   end
 
-  def drain_events(session_path)
+  def events_after(session_path, after_seq)
     client = begin_use(session_path)
-    return [] unless client
+    return { events: [], last_seq: 0, missed: false } unless client
 
-    client.drain_events
+    client.events_after(after_seq)
   ensure
     end_use(session_path) if client
   end

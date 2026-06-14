@@ -197,7 +197,7 @@ class AppTest < Minitest::Test
     refute_includes payload["html"], "javascript:alert"
   end
 
-  def test_returns_buffered_rpc_events_for_selected_session
+  def test_returns_buffered_rpc_events_for_selected_session_cursor
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       calls = []
@@ -212,13 +212,33 @@ class AppTest < Minitest::Test
 
       response = Rack::MockRequest.new(PiWebGateway).get(
         "/events",
-        params: { "session" => path }
+        params: { "session" => path, "after" => "0" }
       )
 
       assert_equal 200, response.status
       assert_equal "application/json", response.content_type
-      assert_equal({ "events" => [{ "type" => "assistant_delta", "text" => "Hi" }] }, JSON.parse(response.body))
-      assert_equal [[ :drain_events ]], calls
+      assert_equal({ "events" => [{ "type" => "assistant_delta", "text" => "Hi" }], "last_seq" => 1, "missed" => false }, JSON.parse(response.body))
+      assert_equal [[ :events_after, 0 ]], calls
+    end
+  end
+
+  def test_returns_same_buffered_rpc_events_to_independent_cursors
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      client = FakeRpcClient.new(calls, [{ "type" => "assistant_delta", "text" => "Hi" }])
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      PiWebGateway.set :rpc_client_registry, registry
+
+      request = Rack::MockRequest.new(PiWebGateway)
+      first = request.get("/events", params: { "session" => path, "after" => "0" })
+      second = request.get("/events", params: { "session" => path, "after" => "0" })
+
+      assert_equal JSON.parse(first.body), JSON.parse(second.body)
+      assert_equal({ "events" => [{ "type" => "assistant_delta", "text" => "Hi" }], "last_seq" => 1, "missed" => false }, JSON.parse(second.body))
+      assert_equal [[ :events_after, 0 ], [ :events_after, 0 ]], calls
     end
   end
 
@@ -241,7 +261,7 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_equal({ "events" => [] }, JSON.parse(response.body))
+      assert_equal({ "events" => [], "last_seq" => 0, "missed" => false }, JSON.parse(response.body))
       assert_empty calls
     end
   end
@@ -274,7 +294,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_drains_events_from_each_registered_session_without_cross_talk
+  def test_reads_events_from_each_registered_session_without_cross_talk
     Dir.mktmpdir do |dir|
       paths = write_sessions(dir, count: 2)
       calls = []
@@ -288,8 +308,8 @@ class AppTest < Minitest::Test
       response_a = request.get("/events", params: { "session" => paths.first })
       response_b = request.get("/events", params: { "session" => paths.last })
 
-      assert_equal({ "events" => [{ "type" => "from-a" }] }, JSON.parse(response_a.body))
-      assert_equal({ "events" => [{ "type" => "from-b" }] }, JSON.parse(response_b.body))
+      assert_equal({ "events" => [{ "type" => "from-a" }], "last_seq" => 1, "missed" => false }, JSON.parse(response_a.body))
+      assert_equal({ "events" => [{ "type" => "from-b" }], "last_seq" => 1, "missed" => false }, JSON.parse(response_b.body))
     end
   end
 
@@ -409,7 +429,7 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_equal({ "events" => [] }, JSON.parse(response.body))
+      assert_equal({ "events" => [], "last_seq" => 0, "missed" => false }, JSON.parse(response.body))
       refute registry.active?(real_path)
       assert registry.active?(pending_path)
       assert_includes PiWebGateway.pending_rpc_cwds, pending_path
@@ -1506,9 +1526,10 @@ class AppTest < Minitest::Test
       @calls << [:set_session_name, name]
     end
 
-    def drain_events
-      @calls << [:drain_events]
-      @events
+    def events_after(after_seq)
+      @calls << [:events_after, after_seq]
+      events = after_seq.to_i.zero? ? @events : []
+      { events: events, last_seq: @events.length, missed: false }
     end
 
     def close

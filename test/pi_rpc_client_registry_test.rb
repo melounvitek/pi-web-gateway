@@ -44,6 +44,30 @@ class PiRpcClientRegistryTest < Minitest::Test
     assert_empty calls
   end
 
+  def test_returns_events_after_cursor_without_draining_for_other_consumers
+    calls = []
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+    client = FakeClient.new(calls)
+    registry.register("/tmp/session.jsonl", client)
+
+    first = registry.events_after("/tmp/session.jsonl", 0)
+    second = registry.events_after("/tmp/session.jsonl", 0)
+
+    assert_equal({ events: [{ "type" => "event" }], last_seq: 1, missed: false }, first)
+    assert_equal first, second
+    assert_equal [[:events_after, 0], [:events_after, 0]], calls
+  end
+
+  def test_events_after_for_inactive_session_does_not_create_client
+    calls = []
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { calls << [:start] })
+
+    result = registry.events_after("/tmp/session.jsonl", 0)
+
+    assert_equal({ events: [], last_seq: 0, missed: false }, result)
+    assert_empty calls
+  end
+
   def test_keeps_clients_currently_in_use
     now = Time.at(1_000)
     calls = []
@@ -64,6 +88,11 @@ class PiRpcClientRegistryTest < Minitest::Test
   class FakeClient
     def initialize(calls)
       @calls = calls
+    end
+
+    def events_after(after_seq)
+      @calls << [:events_after, after_seq]
+      { events: [{ "type" => "event" }], last_seq: 1, missed: false }
     end
 
     def close

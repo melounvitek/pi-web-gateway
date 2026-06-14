@@ -306,9 +306,9 @@ class PiWebGateway < Sinatra::Base
 
   get "/events" do
     session_path = params.fetch("session")
+    after_seq = params.fetch("after", 0).to_i
     content_type :json
-    events = rpc_clients.drain_events(session_path)
-    JSON.generate(events: events)
+    JSON.generate(rpc_clients.events_after(session_path, after_seq))
   end
 
   get "/status" do
