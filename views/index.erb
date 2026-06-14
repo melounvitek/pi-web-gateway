@@ -134,10 +134,12 @@
     .session-abort-button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 999px; font-size: 1rem; line-height: 1; }
     .copy-button { margin-left: auto; padding: 0.2rem 0.5rem; font-size: 0.75rem; background: transparent; border: 1px solid var(--border); color: var(--muted); }
     .copy-button:hover { color: var(--text); background: var(--panel-softer); transform: none; }
-    .jump-button { position: sticky; z-index: 3; display: none; margin: 0.5rem auto; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
-    .jump-button.is-visible { display: block; }
-    .jump-to-oldest { top: 0.75rem; }
-    .jump-to-latest { bottom: 0.75rem; }
+    .jump-controls { position: sticky; z-index: 3; display: none; justify-content: center; gap: 0.35rem; margin: 0.5rem auto; pointer-events: none; }
+    .jump-controls.is-visible { display: flex; }
+    .jump-controls--top { top: 0.75rem; }
+    .jump-controls--bottom { bottom: 0.75rem; }
+    .jump-button { display: none; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); pointer-events: auto; }
+    .jump-button.is-visible { display: inline-flex; }
     .session-switch-overlay { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; background: rgba(24, 24, 30, 0.5); backdrop-filter: blur(2px); }
     body.session-switching .session-switch-overlay { display: grid; }
     .session-switch-indicator { display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 999px; background: rgba(30, 30, 36, 0.94); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); font-weight: 700; }
@@ -222,7 +224,11 @@
     let commandList = null;
     let commandFilter = null;
     let conversationScroll = null;
-    let jumpToOldestButton = null;
+    let topJumpControls = null;
+    let bottomJumpControls = null;
+    let jumpToFirstButton = null;
+    let jumpToPreviousUserButton = null;
+    let jumpToNextUserButton = null;
     let jumpToLatestButton = null;
     let sessionStatusBar = null;
     let reconnectBanner = null;
@@ -262,7 +268,11 @@
       commandList = document.getElementById("command-list");
       commandFilter = commandList?.querySelector(".command-filter") || null;
       conversationScroll = document.getElementById("conversation-scroll");
-      jumpToOldestButton = document.querySelector(".jump-to-oldest");
+      topJumpControls = document.querySelector(".jump-controls--top");
+      bottomJumpControls = document.querySelector(".jump-controls--bottom");
+      jumpToFirstButton = document.querySelector(".jump-to-first");
+      jumpToPreviousUserButton = document.querySelector(".jump-to-previous-user");
+      jumpToNextUserButton = document.querySelector(".jump-to-next-user");
       jumpToLatestButton = document.querySelector(".jump-to-latest");
       sessionStatusBar = document.getElementById("session-status-bar");
       reconnectBanner = document.querySelector(".session-reconnect");
@@ -287,9 +297,33 @@
       return elementRect.bottom > scrollRect.top && elementRect.top < scrollRect.bottom;
     }
 
+    function userMessages() {
+      return [...(conversationScroll?.querySelectorAll('[data-role="user"].message') || [])];
+    }
+
+    function previousUserMessageAboveViewport() {
+      if (!conversationScroll) return null;
+      const scrollTop = conversationScroll.getBoundingClientRect().top;
+      return userMessages().reverse().find((message) => message.getBoundingClientRect().bottom < scrollTop - 8) || null;
+    }
+
+    function nextUserMessageBelowViewport() {
+      if (!conversationScroll) return null;
+      const scrollBottom = conversationScroll.getBoundingClientRect().bottom;
+      return userMessages().find((message) => message.getBoundingClientRect().top > scrollBottom + 8) || null;
+    }
+
     function updateScrollJumpButtons() {
-      jumpToOldestButton?.classList.toggle("is-visible", !nearConversationTop());
-      jumpToLatestButton?.classList.toggle("is-visible", !nearConversationBottom() && !latestReadableAssistantMessageIsVisible());
+      const showFirst = !nearConversationTop();
+      const showPreviousUser = Boolean(previousUserMessageAboveViewport());
+      const showNextUser = Boolean(nextUserMessageBelowViewport());
+      const showLatest = !nearConversationBottom() && !latestReadableAssistantMessageIsVisible();
+      jumpToFirstButton?.classList.toggle("is-visible", showFirst);
+      jumpToPreviousUserButton?.classList.toggle("is-visible", showPreviousUser);
+      jumpToNextUserButton?.classList.toggle("is-visible", showNextUser);
+      jumpToLatestButton?.classList.toggle("is-visible", showLatest);
+      topJumpControls?.classList.toggle("is-visible", showFirst || showPreviousUser);
+      bottomJumpControls?.classList.toggle("is-visible", showNextUser || showLatest);
     }
 
     function latestReadableAssistantMessage() {
@@ -302,11 +336,11 @@
       return messages?.[messages.length - 1] || null;
     }
 
-    function scrollElementTopIntoView(element, behavior = "smooth") {
+    function scrollElementTopIntoView(element, behavior = "smooth", topOffset = 0) {
       if (!conversationScroll || !element) return;
       const scrollRect = conversationScroll.getBoundingClientRect();
       const elementRect = element.getBoundingClientRect();
-      const top = conversationScroll.scrollTop + elementRect.top - scrollRect.top;
+      const top = conversationScroll.scrollTop + elementRect.top - scrollRect.top - topOffset;
       conversationScroll.scrollTo({ top, behavior });
     }
 
@@ -345,6 +379,18 @@
       withProgrammaticScroll(() => {
         conversationScroll.scrollTo({ top: 0, behavior });
       });
+      updateScrollJumpButtons();
+    }
+
+    function topJumpControlsOffset() {
+      const remSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      return remSize * 3.5;
+    }
+
+    function scrollToUserMessage(message, behavior = "smooth") {
+      if (!message) return;
+      autoScrollEnabled = false;
+      withProgrammaticScroll(() => scrollElementTopIntoView(message, behavior, topJumpControlsOffset()));
       updateScrollJumpButtons();
     }
 
@@ -1349,7 +1395,9 @@
         if (!programmaticScroll) autoScrollEnabled = nearConversationBottom();
         updateScrollJumpButtons();
       }, { passive: true });
-      jumpToOldestButton?.addEventListener("click", () => scrollToTop());
+      jumpToFirstButton?.addEventListener("click", () => scrollToTop());
+      jumpToPreviousUserButton?.addEventListener("click", () => scrollToUserMessage(previousUserMessageAboveViewport()));
+      jumpToNextUserButton?.addEventListener("click", () => scrollToUserMessage(nextUserMessageBelowViewport()));
       jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
       reconnectButton?.addEventListener("click", reconnectSession);
 

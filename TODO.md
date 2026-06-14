@@ -473,6 +473,7 @@ Provide a matching scroll-up control that helps users navigate long sessions wit
 - Consider whether the button should appear only after the user has scrolled down far enough from the top.
 - Ensure it does not interfere with the prompt input or floating scroll-down control.
 - Implemented a matching `oldest ↑` button that appears after scrolling away from the top and jumps to the top of the conversation. The `latest ↓` button now hides while the latest assistant message is visible, which avoids prompting a jump down while reading a long latest reply. Automated tests pass; manual verification on long sessions/small screens remains open. Gateway restart is needed for the running web UI to pick up the frontend/template changes.
+- Refined the scroll controls into top/bottom button groups: `first ↑` / `previous ↑` and `next ↓` / `latest ↓`. Previous/next jump only between user-authored messages and disable auto-follow like other manual navigation. Automated tests pass; manual verification on long sessions/small screens remains open. Gateway restart is needed for the running web UI to pick up the frontend/template changes.
 
 ---
 
