@@ -167,3 +167,52 @@ Edit tool-call cards provide useful human-readable information when opened, so t
 - Avoid dumping huge edit payloads into the normal card body.
 - Prefer a stable, readable preview over raw JSON.
 - Handle missing or malformed edit arguments gracefully.
+
+---
+
+## Feature: Plan web notifications with snooze
+
+### Context
+
+The web gateway should investigate whether notifications are possible and useful, then plan what events should trigger them. Notifications should include a snooze mechanism so the user can temporarily suppress notification noise without disabling the feature permanently.
+
+This is a planning-first item: future sessions should evaluate browser notification APIs, permission UX, server/client event availability, and user experience before implementation.
+
+Potential notification events to consider:
+
+- assistant finished responding
+- assistant is waiting for user input or approval
+- tool call failed or needs attention
+- long-running command completed
+- session encountered an error or disconnected
+- gateway/server status changed if detectable from the web UI
+
+Relevant starting points likely include:
+
+- frontend JavaScript in `views/`
+- session polling or streaming update code
+- server endpoints in `app.rb`
+- any session state or event metadata in `lib/`
+
+### Goal
+
+Produce and, if approved, implement a notification system that alerts the user about important session events, avoids noisy or duplicate notifications, and supports snoozing notifications for a chosen period.
+
+### Checklist
+
+- [ ] Inspect how the web UI currently detects session state changes and new messages.
+- [ ] Determine whether browser notifications are sufficient or whether another mechanism is needed.
+- [ ] Identify which events are worth notifying about and which would be too noisy.
+- [ ] Design notification permission flow and fallback behavior when permission is denied or unavailable.
+- [ ] Design snooze behavior, including available durations, persistence, and how to unsnooze.
+- [ ] Define duplicate-suppression rules so repeated polling does not resend the same notification.
+- [ ] Propose a minimal first implementation scope.
+- [ ] Implement the approved notification behavior.
+- [ ] Verify notifications, snooze, duplicate suppression, and permission-denied behavior.
+- [ ] Note whether a gateway restart is needed.
+
+### Notes
+
+- Prefer opt-in notifications; do not surprise the user with permission prompts on page load.
+- Snooze should suppress non-critical notifications, but critical errors may need separate consideration.
+- Keep notification text concise and avoid exposing sensitive prompt or tool-output details unnecessarily.
