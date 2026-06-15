@@ -1660,13 +1660,19 @@
       document.body.classList.remove("session-shortcuts-visible");
     }
 
+    function currentSessionPath() {
+      return promptSessionInput?.value || new URLSearchParams(window.location.search).get("session") || "";
+    }
+
     async function openRecentSessionShortcut(shortcut) {
       const link = sessionSidebar?.querySelector(`.recent-session[data-session-shortcut="${shortcut}"]`);
       if (!link) return false;
       exitSessionShortcutMode();
       clearUnreadSession(link.dataset.sessionPath);
-      if (link.classList.contains("selected")) return true;
-      return switchSession(link.href, { push: true, focus: true });
+      if (currentSessionPath() === link.dataset.sessionPath) return true;
+      const switched = await switchSession(link.href, { push: true, focus: true });
+      if (!switched || currentSessionPath() !== link.dataset.sessionPath) window.location.href = link.href;
+      return switched;
     }
 
     function sessionShortcutsVisible() {
