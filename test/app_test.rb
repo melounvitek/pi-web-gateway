@@ -68,6 +68,36 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_permitted_hosts_can_be_configured_from_env
+    with_env("PI_GATEWAY_PERMITTED_HOSTS" => "remote-workspace.tail8fd8b2.ts.net, example.test") do
+      hosts = PiWebGateway.settings.host_authorization.fetch(:permitted_hosts)
+
+      assert_includes hosts, "remote-workspace.tail8fd8b2.ts.net"
+      assert_includes hosts, "example.test"
+    end
+  end
+
+  def test_configured_host_passes_host_authorization
+    env = ENV.to_h.merge(
+      "PI_GATEWAY_ADMIN_PASSWORD" => "secret",
+      "PI_GATEWAY_ENV_PATH" => File.join(Dir.tmpdir, "missing-pi-web-gateway-env"),
+      "RACK_ENV" => "development",
+      "APP_ENV" => "development",
+      "PI_GATEWAY_PERMITTED_HOSTS" => "remote-workspace.tail8fd8b2.ts.net"
+    )
+
+    stdout, stderr, status = Open3.capture3(env, RbConfig.ruby, "-I.", "-e", <<~RUBY)
+      require './app'
+      require 'rack/mock'
+      response = Rack::MockRequest.new(PiWebGateway).get('/', 'HTTP_HOST' => 'remote-workspace.tail8fd8b2.ts.net')
+      puts response.status
+      puts response.body
+    RUBY
+
+    assert status.success?, stderr
+    assert_includes stdout, "Browser access required"
+  end
+
   def test_unknown_browser_sees_access_gate_when_admin_password_is_configured
     Dir.mktmpdir do |dir|
       write_session(dir)
@@ -2302,6 +2332,26 @@ class AppTest < Minitest::Test
     entries = [{ type: "session", id: "session-1", cwd: project_cwd(root) }] + messages
     File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
     path
+  end
+
+  def with_env(values)
+    previous = values.to_h { |key, _value| [key, ENV[key]] }
+    values.each do |key, value|
+      if value.nil?
+        ENV.delete(key)
+      else
+        ENV[key] = value
+      end
+    end
+    yield
+  ensure
+    previous.each do |key, value|
+      if value.nil?
+        ENV.delete(key)
+      else
+        ENV[key] = value
+      end
+    end
   end
 
   def project_cwd(root)

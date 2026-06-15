@@ -7,6 +7,7 @@ require "nokogiri"
 require "sanitize"
 require "securerandom"
 require "set"
+require "ipaddr"
 require_relative "lib/pi_session_store"
 require_relative "lib/pi_attachment_store"
 require_relative "lib/gateway_read_state_store"
@@ -91,7 +92,35 @@ class PiWebGateway < Sinatra::Base
     end
   end
 
+  def self.permitted_hosts_from_env
+    ENV.fetch("PI_GATEWAY_PERMITTED_HOSTS", "")
+      .split(",")
+      .map(&:strip)
+      .reject(&:empty?)
+  end
+
+  def self.development_permitted_hosts
+    [
+      "localhost",
+      ".localhost",
+      ".test",
+      IPAddr.new("0.0.0.0/0"),
+      IPAddr.new("::/0")
+    ]
+  end
+
   load_gateway_env_file
+  set :host_authorization, lambda {
+    configured_hosts = permitted_hosts_from_env
+    if development?
+      { permitted_hosts: development_permitted_hosts + configured_hosts }
+    elsif configured_hosts.empty?
+      {}
+    else
+      { permitted_hosts: configured_hosts }
+    end
+  }
+
   gateway_admin_password = ENV["PI_GATEWAY_ADMIN_PASSWORD"].to_s
   if gateway_admin_password.empty?
     raise "PI_GATEWAY_ADMIN_PASSWORD is required. Set it in #{GATEWAY_ENV_PATH} or in the gateway process environment."
