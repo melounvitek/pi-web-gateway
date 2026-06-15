@@ -74,6 +74,8 @@
     .message--tool .message-body, .message--tool-transcript .message-body, .raw-details pre { max-width: 100%; overflow-x: auto; }
     .message-details summary:hover { color: var(--text); }
     .message-details[open] summary { margin-bottom: 0.5rem; }
+    .details-collapse-button { margin-top: 0.75rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-weight: 700; padding: 0; }
+    .details-collapse-button:hover { color: var(--text); }
     .compact-summary { margin-left: 0.25rem; }
     .message-body--thinking { font-size: 0.95rem; font-style: italic; line-height: 1.45; color: var(--muted); }
     .thinking-prefix { font-style: normal; font-weight: 700; color: var(--muted-soft); }
@@ -952,6 +954,11 @@
       const body = document.createElement("pre");
       body.className = "message-body";
       body.textContent = text;
+      const collapseButton = document.createElement("button");
+      collapseButton.type = "button";
+      collapseButton.className = "details-collapse-button";
+      collapseButton.dataset.collapseDetails = "";
+      collapseButton.textContent = "▴ Collapse details";
       details.append(summaryElement, body);
 
       let rawBody = null;
@@ -965,6 +972,7 @@
         rawDetailsElement.append(rawSummary, rawBody);
         details.append(rawDetailsElement);
       }
+      details.append(collapseButton);
 
       article.append(header, details);
       liveOutput.append(article);
@@ -1462,6 +1470,11 @@
       jumpToNextUserButton?.addEventListener("click", () => scrollToUserMessage(nextUserMessageBelowViewport()));
       jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
       reconnectButton?.addEventListener("click", reconnectSession);
+      conversationPanel?.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-collapse-details]")) return;
+        const details = event.target.closest("details.message-details");
+        if (details) details.open = false;
+      });
 
       promptTextarea?.addEventListener("input", () => {
         resizePromptTextarea();

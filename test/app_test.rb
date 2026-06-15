@@ -1097,6 +1097,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">read</span> <span class="tool-path">test/app_test.rb</span><span class="tool-range">:545-654</span></span></summary>'
       assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">edit</span> <span class="tool-path">test/pi_session_store_test.rb</span></span></summary>'
       assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">write</span> <span class="tool-path">notes/status.txt</span></span></summary>'
+      assert_includes response.body, '<button type="button" class="details-collapse-button" data-collapse-details>▴ Collapse details</button>'
       refute_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, '+71 assert_equal [true, false], messages.map(&amp;:thinking)'
       assert_includes response.body, '545 assert_equal 200, response.status'
@@ -1275,6 +1276,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'if (lines[lines.length - 1] === "") lines.pop();'
       assert_includes response.body, "segment.toolTranscript && segment.error !== true ? segment.text"
       assert_includes response.body, 'details.open = options.open === true;'
+      assert_includes response.body, 'collapseButton.textContent = "▴ Collapse details";'
+      assert_includes response.body, 'event.target.closest("[data-collapse-details]")'
       assert_includes response.body, 'error: message.isError === true'
       assert_includes response.body, 'open: segment.expanded'
       assert_includes response.body, 'error: segment.error'

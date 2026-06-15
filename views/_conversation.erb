@@ -37,6 +37,7 @@
                       <pre><%= h message.raw_details %></pre>
                     </details>
                   <% end %>
+                  <button type="button" class="details-collapse-button" data-collapse-details>▴ Collapse details</button>
                 </details>
               <% else %>
                 <% if message.role == "assistant" %>
