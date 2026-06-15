@@ -38,6 +38,7 @@
     a.session:hover { background: var(--panel-soft); border-color: var(--border); transform: translateX(1px); }
     a.session.selected { background: linear-gradient(90deg, rgba(138, 190, 183, 0.22), rgba(138, 190, 183, 0.08)); border-color: rgba(138, 190, 183, 0.55); }
     a.session.selected::before { content: ""; position: absolute; left: -1rem; top: 0.7rem; bottom: 0.7rem; width: 4px; border-radius: 999px; background: var(--accent); }
+    a.session.unread .session-title::after { content: ""; display: inline-block; width: 0.45rem; height: 0.45rem; margin-left: 0.45rem; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.16); vertical-align: middle; }
     .session-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sidebar-icon-button { flex: 0 0 auto; width: 1.65rem; height: 1.65rem; padding: 0; border-radius: 999px; line-height: 1; }
@@ -252,6 +253,8 @@
     let liveStatusModel = null;
     let liveStatusThinking = null;
     let pendingImages = [];
+    const unreadSessionPaths = new Set(JSON.parse(localStorage.getItem("piSidebarUnreadSessions") || "[]"));
+    let sidebarEventSequences = new Map();
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
     let eventPollInFlight = false;
@@ -269,6 +272,7 @@
 
     function bindSessionDom() {
       sessionSidebar = document.querySelector(".session-sidebar");
+      applySidebarUnreadState();
       conversationPanel = document.querySelector(".conversation-panel");
       liveOutput = document.getElementById("live-output");
       promptForm = document.querySelector(".prompt-form");
@@ -1545,6 +1549,30 @@
       return sidebarUrl;
     }
 
+    function saveUnreadSessions() {
+      localStorage.setItem("piSidebarUnreadSessions", JSON.stringify([...unreadSessionPaths]));
+    }
+
+    function clearUnreadSession(path) {
+      if (!path) return;
+      unreadSessionPaths.delete(path);
+      saveUnreadSessions();
+    }
+
+    function applySidebarUnreadState() {
+      sessionSidebar?.querySelectorAll("a.session[data-session-path]").forEach((link) => {
+        const path = link.dataset.sessionPath;
+        const sequence = Number(link.dataset.eventSeq || 0);
+        const selected = link.classList.contains("selected");
+        const previousSequence = sidebarEventSequences.get(path);
+        if (selected) clearUnreadSession(path);
+        if (!selected && previousSequence !== undefined && sequence > previousSequence) unreadSessionPaths.add(path);
+        sidebarEventSequences.set(path, sequence);
+        link.classList.toggle("unread", unreadSessionPaths.has(path) && !selected);
+      });
+      saveUnreadSessions();
+    }
+
     function scheduleSidebarRefresh() {
       clearTimeout(sidebarRefreshTimer);
       if (document.hidden) return;
@@ -1558,6 +1586,7 @@
       if (generation !== sessionViewGeneration || !sessionSidebar) return;
       sessionSidebar.outerHTML = html;
       sessionSidebar = document.querySelector(".session-sidebar");
+      applySidebarUnreadState();
       scheduleSidebarRefresh();
     }
 
@@ -1620,6 +1649,7 @@
       if (!link || !normalLeftClick(event)) return;
 
       event.preventDefault();
+      clearUnreadSession(link.dataset.sessionPath);
       if (link.classList.contains("selected")) return;
 
       await switchSession(link.href, { push: true, focus: true });

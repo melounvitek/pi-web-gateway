@@ -17,7 +17,7 @@
             </form>
           </div>
           <% visible_sidebar_sessions(cwd, sessions).each do |session| %>
-            <a class="session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>">
+            <a class="session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-event-seq="<%= h rpc_clients.event_sequence(session.path) %>">
               <div class="session-title">
                 <%= h session.display_name %>
                 <% if rpc_clients.busy?(session.path) %>
