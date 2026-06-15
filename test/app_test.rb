@@ -1785,7 +1785,10 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
 
       assert_equal 200, response.status
-      assert_includes response.body, "const unreadSessionPaths = new Set(JSON.parse(localStorage.getItem(\"piSidebarUnreadSessions\") || \"[]\"));"
+      assert_includes response.body, "function loadUnreadSessions()"
+      assert_includes response.body, "try {"
+      assert_includes response.body, "return new Set(JSON.parse(localStorage.getItem(\"piSidebarUnreadSessions\") || \"[]\"));"
+      assert_includes response.body, "const unreadSessionPaths = loadUnreadSessions();"
       assert_includes response.body, "function applySidebarUnreadState()"
       assert_includes response.body, "unreadSessionPaths.add(path);"
       assert_includes response.body, "link.classList.toggle(\"unread\", unreadSessionPaths.has(path) && !selected);"

@@ -255,7 +255,6 @@
     let liveStatusModel = null;
     let liveStatusThinking = null;
     let pendingImages = [];
-    const unreadSessionPaths = new Set(JSON.parse(localStorage.getItem("piSidebarUnreadSessions") || "[]"));
     let sidebarEventSequences = new Map();
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
@@ -271,6 +270,16 @@
     let scheduledAutoScrollFrame = null;
     let sessionViewGeneration = 0;
     let sessionSwitchGeneration = 0;
+
+    function loadUnreadSessions() {
+      try {
+        return new Set(JSON.parse(localStorage.getItem("piSidebarUnreadSessions") || "[]"));
+      } catch (_error) {
+        return new Set();
+      }
+    }
+
+    const unreadSessionPaths = loadUnreadSessions();
 
     function bindSessionDom() {
       sessionSidebar = document.querySelector(".session-sidebar");
@@ -1552,7 +1561,10 @@
     }
 
     function saveUnreadSessions() {
-      localStorage.setItem("piSidebarUnreadSessions", JSON.stringify([...unreadSessionPaths]));
+      try {
+        localStorage.setItem("piSidebarUnreadSessions", JSON.stringify([...unreadSessionPaths]));
+      } catch (_error) {
+      }
     }
 
     function clearUnreadSession(path) {
