@@ -327,6 +327,7 @@ class PiWebGateway < Sinatra::Base
       payload = { session: session_path, redirect: redirect_path }
       if rename_command
         payload[:command] = "rename"
+        payload[:name] = rename_command[:name] if rename_command[:name]
         payload[:error] = rename_command.fetch(:error) if rename_command[:error]
       end
       JSON.generate(payload)

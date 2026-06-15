@@ -85,6 +85,7 @@ class AppTest < Minitest::Test
       payload = JSON.parse(response.body)
       assert_equal path, payload.fetch("session")
       assert_equal "rename", payload.fetch("command")
+      assert_equal "Useful name", payload.fetch("name")
     end
   end
 
@@ -1043,6 +1044,27 @@ class AppTest < Minitest::Test
       assert_includes payload.fetch("conversation_html"), "conversation-panel"
       assert_includes payload.fetch("conversation_html"), "expanded_cwd"
       assert_includes payload.fetch("conversation_html"), paths.first
+      assert_includes payload.fetch("conversation_html"), "project"
+      assert_includes payload.fetch("conversation_html"), "session-header-project"
+    end
+  end
+
+  def test_renders_selected_session_header_with_project_label
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      header = document.at_css(".session-header")
+      assert_equal "project", header.at_css(".session-header-project").text
+      assert_equal "project", header.at_css(".session-header-project")["title"]
     end
   end
 
@@ -1763,10 +1785,12 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (/^\\/(?:name|rename)$/.test(trimmed)) return { valid: false };"
       assert_includes response.body, "if (/^\\/(?:name|rename)[ \\t]+[^\\r\\n]+$/.test(trimmed)) return { valid: true };"
       assert_includes response.body, "function sessionNameSlashCommand(message)"
+      assert_includes response.body, "function updateSessionHeaderName(name)"
+      assert_includes response.body, "if (event.type === \"session_info\" && event.name) updateSessionHeaderName(event.name);"
       assert_includes response.body, "const renameCommand = sessionNameSlashCommand(message);"
       assert_includes response.body, "if (!renameCommand) {\n        resetLiveAssistantTracking();\n        resetEventPollBackoff();\n        scheduleNextEventPoll(0);\n        appendMessage(\"user\", [message, pendingImages.length > 0"
       assert_includes response.body, "true, true, new Date(), { optimistic: true, optimisticText: message });"
-      assert_includes response.body, "if (payload?.command === \"rename\") {\n          if (payload.error) {\n            setComposerState(\"error\", payload.error);\n            showStatus(payload.error, true);\n            return;\n          }\n          window.location.href = payload.redirect || window.location.href;\n          return;\n        }"
+      assert_includes response.body, "if (payload?.command === \"rename\") {\n          if (payload.error) {\n            setComposerState(\"error\", payload.error);\n            showStatus(payload.error, true);\n            return;\n          }\n          updateSessionHeaderName(payload.name);\n          setComposerState(\"done\", \"Renamed\");\n          showStatus(eventStatusText({ type: \"session_info\", name: payload.name }), true);\n          refreshSidebar().catch(() => {});\n          return;\n        }"
       assert_includes response.body, "promptForm.requestSubmit();"
       assert_includes response.body, "function resizePromptTextarea()"
       assert_includes response.body, "commandList?.removeAttribute(\"open\");"
