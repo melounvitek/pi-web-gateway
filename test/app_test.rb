@@ -98,6 +98,19 @@ class AppTest < Minitest::Test
     assert_includes stdout, "Browser access required"
   end
 
+  def test_session_view_links_to_notification_test
+    Dir.mktmpdir do |dir|
+      session_path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => session_path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, 'href="/notification-test"'
+      assert_includes response.body, "Notifications"
+    end
+  end
+
   def test_serves_notification_test_page
     Dir.mktmpdir do |dir|
       write_session(dir)
