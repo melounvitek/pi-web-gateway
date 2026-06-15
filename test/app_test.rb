@@ -1796,8 +1796,10 @@ class AppTest < Minitest::Test
       assert_includes response.body, "responseCount > previousResponseCount"
       assert_includes response.body, "link.classList.toggle(\"unread\", unreadSessionPaths.has(path) && !selected);"
       assert_includes response.body, "clearUnreadSession(link.dataset.sessionPath);"
-      assert_includes response.body, "a.session.unread { background"
       assert_includes response.body, "a.session.unread .session-title"
+      assert_includes response.body, "a.session.unread .session-indicators::before"
+      assert_includes response.body, "content: \"new\""
+      refute_includes response.body, "a.session.unread { background"
       refute_includes response.body, "a.session.unread::after"
     end
   end

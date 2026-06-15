@@ -40,11 +40,10 @@
     a.session:hover { background: var(--panel-soft); border-color: var(--border); transform: translateX(1px); }
     a.session.selected { background: linear-gradient(90deg, rgba(138, 190, 183, 0.22), rgba(138, 190, 183, 0.08)); border-color: rgba(138, 190, 183, 0.55); }
     a.session.selected::before { content: ""; position: absolute; left: -1rem; top: 0.7rem; bottom: 0.7rem; width: 4px; border-radius: 999px; background: var(--accent); }
-    a.session.unread { background: rgba(138, 190, 183, 0.1); border-color: rgba(138, 190, 183, 0.38); }
     a.session.unread .session-title { color: var(--text); font-weight: 800; }
-    a.session.unread .session-meta { color: var(--muted); }
+    a.session.unread .session-indicators::before { content: "new"; padding: 0.1rem 0.35rem; border: 1px solid rgba(138, 190, 183, 0.45); border-radius: 999px; color: var(--accent); background: rgba(138, 190, 183, 0.08); font-size: 0.62rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.04em; }
     .session-content { min-width: 0; }
-    .session-indicators { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 0.7rem; }
+    .session-indicators { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.35rem; min-width: 0.7rem; }
     .session-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sidebar-icon-button { flex: 0 0 auto; width: 1.65rem; height: 1.65rem; padding: 0; border-radius: 999px; line-height: 1; }
