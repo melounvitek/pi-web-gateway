@@ -450,15 +450,17 @@ class PiWebGateway < Sinatra::Base
 
       self.addEventListener("message", (event) => {
         const data = event.data || {};
-        if (data.type !== "pi-notification-test") return;
+        if (!["pi-notification", "pi-notification-test"].includes(data.type)) return;
 
+        const defaultUrl = data.type === "pi-notification-test" ? "/notification-test" : "/";
+        const defaultTag = data.type === "pi-notification-test" ? "pi-notification-test" : "pi-notification";
         event.waitUntil(self.registration.showNotification(data.title || "Pi Web Gateway", {
           body: data.body || "Notifications are working.",
-          tag: "pi-notification-test",
+          tag: data.tag || defaultTag,
           renotify: true,
           icon: "/app-icon.svg",
           badge: "/app-icon.svg",
-          data: { url: data.url || "/notification-test" }
+          data: { url: data.url || defaultUrl }
         }));
       });
 

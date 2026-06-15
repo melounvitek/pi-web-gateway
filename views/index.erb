@@ -313,6 +313,8 @@
     let sessionSwitchGeneration = 0;
     let sessionShortcutTimer = null;
     let lastSidebarInteractionAt = 0;
+    let notificationRegistration = null;
+    let lastAgentFinishedNotificationKey = null;
 
     function bindSessionDom() {
       sessionSidebar = document.querySelector(".session-sidebar");
@@ -560,6 +562,37 @@
         liveStatusModel = [message.provider, message.model].filter(Boolean).join("/");
         renderModelStatus();
       }
+    }
+
+    function notificationAvailable() {
+      return "Notification" in window && "serviceWorker" in navigator;
+    }
+
+    async function ensureNotificationWorker() {
+      if (!notificationAvailable() || Notification.permission !== "granted") return null;
+      notificationRegistration ||= await navigator.serviceWorker.register("/service-worker.js");
+      await navigator.serviceWorker.ready;
+      return notificationRegistration;
+    }
+
+    async function showPiNotification(title, body, url, tag) {
+      if (!(document.hidden || !document.hasFocus())) return;
+      const worker = await ensureNotificationWorker();
+      if (!worker) return;
+      if (worker.active) {
+        worker.active.postMessage({ type: "pi-notification", title, body, url, tag });
+      } else {
+        await worker.showNotification(title, { body, tag, renotify: true, icon: "/app-icon.svg", badge: "/app-icon.svg", data: { url } });
+      }
+    }
+
+    function notifyAgentFinished(event) {
+      const sessionPath = currentSessionPath();
+      const key = [sessionPath, lastEventSeq].join(":");
+      if (!sessionPath || lastAgentFinishedNotificationKey === key) return;
+      lastAgentFinishedNotificationKey = key;
+      const name = document.querySelector(".session-header-name")?.textContent.trim() || "current session";
+      showPiNotification("Pi is waiting", `Task finished in ${name}.`, window.location.href, `pi-agent-finished:${sessionPath}`).catch(() => {});
     }
 
     function updateStatusFromEvent(event) {
@@ -1284,6 +1317,7 @@
       if (["turn_end", "agent_end"].includes(event.type)) {
         if (liveAssistantSeen) showStatus("Done");
         setComposerState("done", "Done");
+        notifyAgentFinished(event);
         resetLiveAssistantTracking();
         return;
       }
@@ -1921,6 +1955,7 @@
     });
 
     function initializeSessionView({ focus = true } = {}) {
+      ensureNotificationWorker().catch(() => {});
       if (document.body.dataset.browserAccessEnabled === "true" && !browserAccessPollTimer) pollBrowserAccessRequests();
       if (liveOutput) {
         resetEventCursor();

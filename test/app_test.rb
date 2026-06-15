@@ -142,6 +142,7 @@ class AppTest < Minitest::Test
     assert_equal 200, response.status
     assert_equal "application/javascript", response.media_type
     assert_includes response.body, "self.registration.showNotification"
+    assert_includes response.body, '["pi-notification", "pi-notification-test"].includes(data.type)'
     assert_includes response.body, "notificationclick"
   end
 
@@ -2177,6 +2178,21 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_live_event_script_notifies_when_agent_finishes
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, "function notifyAgentFinished(event)"
+      assert_includes response.body, "showPiNotification(\"Pi is waiting\""
+      assert_includes response.body, "notifyAgentFinished(event);"
+      assert_includes response.body, "document.hidden || !document.hasFocus()"
+    end
+  end
+
   def test_live_event_script_updates_streaming_segments_in_place
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -2197,7 +2213,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "const updated = updateLiveSegment(existing, roleName, segment, shouldScroll, timestamp);"
       assert_includes response.body, "liveAssistantSegments.set(key, entry);"
       assert_includes response.body, "if (roleName === \"assistant\" && event.type === \"message_start\") resetLiveAssistantTracking();"
-      assert_includes response.body, "if ([\"turn_end\", \"agent_end\"].includes(event.type)) {\n        if (liveAssistantSeen) showStatus(\"Done\");\n        setComposerState(\"done\", \"Done\");\n        resetLiveAssistantTracking();"
+      assert_includes response.body, "if ([\"turn_end\", \"agent_end\"].includes(event.type)) {\n        if (liveAssistantSeen) showStatus(\"Done\");\n        setComposerState(\"done\", \"Done\");\n        notifyAgentFinished(event);\n        resetLiveAssistantTracking();"
     end
   end
 
