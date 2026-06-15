@@ -164,6 +164,12 @@
     body.session-switching .session-switch-overlay { display: grid; }
     .session-switch-indicator { display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 999px; background: rgba(30, 30, 36, 0.94); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); font-weight: 700; }
     .session-switch-spinner { width: 1.1rem; height: 1.1rem; border: 2px solid rgba(138, 190, 183, 0.25); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
+    .browser-access-overlay { position: fixed; inset: 0; z-index: 110; display: none; place-items: start center; padding: 1rem; background: rgba(24, 24, 30, 0.38); pointer-events: none; }
+    .browser-access-overlay.is-visible { display: grid; }
+    .browser-access-card { width: min(38rem, 100%); display: grid; gap: 0.65rem; padding: 0.85rem 1rem; border: 1px solid rgba(138, 190, 183, 0.5); border-radius: 0.9rem; background: rgba(30, 30, 36, 0.97); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36); pointer-events: auto; }
+    .browser-access-title { font-weight: 850; }
+    .browser-access-meta { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+    .browser-access-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
     @keyframes session-switch-spin { to { transform: rotate(360deg); } }
     .mobile-session-toggle, .mobile-sessions-button, .mobile-sidebar-backdrop { display: none; }
     .hamburger-icon { position: relative; display: inline-block; width: 1.25rem; height: 0.9rem; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor; }
@@ -222,7 +228,7 @@
     }
   </style>
 </head>
-<body>
+<body data-browser-access-enabled="<%= browser_access_enabled? ? "true" : "false" %>">
   <div class="app-shell">
     <input type="checkbox" class="mobile-session-toggle" id="mobile-session-toggle">
     <%= erb :_sidebar, layout: false %>
@@ -232,6 +238,16 @@
   </div>
   <div class="session-switch-overlay" role="status" aria-live="polite" aria-label="Loading session">
     <div class="session-switch-indicator"><span class="session-switch-spinner" aria-hidden="true"></span> Loading session…</div>
+  </div>
+  <div class="browser-access-overlay" data-browser-access-overlay aria-live="polite">
+    <div class="browser-access-card">
+      <div class="browser-access-title" data-browser-access-title></div>
+      <div class="browser-access-meta" data-browser-access-meta></div>
+      <div class="browser-access-actions">
+        <button class="secondary" type="button" data-browser-access-deny>Deny</button>
+        <button type="button" data-browser-access-allow>Allow</button>
+      </div>
+    </div>
   </div>
   <script>
     let sessionSidebar = null;
@@ -259,6 +275,9 @@
     let sessionStatusBar = null;
     let reconnectBanner = null;
     let reconnectButton = null;
+    let browserAccessOverlay = null;
+    let browserAccessCurrentCode = null;
+    let browserAccessPollTimer = null;
     let liveAssistantMessage = null;
     let liveAssistantSegments = new Map();
     let liveAssistantSeen = false;
@@ -1791,7 +1810,63 @@
       promptTextarea.focus();
     });
 
+    function browserAccessElements() {
+      return {
+        overlay: document.querySelector("[data-browser-access-overlay]"),
+        title: document.querySelector("[data-browser-access-title]"),
+        meta: document.querySelector("[data-browser-access-meta]"),
+        allow: document.querySelector("[data-browser-access-allow]"),
+        deny: document.querySelector("[data-browser-access-deny]")
+      };
+    }
+
+    async function pollBrowserAccessRequests() {
+      try {
+        const response = await fetch("/browser-access/pending", { headers: { "Accept": "application/json" } });
+        if (response.ok) {
+          const payload = await response.json();
+          showBrowserAccessRequest((payload.requests || [])[0]);
+        }
+      } catch (_error) {
+      } finally {
+        browserAccessPollTimer = setTimeout(pollBrowserAccessRequests, 3000);
+      }
+    }
+
+    function showBrowserAccessRequest(request) {
+      const elements = browserAccessElements();
+      browserAccessOverlay = elements.overlay;
+      if (!elements.overlay) return;
+      if (!request) {
+        browserAccessCurrentCode = null;
+        elements.overlay.classList.remove("is-visible");
+        return;
+      }
+
+      browserAccessCurrentCode = request.code;
+      elements.title.textContent = `New browser requests access: ${request.code}`;
+      elements.meta.textContent = [request.ip, request.user_agent].filter(Boolean).join(" · ");
+      elements.overlay.classList.add("is-visible");
+    }
+
+    async function resolveBrowserAccessRequest(action) {
+      if (!browserAccessCurrentCode) return;
+      const formData = new FormData();
+      formData.set("code", browserAccessCurrentCode);
+      await fetch(`/browser-access/${action}`, { method: "POST", body: formData, headers: { "Accept": "application/json" } });
+      showBrowserAccessRequest(null);
+      clearTimeout(browserAccessPollTimer);
+      browserAccessPollTimer = null;
+      pollBrowserAccessRequests();
+    }
+
+    document.addEventListener("click", (event) => {
+      if (event.target.closest("[data-browser-access-allow]")) resolveBrowserAccessRequest("approve").catch(() => {});
+      if (event.target.closest("[data-browser-access-deny]")) resolveBrowserAccessRequest("deny").catch(() => {});
+    });
+
     function initializeSessionView({ focus = true } = {}) {
+      if (document.body.dataset.browserAccessEnabled === "true" && !browserAccessPollTimer) pollBrowserAccessRequests();
       if (liveOutput) {
         resetEventCursor();
         const initialComposerState = liveOutput.dataset.composerState;

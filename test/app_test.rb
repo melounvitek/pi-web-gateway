@@ -10,8 +10,11 @@ class AppTest < Minitest::Test
   def setup
     @attachments_root = Dir.mktmpdir
     @read_state_root = Dir.mktmpdir
+    @browser_access_root = Dir.mktmpdir
     PiWebGateway.set :attachments_root, @attachments_root
     PiWebGateway.set :read_state_path, File.join(@read_state_root, "read-state.json")
+    PiWebGateway.set :browser_access_path, File.join(@browser_access_root, "browser-access.json")
+    PiWebGateway.set :gateway_admin_password, nil
     PiWebGateway.set :rpc_client_registry, nil
     PiWebGateway.set :pending_rpc_cwds, {}
     PiWebGateway.set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
@@ -21,6 +24,125 @@ class AppTest < Minitest::Test
   def teardown
     FileUtils.remove_entry(@attachments_root) if @attachments_root && Dir.exist?(@attachments_root)
     FileUtils.remove_entry(@read_state_root) if @read_state_root && Dir.exist?(@read_state_root)
+    FileUtils.remove_entry(@browser_access_root) if @browser_access_root && Dir.exist?(@browser_access_root)
+  end
+
+  def test_unknown_browser_sees_access_gate_when_admin_password_is_configured
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/")
+
+      assert_equal 403, response.status
+      assert_includes response.body, "Browser access required"
+      assert_includes response.body, "Ask access"
+      state = JSON.parse(File.read(PiWebGateway.settings.browser_access_path))
+      assert_equal 1, state.fetch("pending_requests").length
+      refute state.fetch("pending_requests").first.fetch("requested")
+    end
+  end
+
+  def test_browser_can_request_access_and_approved_browser_can_allow_it
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      blocked = request.get("/")
+      cookie = Array(blocked["Set-Cookie"]).first.split(";", 2).first
+      requested = request.post("/browser-access/request", "HTTP_COOKIE" => cookie)
+
+      assert_equal 303, requested.status
+      state = JSON.parse(File.read(PiWebGateway.settings.browser_access_path))
+      pending = state.fetch("pending_requests").first
+      assert pending.fetch("requested")
+
+      store = BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path)
+      approved_token = "approved-token"
+      store.approve_current_browser(approved_token, label: "test")
+      pending_response = request.get("/browser-access/pending", "HTTP_COOKIE" => "pi_gateway_browser=#{approved_token}")
+      assert_equal 200, pending_response.status
+      assert_equal pending.fetch("code"), JSON.parse(pending_response.body).fetch("requests").first.fetch("code")
+
+      approve_response = request.post(
+        "/browser-access/approve",
+        params: { "code" => pending.fetch("code") },
+        "HTTP_COOKIE" => "pi_gateway_browser=#{approved_token}"
+      )
+      assert_equal 200, approve_response.status
+
+      allowed = request.get("/", "HTTP_COOKIE" => cookie)
+      assert_equal 200, allowed.status
+      assert_includes allowed.body, "Pi Web Gateway"
+      refute_includes allowed.body, "Browser access required"
+    end
+  end
+
+  def test_access_redirects_reject_external_return_targets
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      blocked = request.get("/")
+      cookie = Array(blocked["Set-Cookie"]).first.split(";", 2).first
+      login = request.post(
+        "/browser-access/admin-login",
+        params: { "password" => "secret", "return_to" => "https://example.test/steal" },
+        "HTTP_COOKIE" => cookie
+      )
+      assert_equal "http://example.org/", login["Location"]
+
+      request_access = request.post(
+        "/browser-access/request",
+        params: { "return_to" => "//example.test/steal" },
+        "HTTP_COOKIE" => cookie
+      )
+      assert_equal "http://example.org/", request_access["Location"]
+    end
+  end
+
+  def test_approve_and_deny_require_code
+    Dir.mktmpdir do |dir|
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      store = BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path)
+      approved_token = "approved-token"
+      store.approve_current_browser(approved_token, label: "test")
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      approve_response = request.post("/browser-access/approve", "HTTP_COOKIE" => "pi_gateway_browser=#{approved_token}")
+      deny_response = request.post("/browser-access/deny", "HTTP_COOKIE" => "pi_gateway_browser=#{approved_token}")
+
+      assert_equal 400, approve_response.status
+      assert_equal 400, deny_response.status
+    end
+  end
+
+  def test_admin_password_approves_current_browser
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      blocked = request.get("/")
+      cookie = Array(blocked["Set-Cookie"]).first.split(";", 2).first
+      login = request.post(
+        "/browser-access/admin-login",
+        params: { "password" => "secret" },
+        "HTTP_COOKIE" => cookie
+      )
+      assert_equal 303, login.status
+
+      allowed = request.get("/", "HTTP_COOKIE" => cookie)
+      assert_equal 200, allowed.status
+      refute_includes allowed.body, "Browser access required"
+    end
   end
 
   def test_posts_prompt_to_selected_session_and_redirects_back

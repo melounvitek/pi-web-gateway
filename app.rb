@@ -10,6 +10,7 @@ require "set"
 require_relative "lib/pi_session_store"
 require_relative "lib/pi_attachment_store"
 require_relative "lib/gateway_read_state_store"
+require_relative "lib/browser_access_store"
 require_relative "lib/pi_rpc_client"
 require_relative "lib/pi_rpc_client_registry"
 
@@ -74,6 +75,8 @@ class PiWebGateway < Sinatra::Base
   set :sessions_root, ENV.fetch("PI_SESSIONS_ROOT", File.expand_path("~/.pi/agent/sessions"))
   set :attachments_root, ENV.fetch("PI_ATTACHMENTS_ROOT", File.expand_path("~/.pi/web-gateway/attachments"))
   set :read_state_path, ENV.fetch("PI_READ_STATE_PATH", File.expand_path("~/.pi/web-gateway/read-state.json"))
+  set :browser_access_path, ENV.fetch("PI_BROWSER_ACCESS_PATH", File.expand_path("~/.pi/web-gateway/browser-access.json"))
+  set :gateway_admin_password, ENV["PI_GATEWAY_ADMIN_PASSWORD"]
   set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
   set :new_rpc_client_factory, [->(cwd) { PiRpcClient.start_in_cwd(cwd) }]
   set :rpc_client_registry, nil
@@ -291,7 +294,63 @@ class PiWebGateway < Sinatra::Base
   end
 
   before do
+    enforce_browser_access
     cleanup_idle_rpc_clients
+  end
+
+  post "/browser-access/request" do
+    halt 404 unless browser_access_enabled?
+
+    browser_access_store.request_access(browser_token)
+    redirect safe_return_to
+  end
+
+  post "/browser-access/admin-login" do
+    halt 404 unless browser_access_enabled?
+
+    if secure_compare(params["password"].to_s, settings.gateway_admin_password.to_s)
+      browser_access_store.approve_current_browser(browser_token, label: request.user_agent)
+      redirect safe_return_to
+    else
+      @access_request = browser_access_store.ensure_pending(token: browser_token, ip: request.ip, user_agent: request.user_agent)
+      @access_error = "Admin password did not match."
+      status 403
+      erb :access_blocked
+    end
+  end
+
+  get "/browser-access/status" do
+    halt 404 unless browser_access_enabled?
+
+    content_type :json
+    JSON.generate(status: browser_access_store.pending_status(browser_token))
+  end
+
+  get "/browser-access/pending" do
+    halt 403 unless approved_browser?
+
+    content_type :json
+    JSON.generate(requests: browser_access_store.pending_requests)
+  end
+
+  post "/browser-access/approve" do
+    halt 403 unless approved_browser?
+
+    halt 400, "Code is required" if params["code"].to_s.empty?
+
+    request = browser_access_store.approve_code(params.fetch("code"))
+    content_type :json
+    JSON.generate(ok: !request.nil?)
+  end
+
+  post "/browser-access/deny" do
+    halt 403 unless approved_browser?
+
+    halt 400, "Code is required" if params["code"].to_s.empty?
+
+    request = browser_access_store.deny_code(params.fetch("code"))
+    content_type :json
+    JSON.generate(ok: !request.nil?)
   end
 
   get "/" do
@@ -420,6 +479,67 @@ class PiWebGateway < Sinatra::Base
   end
 
   private
+
+  ACCESS_ENDPOINTS = %w[
+    /browser-access/request
+    /browser-access/admin-login
+    /browser-access/status
+    /browser-access/pending
+    /browser-access/approve
+    /browser-access/deny
+  ].freeze
+
+  def browser_access_enabled?
+    !settings.gateway_admin_password.to_s.empty?
+  end
+
+  def browser_access_store
+    if @browser_access_store_path != settings.browser_access_path
+      @browser_access_store_path = settings.browser_access_path
+      @browser_access_store = BrowserAccessStore.new(path: settings.browser_access_path)
+    end
+    @browser_access_store
+  end
+
+  def browser_token
+    return @browser_token if defined?(@browser_token)
+
+    @browser_token = request.cookies["pi_gateway_browser"]
+    return @browser_token unless @browser_token.to_s.empty?
+
+    @browser_token = SecureRandom.hex(32)
+    response.set_cookie("pi_gateway_browser", value: @browser_token, path: "/", httponly: true, same_site: :lax)
+    @browser_token
+  end
+
+  def approved_browser?
+    browser_access_enabled? && browser_access_store.approved?(browser_token)
+  end
+
+  def enforce_browser_access
+    return unless browser_access_enabled?
+    return if ACCESS_ENDPOINTS.include?(request.path_info)
+    return if approved_browser?
+
+    @access_request = browser_access_store.ensure_pending(token: browser_token, ip: request.ip, user_agent: request.user_agent)
+    @access_error = nil
+    status 403
+    halt erb(:access_blocked)
+  end
+
+  def safe_return_to
+    return_to = params["return_to"].to_s
+    return return_to if return_to.start_with?("/") && !return_to.start_with?("//")
+
+    "/"
+  end
+
+  def secure_compare(left, right)
+    return false if left.empty? || right.empty?
+    return false unless left.bytesize == right.bytesize
+
+    Rack::Utils.secure_compare(left, right)
+  end
 
   def json_request?
     request.env["HTTP_ACCEPT"].to_s.include?("application/json")
