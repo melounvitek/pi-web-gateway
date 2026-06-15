@@ -93,7 +93,7 @@ class PiWebGateway < Sinatra::Base
     end
 
     def format_time(time)
-      time&.strftime("%Y-%m-%d %H:%M") || "unknown"
+      time&.localtime&.strftime("%Y-%m-%d %H:%M") || "unknown"
     end
 
     def message_role_key(role)

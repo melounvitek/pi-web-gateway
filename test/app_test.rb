@@ -901,7 +901,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--error" data-role="error"'
       assert_includes response.body, 'class="message-body"'
       assert_includes response.body, "Hello &lt;Pi&gt;"
-      assert_includes response.body, "2026-06-13 10:00"
+      assert_includes response.body, Time.parse("2026-06-13T10:00:00Z").localtime.strftime("%Y-%m-%d %H:%M")
       refute_includes response.body, "Hello <Pi>"
       assert_includes response.body, "messageRoleKey"
     end
@@ -1552,6 +1552,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "article.dataset.optimisticText = options.optimisticText ?? text;"
       assert_includes response.body, 'upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);'
       assert_includes response.body, "function formatTimestamp(timestamp)"
+      assert_includes response.body, "date.getHours()"
+      refute_includes response.body, "date.getUTCHours()"
       assert_includes response.body, "function eventTimestamp(event)"
       assert_includes response.body, 'appendMessage("assistant", segment.text, true, shouldScroll, timestamp, { thinking: segment.thinking });'
       assert_includes response.body, 'function renderAssistantMarkdown(body, text, delay = 120)'
