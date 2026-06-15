@@ -790,6 +790,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "scrollbar-width: none"
       assert_includes response.body, ".message--user { margin-left: 10%; background: #343541; border-color: rgba(69, 133, 255, 0.72); color: #d4d4d4; }"
       assert_includes response.body, ".message--assistant { margin-right: 10%; background: #080d20; border-color: rgba(69, 133, 255, 0.32); color: #f0c7a4; }"
+      assert_includes response.body, ".message--thinking { margin-right: 16%; background: rgba(12, 14, 24, 0.58); border-color: rgba(128, 128, 128, 0.26); border-style: dashed; color: #7f7f88; box-shadow: none; }"
     end
   end
 
