@@ -448,7 +448,7 @@ Determine whether session open/create flows can be made smoother without full pa
 - [x] Weigh HTMX pros and cons for this app versus plain JavaScript or keeping full reloads.
 - [x] Decide how browser history, back/forward navigation, and deep links should behave.
 - [x] Decide how polling, auto-scroll state, input contents, and focus should reset or transfer across session switches.
-- [ ] Ensure session rename events update the visible session title/sidebar state without a manual refresh.
+- [x] Ensure session rename events update the visible session title/sidebar state without a manual refresh.
 - [x] Propose the smallest safe implementation strategy.
 - [x] Implement the approved no-full-reload behavior for existing session switches.
 - [x] Implement the approved no-full-reload behavior for creating/opening a new session.
