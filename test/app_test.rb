@@ -862,6 +862,44 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_recent_sessions_with_project_labels
+    Dir.mktmpdir do |dir|
+      project_a = File.join(dir, "project-a")
+      project_b = File.join(dir, "project-b")
+      FileUtils.mkdir_p(project_a)
+      FileUtils.mkdir_p(project_b)
+      session_dir_a = File.join(dir, "--project-a--")
+      session_dir_b = File.join(dir, "--project-b--")
+      FileUtils.mkdir_p(session_dir_a)
+      FileUtils.mkdir_p(session_dir_b)
+      path_a = File.join(session_dir_a, "session-a.jsonl")
+      path_b = File.join(session_dir_b, "session-b.jsonl")
+      File.write(path_a, [
+        JSON.generate({ type: "session", id: "session-a", cwd: project_a }),
+        JSON.generate({ type: "session_info", name: "Alpha work" })
+      ].join("\n") + "\n")
+      File.write(path_b, [
+        JSON.generate({ type: "session", id: "session-b", cwd: project_b }),
+        JSON.generate({ type: "session_info", name: "Beta work" })
+      ].join("\n") + "\n")
+      FileUtils.touch(path_a, mtime: Time.now - 60)
+      FileUtils.touch(path_b, mtime: Time.now)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => path_b })
+
+      assert_equal 200, response.status
+      assert_includes response.body, "Recent sessions"
+      assert_includes response.body, "recent-sessions"
+      assert_includes response.body, "Beta work"
+      assert_includes response.body, "Alpha work"
+      assert_includes response.body, "project-b"
+      assert_includes response.body, "project-a"
+      assert_operator response.body.index("Beta work"), :<, response.body.index("Alpha work")
+    end
+  end
+
   def test_trims_sidebar_sessions_to_latest_five_by_default
     Dir.mktmpdir do |dir|
       paths = write_sessions(dir, count: 7)

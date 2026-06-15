@@ -100,6 +100,14 @@ class PiWebGateway < Sinatra::Base
       end
     end
 
+    def recent_sidebar_sessions
+      @groups.values.flatten.sort_by { |session| session.modified_at || Time.at(0) }.reverse.first(SIDEBAR_SESSION_LIMIT)
+    end
+
+    def project_label(session)
+      File.basename(session.cwd.to_s)
+    end
+
     def sidebar_group_overflow?(cwd, sessions)
       !expanded_cwd?(cwd) && sessions.length > SIDEBAR_SESSION_LIMIT
     end

@@ -2,6 +2,23 @@
       <h1>Pi Sessions</h1>
       <% if @groups.empty? %>
         <p class="empty">No sessions found.</p>
+      <% else %>
+        <section class="recent-sessions">
+          <h2>Recent sessions</h2>
+          <% recent_sidebar_sessions.each do |session| %>
+            <a class="session recent-session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-event-seq="<%= h rpc_clients.event_sequence(session.path) %>">
+              <div class="session-title">
+                <%= h session.display_name %>
+                <% if rpc_clients.busy?(session.path) %>
+                  <span class="session-running-indicator" title="Pi is working" aria-label="Pi is working"></span>
+                <% end %>
+              </div>
+              <div class="session-meta">
+                <%= h project_label(session) %> · updated <%= h format_time(session.modified_at) %>
+              </div>
+            </a>
+          <% end %>
+        </section>
       <% end %>
 
       <% @groups.each do |cwd, sessions| %>
