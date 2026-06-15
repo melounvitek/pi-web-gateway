@@ -513,53 +513,6 @@ The status bar clearly displays the active session's current directory and Git b
 
 ---
 
-## Feature: Brainstorm unread session highlighting
-
-### Context
-
-The web gateway should investigate whether sessions with unread messages can be highlighted in the sidebar, and whether unread status should be propagated elsewhere in the UI. One possible design is adding an `Unread` section above the directory/session groups so sessions needing attention are visible immediately.
-
-This is a brainstorming/planning item first. Future sessions should define what counts as unread in this app, how read state should be tracked, and how to avoid noisy or confusing indicators.
-
-Potential unread events to consider:
-
-- assistant finished responding in a session that is not currently active
-- a tool call failed or needs attention in a background session
-- a session is waiting for user approval/input while not active
-- new output arrives after the user last viewed that session
-
-Relevant starting points likely include:
-
-- sidebar/session list rendering in `views/`
-- session update/polling code in frontend JavaScript
-- session state and message timestamps in `lib/`
-- routes in `app.rb` that return session lists or session metadata
-
-### Goal
-
-Determine whether unread highlighting is feasible and useful, then propose a minimal design for tracking, displaying, and clearing unread state across sessions.
-
-### Checklist
-
-- [ ] Inspect current sidebar grouping and session metadata.
-- [ ] Define what should count as an unread session event.
-- [ ] Decide when unread state should be cleared, such as opening the session or scrolling to the newest message.
-- [ ] Decide whether unread state should be persisted across page reloads/server restarts or only kept client-side.
-- [ ] Evaluate UI options: badges, row highlighting, an `Unread` section above directories, or status bar indicators.
-- [ ] Consider how unread highlighting interacts with notifications and no-reload session switching work.
-- [ ] Propose the smallest useful implementation.
-- [ ] Implement the approved unread highlighting behavior.
-- [ ] Verify unread state across active/background sessions and session switches.
-- [ ] Note whether a gateway restart is needed.
-
-### Notes
-
-- Avoid duplicating sessions confusingly if an `Unread` section is added above directory groups.
-- Keep the indicator calm and readable; unread should guide attention, not create noise.
-- Be explicit about whether unread is per-browser, per-session, or globally persisted.
-
----
-
 ## Bug: Resume mobile sessions after browser closes
 
 ### Context
