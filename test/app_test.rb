@@ -98,6 +98,40 @@ class AppTest < Minitest::Test
     assert_includes stdout, "Browser access required"
   end
 
+  def test_serves_notification_test_page
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/notification-test")
+
+      assert_equal 200, response.status
+      assert_includes response.body, "Notification test"
+      assert_includes response.body, "navigator.serviceWorker.register"
+      assert_includes response.body, "Notification.requestPermission"
+    end
+  end
+
+  def test_serves_web_app_manifest
+    response = Rack::MockRequest.new(PiWebGateway).get("/manifest.webmanifest")
+
+    assert_equal 200, response.status
+    assert_equal "application/manifest+json", response.media_type
+    manifest = JSON.parse(response.body)
+    assert_equal "Pi Web Gateway", manifest.fetch("name")
+    assert_equal "/", manifest.fetch("start_url")
+    assert_equal "standalone", manifest.fetch("display")
+  end
+
+  def test_serves_service_worker
+    response = Rack::MockRequest.new(PiWebGateway).get("/service-worker.js")
+
+    assert_equal 200, response.status
+    assert_equal "application/javascript", response.media_type
+    assert_includes response.body, "self.registration.showNotification"
+    assert_includes response.body, "notificationclick"
+  end
+
   def test_unknown_browser_sees_access_gate_when_admin_password_is_configured
     Dir.mktmpdir do |dir|
       write_session(dir)
