@@ -3,6 +3,7 @@ require "erb"
 require "json"
 require "base64"
 require "redcarpet"
+require "nokogiri"
 require "sanitize"
 require "securerandom"
 require_relative "lib/pi_session_store"
@@ -13,16 +14,52 @@ class SafeMarkdownRenderer < Redcarpet::Render::HTML
   ALLOWED_MARKDOWN_ELEMENTS = (Sanitize::Config::RELAXED[:elements] + %w[pre code]).uniq.freeze
   ALLOWED_MARKDOWN_ATTRIBUTES = Sanitize::Config::RELAXED[:attributes].merge(
     "a" => (Sanitize::Config::RELAXED[:attributes]["a"] + %w[target rel]).uniq,
-    "code" => ["class"]
+    "code" => ["class"],
+    "ol" => (Sanitize::Config::RELAXED[:attributes]["ol"] + %w[start]).uniq
   ).freeze
 
   def postprocess(full_document)
     Sanitize.fragment(
-      full_document,
+      continue_ordered_lists(full_document),
       elements: ALLOWED_MARKDOWN_ELEMENTS,
       attributes: ALLOWED_MARKDOWN_ATTRIBUTES,
       protocols: Sanitize::Config::RELAXED[:protocols]
     )
+  end
+
+  private
+
+  def continue_ordered_lists(full_document)
+    fragment = Nokogiri::HTML5.fragment(full_document)
+    next_ordered_list_start = nil
+
+    fragment.children.each do |node|
+      if whitespace_text?(node)
+        next
+      elsif code_block?(node)
+        next
+      elsif ordered_list?(node)
+        item_count = node.element_children.count { |child| child.name == "li" }
+        node["start"] = next_ordered_list_start.to_s if next_ordered_list_start
+        next_ordered_list_start = (next_ordered_list_start || 1) + item_count
+      else
+        next_ordered_list_start = nil
+      end
+    end
+
+    fragment.to_html
+  end
+
+  def ordered_list?(node)
+    node.element? && node.name == "ol"
+  end
+
+  def code_block?(node)
+    node.element? && node.name == "pre"
+  end
+
+  def whitespace_text?(node)
+    node.text? && node.text.strip.empty?
   end
 end
 

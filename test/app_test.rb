@@ -197,6 +197,33 @@ class AppTest < Minitest::Test
     refute_includes payload["html"], "javascript:alert"
   end
 
+  def test_markdown_repeated_one_items_render_as_single_ordered_list
+    response = Rack::MockRequest.new(PiWebGateway).post(
+      "/markdown",
+      params: { "text" => "1. First\n1. Second\n1. Third" }
+    )
+
+    assert_equal 200, response.status
+    html = JSON.parse(response.body).fetch("html")
+    assert_equal 1, html.scan("<ol").length
+    assert_includes html, "<li>First</li>"
+    assert_includes html, "<li>Second</li>"
+    assert_includes html, "<li>Third</li>"
+  end
+
+  def test_markdown_continues_ordered_lists_across_code_blocks
+    response = Rack::MockRequest.new(PiWebGateway).post(
+      "/markdown",
+      params: { "text" => "1. First\n1. Second\n1. Third\n\n```ruby\nputs :code\n```\n\n1. Fourth\n\n```ruby\nputs :more\n```\n\n1. Fifth" }
+    )
+
+    assert_equal 200, response.status
+    html = JSON.parse(response.body).fetch("html")
+    assert_includes html, "<ol>\n<li>First</li>\n<li>Second</li>\n<li>Third</li>\n</ol>"
+    assert_includes html, "<ol start=\"4\">\n<li>Fourth</li>\n</ol>"
+    assert_includes html, "<ol start=\"5\">\n<li>Fifth</li>\n</ol>"
+  end
+
   def test_returns_buffered_rpc_events_for_selected_session_cursor
     Dir.mktmpdir do |dir|
       path = write_session(dir)
