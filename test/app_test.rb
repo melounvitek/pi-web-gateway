@@ -1793,7 +1793,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "unreadSessionPaths.add(path);"
       assert_includes response.body, "link.classList.toggle(\"unread\", unreadSessionPaths.has(path) && !selected);"
       assert_includes response.body, "clearUnreadSession(link.dataset.sessionPath);"
-      assert_includes response.body, "a.session.unread .session-title::after"
+      assert_includes response.body, "a.session.unread::after"
     end
   end
 
@@ -1815,6 +1815,7 @@ class AppTest < Minitest::Test
 
       busy_response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => path })
       assert_includes busy_response.body, "Pi is working"
+      assert_includes busy_response.body, "session-indicators"
       assert_includes busy_response.body, "session-running-indicator"
     end
   end

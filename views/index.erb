@@ -36,11 +36,13 @@
     .cwd-header h2 { flex: 1; min-width: 0; }
     .cwd-toggle { display: inline-block; margin: 0.35rem 0 0.5rem; font-size: 0.8rem; color: var(--muted); text-decoration: none; }
     .cwd-toggle:hover { color: var(--text); text-decoration: underline; }
-    a.session { position: relative; display: block; padding: 0.65rem 0.75rem; margin: 0.25rem 0; border-radius: 0.6rem; color: inherit; text-decoration: none; border: 1px solid transparent; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
+    a.session { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.65rem 0.75rem; margin: 0.25rem 0; border-radius: 0.6rem; color: inherit; text-decoration: none; border: 1px solid transparent; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
     a.session:hover { background: var(--panel-soft); border-color: var(--border); transform: translateX(1px); }
     a.session.selected { background: linear-gradient(90deg, rgba(138, 190, 183, 0.22), rgba(138, 190, 183, 0.08)); border-color: rgba(138, 190, 183, 0.55); }
     a.session.selected::before { content: ""; position: absolute; left: -1rem; top: 0.7rem; bottom: 0.7rem; width: 4px; border-radius: 999px; background: var(--accent); }
-    a.session.unread .session-title::after { content: ""; display: inline-block; width: 0.45rem; height: 0.45rem; margin-left: 0.45rem; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.16); vertical-align: middle; }
+    a.session.unread::after { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.16); }
+    .session-content { min-width: 0; }
+    .session-indicators { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 0.7rem; }
     .session-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sidebar-icon-button { flex: 0 0 auto; width: 1.65rem; height: 1.65rem; padding: 0; border-radius: 999px; line-height: 1; }
@@ -48,7 +50,7 @@
     a.session.selected + .session-rename { display: grid; }
     .session-rename input { min-width: 0; padding: 0.45rem 0.55rem; font-size: 0.82rem; }
     .session-rename button { padding: 0.45rem 0.6rem; font-size: 0.82rem; }
-    .session-running-indicator { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.4rem; color: var(--success); font-size: 0.75rem; font-weight: 700; }
+    .session-running-indicator { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--success); font-size: 0.75rem; font-weight: 700; }
     .session-running-indicator::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--success); box-shadow: 0 0 0 4px rgba(181, 189, 104, 0.16); }
     .empty { color: var(--muted); background: var(--panel-soft); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; }
     .empty-state { max-width: 34rem; margin: 2rem auto; text-align: center; }
