@@ -647,6 +647,15 @@
       document.title = `${name} · Pi Web Gateway`;
     }
 
+    function sessionTitleFromEvent(event) {
+      if (event.type === "session_info") return event.name;
+      if (event.type === "custom" && event.customType === "pi-extensions-session-title") return event.data?.title;
+      if (event.type === "custom_message" && event.customType === "session-title-update") {
+        return String(event.content || "").match(/^Session renamed to: `(.+)`$/)?.[1];
+      }
+      return null;
+    }
+
     function renderAttachments() {
       if (!attachmentTray) return;
       attachmentTray.replaceChildren();
@@ -1267,7 +1276,7 @@
       }
 
       if (["custom", "custom_message", "session_info", "queue_update", "compaction_start", "compaction_end"].includes(event.type)) {
-        if (event.type === "session_info" && event.name) updateSessionHeaderName(event.name);
+        updateSessionHeaderName(sessionTitleFromEvent(event));
         showStatus(eventStatusText(event));
         return;
       }
