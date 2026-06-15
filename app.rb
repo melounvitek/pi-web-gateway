@@ -540,7 +540,7 @@ class PiWebGateway < Sinatra::Base
   post "/sessions/new" do
     session_path = params.fetch("session")
     current_session = PiSessionStore.new(root: settings.sessions_root).sessions.find { |session| session.path == session_path }
-    cwd = current_session&.cwd || File.dirname(session_path)
+    cwd = current_session&.cwd || pending_rpc_cwd(session_path) || File.dirname(session_path)
     client = settings.new_rpc_client_factory.first.call(cwd)
     new_session_path = session_file_from(client.get_state) || pending_session_path(cwd)
     rpc_clients.register(new_session_path, client)

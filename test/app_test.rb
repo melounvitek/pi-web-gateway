@@ -696,6 +696,27 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_creates_new_native_session_from_pending_session_cwd
+    Dir.mktmpdir do |dir|
+      pending_path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :pending_rpc_cwds, { pending_path => project_cwd(dir) }
+      PiWebGateway.set :new_rpc_client_factory, [->(cwd) {
+        calls << [:start_new, cwd]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/sessions/new",
+        params: { "session" => pending_path }
+      )
+
+      assert_equal 303, response.status
+      assert_equal [[ :start_new, project_cwd(dir) ], [ :get_state ]], calls
+    end
+  end
+
   def test_creates_new_native_session_as_json
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -1377,6 +1398,10 @@ class AppTest < Minitest::Test
       header = document.at_css(".session-header")
       assert_equal "project", header.at_css(".session-header-project").text
       assert_equal "project", header.at_css(".session-header-project")["title"]
+      new_session_form = header.at_css('form.session-header-new-form[action="/sessions/new"]')
+      refute_nil new_session_form
+      assert_equal path, new_session_form.at_css('input[name="session"]')["value"]
+      assert_equal "New session in this directory", new_session_form.at_css("button")["aria-label"]
     end
   end
 
@@ -1972,7 +1997,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_session_switching_script_intercepts_sidebar_new_sessions
+  def test_session_switching_script_intercepts_new_session_forms
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
@@ -1984,7 +2009,7 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "event.target.closest('.session-sidebar form[action=\"/sessions/new\"]')"
+      assert_includes response.body, "event.target.closest('form[action=\"/sessions/new\"]')"
       assert_includes response.body, "headers: { \"Accept\": \"application/json\" }"
       assert_includes response.body, "const switchGeneration = sessionSwitchGeneration;"
       assert_includes response.body, "const viewGeneration = sessionViewGeneration;"

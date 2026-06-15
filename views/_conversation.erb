@@ -6,6 +6,13 @@
             <h1 class="session-header-name" title="<%= h @selected_session.display_name %>"><%= h @selected_session.display_name %></h1>
             <div class="session-header-project" title="<%= h project_label(@selected_session) %>"><%= h project_label(@selected_session) %></div>
           </div>
+          <form method="post" action="/sessions/new" class="session-header-new-form">
+            <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+            <% expanded_cwds.each do |expanded_cwd| %>
+              <input type="hidden" name="expanded_cwd[]" value="<%= h expanded_cwd %>">
+            <% end %>
+            <button type="submit" class="secondary session-header-new-button" title="New session in this directory" aria-label="New session in this directory"><span class="session-header-new-button-text">New session</span><span class="session-header-new-button-icon" aria-hidden="true">+</span></button>
+          </form>
         </header>
 
         <section class="conversation-scroll" id="conversation-scroll">

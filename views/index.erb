@@ -21,6 +21,9 @@
     .session-header-title { flex: 1 1 auto; min-width: 0; display: grid; gap: 0.15rem; }
     .session-header h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-header-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.84rem; font-weight: 650; }
+    .session-header-new-form { flex: 0 0 auto; margin: 0; }
+    .session-header-new-button { white-space: nowrap; }
+    .session-header-new-button-icon { display: none; }
     .conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 1.5rem; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid var(--border); background: rgba(30, 30, 36, 0.97); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.16); }
     .composer-inner { display: grid; gap: 0.6rem; }
@@ -205,6 +208,9 @@
       .session-header-title { flex: 1 1 0; }
       .session-header h1 { font-size: 1rem; }
       .session-header-project { font-size: 0.76rem; }
+      .session-header-new-button { display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; padding: 0; }
+      .session-header-new-button-text { display: none; }
+      .session-header-new-button-icon { display: inline; font-size: 1.25rem; line-height: 1; }
       .session-abort-button { width: 2.4rem; height: 2.4rem; }
       .conversation-scroll { padding: 0.75rem; }
       .message { margin-bottom: 0.65rem; padding: 0.75rem; border-radius: 0.75rem; }
@@ -1802,7 +1808,7 @@
     });
 
     document.addEventListener("submit", async (event) => {
-      const form = event.target.closest('.session-sidebar form[action="/sessions/new"]');
+      const form = event.target.closest('form[action="/sessions/new"]');
       if (!form) return;
 
       event.preventDefault();
