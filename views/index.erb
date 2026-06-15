@@ -1687,6 +1687,11 @@
       return Date.now() - lastSidebarInteractionAt < 1000;
     }
 
+    function updateHeaderFromSelectedSidebarSession() {
+      const selectedTitle = sessionSidebar?.querySelector("a.session.selected .session-title")?.textContent.trim();
+      if (selectedTitle) updateSessionHeaderName(selectedTitle);
+    }
+
     async function refreshSidebar(generation = sessionViewGeneration) {
       if (recentlyInteractedWithSidebar()) {
         scheduleSidebarRefresh(1000);
@@ -1702,6 +1707,7 @@
       sessionSidebar = document.querySelector(".session-sidebar");
       const refreshedScrollContainer = sidebarScrollContainer();
       if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = previousScrollTop;
+      updateHeaderFromSelectedSidebarSession();
       bindSidebarScrollTracking();
       scheduleSidebarRefresh();
     }

@@ -1096,6 +1096,31 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_session_view_remaps_active_pending_session_after_pi_persists_the_file
+    Dir.mktmpdir do |dir|
+      real_path = write_session(dir)
+      File.open(real_path, "a") { |file| file.puts JSON.generate({ type: "session_info", name: "Persisted title" }) }
+      pending_path = File.join(File.dirname(real_path), "pending-session.jsonl")
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(pending_path, FakeRpcClient.new([], [], real_path))
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_rpc_cwds, { pending_path => project_cwd(dir) }
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => pending_path }
+      )
+
+      assert_equal 200, response.status
+      assert_includes response.body, "Persisted title"
+      assert_includes response.body, real_path
+      refute_includes response.body, "New session (pending first assistant response)"
+      assert registry.active?(real_path)
+      refute registry.active?(pending_path)
+    end
+  end
+
   def test_renders_discord_like_scrolling_shell
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -2160,6 +2185,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (event.type === \"custom\" && event.customType === \"pi-extensions-session-title\") return event.data?.title;"
       assert_includes response.body, "if (event.type === \"custom_message\" && event.customType === \"session-title-update\")"
       assert_includes response.body, "updateSessionHeaderName(sessionTitleFromEvent(event));"
+      assert_includes response.body, "function updateHeaderFromSelectedSidebarSession()"
+      assert_includes response.body, "const selectedTitle = sessionSidebar?.querySelector(\"a.session.selected .session-title\")?.textContent.trim();"
+      assert_includes response.body, "updateHeaderFromSelectedSidebarSession();"
       assert_includes response.body, "const renameCommand = sessionNameSlashCommand(message);"
       assert_includes response.body, "if (!renameCommand) {\n        resetLiveAssistantTracking();\n        resetEventPollBackoff();\n        scheduleNextEventPoll(0);\n        appendMessage(\"user\", [message, pendingImages.length > 0"
       assert_includes response.body, "true, true, new Date(), { optimistic: true, optimisticText: message });"

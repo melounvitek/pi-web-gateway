@@ -691,6 +691,7 @@ class PiWebGateway < Sinatra::Base
   end
 
   def prepare_session_view
+    remap_selected_pending_session
     @store = PiSessionStore.new(root: settings.sessions_root, delete_missing_cwds: true)
     @groups = @store.grouped_sessions
     append_pending_active_session(@groups)
@@ -705,6 +706,14 @@ class PiWebGateway < Sinatra::Base
 
   def should_mark_selected_session_read?
     request.path_info != "/sidebar" || !params["session"].to_s.empty?
+  end
+
+  def remap_selected_pending_session
+    selected_path = params["session"]
+    return if selected_path.to_s.empty?
+
+    real_path = remap_active_pending_rpc_client(selected_path)
+    params["session"] = real_path if real_path
   end
 
   def session_view_url
