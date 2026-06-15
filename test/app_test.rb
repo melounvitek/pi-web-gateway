@@ -1758,21 +1758,22 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_sidebar_sessions_include_event_sequence_for_unread_tracking
+  def test_sidebar_sessions_include_assistant_response_count_for_unread_tracking
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
       registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeRpcClient.new([]) })
-      client = FakeRpcClient.new([])
-      def client.event_sequence = 3
-      registry.register(path, client)
+      registry.register(path, FakeRpcClient.new([]))
       PiWebGateway.set :rpc_client_registry, registry
+      File.write(path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: "not final" }] } }) + "\n", mode: "a")
+      File.write(path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "echo hi" } }] } }) + "\n", mode: "a")
+      File.write(path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Final response" }] } }) + "\n", mode: "a")
 
       response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => path })
 
       assert_equal 200, response.status
       assert_includes response.body, "data-session-path=\"#{ERB::Util.html_escape(path)}\""
-      assert_includes response.body, "data-event-seq=\"3\""
+      assert_includes response.body, "data-assistant-response-count=\"1\""
     end
   end
 
@@ -1791,9 +1792,13 @@ class AppTest < Minitest::Test
       assert_includes response.body, "const unreadSessionPaths = loadUnreadSessions();"
       assert_includes response.body, "function applySidebarUnreadState()"
       assert_includes response.body, "unreadSessionPaths.add(path);"
+      assert_includes response.body, "const responseCount = Number(link.dataset.assistantResponseCount || 0);"
+      assert_includes response.body, "responseCount > previousResponseCount"
       assert_includes response.body, "link.classList.toggle(\"unread\", unreadSessionPaths.has(path) && !selected);"
       assert_includes response.body, "clearUnreadSession(link.dataset.sessionPath);"
-      assert_includes response.body, "a.session.unread::after"
+      assert_includes response.body, "a.session.unread { background"
+      assert_includes response.body, "a.session.unread .session-title"
+      refute_includes response.body, "a.session.unread::after"
     end
   end
 

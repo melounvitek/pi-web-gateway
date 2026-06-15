@@ -40,7 +40,9 @@
     a.session:hover { background: var(--panel-soft); border-color: var(--border); transform: translateX(1px); }
     a.session.selected { background: linear-gradient(90deg, rgba(138, 190, 183, 0.22), rgba(138, 190, 183, 0.08)); border-color: rgba(138, 190, 183, 0.55); }
     a.session.selected::before { content: ""; position: absolute; left: -1rem; top: 0.7rem; bottom: 0.7rem; width: 4px; border-radius: 999px; background: var(--accent); }
-    a.session.unread::after { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.16); }
+    a.session.unread { background: rgba(138, 190, 183, 0.1); border-color: rgba(138, 190, 183, 0.38); }
+    a.session.unread .session-title { color: var(--text); font-weight: 800; }
+    a.session.unread .session-meta { color: var(--muted); }
     .session-content { min-width: 0; }
     .session-indicators { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 0.7rem; }
     .session-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -257,7 +259,7 @@
     let liveStatusModel = null;
     let liveStatusThinking = null;
     let pendingImages = [];
-    let sidebarEventSequences = new Map();
+    let sidebarAssistantResponseCounts = new Map();
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
     let eventPollInFlight = false;
@@ -1578,12 +1580,12 @@
     function applySidebarUnreadState() {
       sessionSidebar?.querySelectorAll("a.session[data-session-path]").forEach((link) => {
         const path = link.dataset.sessionPath;
-        const sequence = Number(link.dataset.eventSeq || 0);
+        const responseCount = Number(link.dataset.assistantResponseCount || 0);
         const selected = link.classList.contains("selected");
-        const previousSequence = sidebarEventSequences.get(path);
+        const previousResponseCount = sidebarAssistantResponseCounts.get(path);
         if (selected) clearUnreadSession(path);
-        if (!selected && previousSequence !== undefined && sequence > previousSequence) unreadSessionPaths.add(path);
-        sidebarEventSequences.set(path, sequence);
+        if (!selected && previousResponseCount !== undefined && responseCount > previousResponseCount) unreadSessionPaths.add(path);
+        sidebarAssistantResponseCounts.set(path, responseCount);
         link.classList.toggle("unread", unreadSessionPaths.has(path) && !selected);
       });
       saveUnreadSessions();

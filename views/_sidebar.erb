@@ -6,7 +6,7 @@
         <section class="recent-sessions">
           <h2>Recent sessions</h2>
           <% recent_sidebar_sessions.each do |session| %>
-            <a class="session recent-session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-event-seq="<%= h rpc_clients.event_sequence(session.path) %>">
+            <a class="session recent-session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>">
               <div class="session-content">
                 <div class="session-title"><%= h session.display_name %></div>
                 <div class="session-meta">
@@ -36,7 +36,7 @@
             </form>
           </div>
           <% visible_sidebar_sessions(cwd, sessions).each do |session| %>
-            <a class="session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-event-seq="<%= h rpc_clients.event_sequence(session.path) %>">
+            <a class="session <%= "selected" if selected?(session) %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>">
               <div class="session-content">
                 <div class="session-title"><%= h session.display_name %></div>
                 <div class="session-meta">

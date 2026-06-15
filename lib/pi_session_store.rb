@@ -10,6 +10,7 @@ class PiSessionStore
     :display_name,
     :first_user_message,
     :message_count,
+    :assistant_response_count,
     :created_at,
     :modified_at,
     keyword_init: true
@@ -116,6 +117,7 @@ class PiSessionStore
     latest_name = nil
     first_user_message = nil
     message_count = 0
+    assistant_response_count = 0
 
     read_entries(path).each do |entry|
       case entry["type"]
@@ -126,6 +128,7 @@ class PiSessionStore
       when "message"
         message = entry["message"] || {}
         message_count += 1 unless message["role"] == "toolResult"
+        assistant_response_count += 1 if final_assistant_response?(message)
         if first_user_message.nil? && message["role"] == "user"
           first_user_message = content_text(message["content"])
         end
@@ -144,11 +147,20 @@ class PiSessionStore
       display_name: display_name,
       first_user_message: first_user_message,
       message_count: message_count,
+      assistant_response_count: assistant_response_count,
       created_at: parse_time(session_entry["timestamp"]) || stat.ctime,
       modified_at: stat.mtime
     )
     self.class.cache_session(path, signature, session)
     session
+  end
+
+  def final_assistant_response?(message)
+    return false unless message["role"] == "assistant"
+
+    Array(message["content"]).any? do |part|
+      part.is_a?(String) ? !part.strip.empty? : part.is_a?(Hash) && part["type"] == "text" && !part["text"].to_s.strip.empty?
+    end
   end
 
   def delete_session_with_missing_cwd?(path, cwd)
