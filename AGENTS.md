@@ -8,6 +8,10 @@ This repo may also have a `PLAN.md`. If present, treat it as the active implemen
 
 When the current plan is completed, move the finished `PLAN.md` into the `plans/` folder.
 
+## Git workflow
+
+The primary branch for this repository is `master`.
+
 ## Local server
 
 The dev server usually runs as Puma on `100.103.198.74:4567`, logging to `/tmp/pi-web-gateway.log`.
