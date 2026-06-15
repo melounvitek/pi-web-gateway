@@ -637,8 +637,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "session-status-bar"
       assert_includes response.body, "CTX"
       assert_includes response.body, "12.3k"
-      assert_includes response.body, "openai-codex/gpt-5.5"
-      assert_includes response.body, "medium"
+      assert_includes response.body, "openai-codex/gpt-5.5 (medium)"
+      refute_includes response.body, "Thinking</span>"
     end
   end
 
@@ -1389,6 +1389,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value) return;"
       assert_includes response.body, "const payload = await response.json().catch(() => null);\n        if (generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value) return;"
       assert_includes response.body, "function refreshSessionStatus(generation = sessionViewGeneration)"
+      assert_includes response.body, "function renderModelStatus()"
+      assert_includes response.body, "[liveStatusModel, liveStatusThinking ? `(${liveStatusThinking})` : null]"
+      assert_includes response.body, "removeStatusItem(\"thinking\")"
       assert_includes response.body, "if (!response.ok || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;"
       assert_includes response.body, "refreshSessionStatus(generation).catch(() => {});"
       assert_includes response.body, "function resetSessionViewState()"

@@ -170,8 +170,7 @@ class PiWebGateway < Sinatra::Base
 
       [
         ["CTX", format_context_usage(status)],
-        ["Model", format_model(status)],
-        ["Thinking", status.thinking_level]
+        ["Model", format_model_with_thinking(status)]
       ].select { |_label, value| value.to_s != "" }
     end
 
@@ -188,6 +187,13 @@ class PiWebGateway < Sinatra::Base
 
     def format_model(status)
       [status.provider, status.model_id].compact.reject(&:empty?).join("/")
+    end
+
+    def format_model_with_thinking(status)
+      model = format_model(status)
+      return if model.empty?
+
+      [model, status.thinking_level.to_s.empty? ? nil : "(#{status.thinking_level})"].compact.join(" ")
     end
 
     def compact_number(value)

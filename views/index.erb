@@ -246,6 +246,8 @@
     let liveAssistantSeen = false;
     let liveBashToolCalls = new Map();
     let liveUserMessages = new Map();
+    let liveStatusModel = null;
+    let liveStatusThinking = null;
     let pendingImages = [];
     let eventPollTimer = null;
     let eventPollInFlight = false;
@@ -285,6 +287,10 @@
       jumpToNextUserButton = document.querySelector(".jump-to-next-user");
       jumpToLatestButton = document.querySelector(".jump-to-latest");
       sessionStatusBar = document.getElementById("session-status-bar");
+      const existingModelStatus = sessionStatusBar?.querySelector('[data-status-key="model"] .session-status-value')?.textContent || "";
+      const existingModelMatch = existingModelStatus.match(/^(.*?)(?:\s+\(([^)]*)\))?$/);
+      liveStatusModel = existingModelMatch?.[1] || null;
+      liveStatusThinking = existingModelMatch?.[2] || null;
       reconnectBanner = document.querySelector(".session-reconnect");
       reconnectButton = document.querySelector(".reconnect-button");
     }
@@ -457,6 +463,20 @@
       item.querySelector(".session-status-value").textContent = value;
     }
 
+    function removeStatusItem(key) {
+      sessionStatusBar?.querySelector(`[data-status-key="${key}"]`)?.remove();
+    }
+
+    function renderModelStatus() {
+      if (!liveStatusModel) {
+        removeStatusItem("thinking");
+        return;
+      }
+
+      setStatusItem("model", "Model", [liveStatusModel, liveStatusThinking ? `(${liveStatusThinking})` : null].filter(Boolean).join(" "));
+      removeStatusItem("thinking");
+    }
+
     function compactNumber(value) {
       const number = Number(value);
       if (!Number.isFinite(number) || number <= 0) return String(value || "");
@@ -471,17 +491,24 @@
 
       const tokens = usage.totalTokens || usage.total_tokens || usage.tokens;
       if (tokens) setStatusItem("ctx", "CTX", compactNumber(tokens));
-      if (message.provider || message.model) setStatusItem("model", "Model", [message.provider, message.model].filter(Boolean).join("/"));
+      if (message.provider || message.model) {
+        liveStatusModel = [message.provider, message.model].filter(Boolean).join("/");
+        renderModelStatus();
+      }
     }
 
     function updateStatusFromEvent(event) {
       if (event.type === "model_change" || event.type === "model_select") {
         const provider = event.provider || event.model?.provider;
         const model = event.modelId || event.model?.id || event.model;
-        if (provider || model) setStatusItem("model", "Model", [provider, model].filter(Boolean).join("/"));
+        if (provider || model) {
+          liveStatusModel = [provider, model].filter(Boolean).join("/");
+          renderModelStatus();
+        }
       }
       if (event.type === "thinking_level_change" || event.type === "thinking_level_select") {
-        setStatusItem("thinking", "Thinking", event.thinkingLevel || event.level);
+        liveStatusThinking = event.thinkingLevel || event.level;
+        renderModelStatus();
       }
       updateStatusFromMessage(event.message);
     }
@@ -496,8 +523,9 @@
       const status = await response.json();
       if (generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
       setStatusItem("ctx", "CTX", status.context);
-      setStatusItem("model", "Model", status.model);
-      setStatusItem("thinking", "Thinking", status.thinking);
+      liveStatusModel = status.model;
+      liveStatusThinking = status.thinking;
+      renderModelStatus();
     }
 
     function setComposerState(state, label) {
