@@ -264,7 +264,6 @@
     let liveStatusModel = null;
     let liveStatusThinking = null;
     let pendingImages = [];
-    let sidebarAssistantResponseCounts = new Map();
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
     let eventPollInFlight = false;
@@ -281,19 +280,8 @@
     let sessionSwitchGeneration = 0;
     let sessionShortcutTimer = null;
 
-    function loadUnreadSessions() {
-      try {
-        return new Set(JSON.parse(localStorage.getItem("piSidebarUnreadSessions") || "[]"));
-      } catch (_error) {
-        return new Set();
-      }
-    }
-
-    const unreadSessionPaths = loadUnreadSessions();
-
     function bindSessionDom() {
       sessionSidebar = document.querySelector(".session-sidebar");
-      applySidebarUnreadState();
       conversationPanel = document.querySelector(".conversation-panel");
       liveOutput = document.getElementById("live-output");
       promptForm = document.querySelector(".prompt-form");
@@ -1583,34 +1571,11 @@
       const target = new URL(window.location.href);
       const sidebarUrl = new URL("/sidebar", window.location.origin);
       target.searchParams.forEach((value, key) => sidebarUrl.searchParams.append(key, value));
-      return sidebarUrl;
-    }
-
-    function saveUnreadSessions() {
-      try {
-        localStorage.setItem("piSidebarUnreadSessions", JSON.stringify([...unreadSessionPaths]));
-      } catch (_error) {
+      if (!sidebarUrl.searchParams.has("session")) {
+        const selectedSession = sessionSidebar?.querySelector("a.session.selected[data-session-path]")?.dataset.sessionPath;
+        if (selectedSession) sidebarUrl.searchParams.set("session", selectedSession);
       }
-    }
-
-    function clearUnreadSession(path) {
-      if (!path) return;
-      unreadSessionPaths.delete(path);
-      saveUnreadSessions();
-    }
-
-    function applySidebarUnreadState() {
-      sessionSidebar?.querySelectorAll("a.session[data-session-path]").forEach((link) => {
-        const path = link.dataset.sessionPath;
-        const responseCount = Number(link.dataset.assistantResponseCount || 0);
-        const selected = link.classList.contains("selected");
-        const previousResponseCount = sidebarAssistantResponseCounts.get(path);
-        if (selected) clearUnreadSession(path);
-        if (!selected && previousResponseCount !== undefined && responseCount > previousResponseCount) unreadSessionPaths.add(path);
-        sidebarAssistantResponseCounts.set(path, responseCount);
-        link.classList.toggle("unread", unreadSessionPaths.has(path) && !selected);
-      });
-      saveUnreadSessions();
+      return sidebarUrl;
     }
 
     function scheduleSidebarRefresh() {
@@ -1628,7 +1593,6 @@
       sessionSidebar.outerHTML = html;
       sessionSidebar = document.querySelector(".session-sidebar");
       if (sessionSidebar) sessionSidebar.scrollTop = previousScrollTop;
-      applySidebarUnreadState();
       scheduleSidebarRefresh();
     }
 
@@ -1746,7 +1710,6 @@
       if (!link || !normalLeftClick(event)) return;
 
       event.preventDefault();
-      clearUnreadSession(link.dataset.sessionPath);
       if (link.classList.contains("selected")) return;
 
       await switchSession(link.href, { push: true, focus: true });

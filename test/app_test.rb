@@ -9,7 +9,9 @@ require_relative "../app"
 class AppTest < Minitest::Test
   def setup
     @attachments_root = Dir.mktmpdir
+    @read_state_root = Dir.mktmpdir
     PiWebGateway.set :attachments_root, @attachments_root
+    PiWebGateway.set :read_state_path, File.join(@read_state_root, "read-state.json")
     PiWebGateway.set :rpc_client_registry, nil
     PiWebGateway.set :pending_rpc_cwds, {}
     PiWebGateway.set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
@@ -18,6 +20,7 @@ class AppTest < Minitest::Test
 
   def teardown
     FileUtils.remove_entry(@attachments_root) if @attachments_root && Dir.exist?(@attachments_root)
+    FileUtils.remove_entry(@read_state_root) if @read_state_root && Dir.exist?(@read_state_root)
   end
 
   def test_posts_prompt_to_selected_session_and_redirects_back
@@ -1884,30 +1887,48 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_live_script_tracks_unread_sidebar_sessions_locally
+  def test_sidebar_tracks_unread_sessions_globally
     Dir.mktmpdir do |dir|
-      path = write_session(dir)
+      first_path, second_path = write_sessions(dir, count: 2)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
-      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+      initial_response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => first_path })
+      refute_includes initial_response.body, "unread"
 
-      assert_equal 200, response.status
-      assert_includes response.body, "function loadUnreadSessions()"
-      assert_includes response.body, "try {"
-      assert_includes response.body, "return new Set(JSON.parse(localStorage.getItem(\"piSidebarUnreadSessions\") || \"[]\"));"
-      assert_includes response.body, "const unreadSessionPaths = loadUnreadSessions();"
-      assert_includes response.body, "function applySidebarUnreadState()"
-      assert_includes response.body, "unreadSessionPaths.add(path);"
-      assert_includes response.body, "const responseCount = Number(link.dataset.assistantResponseCount || 0);"
-      assert_includes response.body, "responseCount > previousResponseCount"
-      assert_includes response.body, "link.classList.toggle(\"unread\", unreadSessionPaths.has(path) && !selected);"
-      assert_includes response.body, "clearUnreadSession(link.dataset.sessionPath);"
-      assert_includes response.body, "a.session.unread .session-title"
-      assert_includes response.body, "a.session.unread .session-indicators::before"
-      assert_includes response.body, "content: \"new\""
-      refute_includes response.body, "a.session.unread { background"
-      refute_includes response.body, "a.session.unread::after"
+      File.write(second_path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Done" }] } }) + "\n", mode: "a")
+      unread_response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => first_path })
+
+      assert_includes unread_response.body, "class=\"session recent-session unread"
+      assert_includes unread_response.body, "data-assistant-response-count=\"1\""
+
+      page_response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => first_path })
+      assert_includes page_response.body, "a.session.unread .session-title"
+      assert_includes page_response.body, "a.session.unread .session-indicators::before"
+      assert_includes page_response.body, "content: \"new\""
+      refute_includes page_response.body, "localStorage.getItem(\"piSidebarUnreadSessions\")"
+
+      read_response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => second_path })
+      refute_includes read_response.body, "unread"
+    end
+  end
+
+  def test_sidebar_refresh_without_session_param_does_not_clear_background_unread
+    Dir.mktmpdir do |dir|
+      first_path, second_path = write_sessions(dir, count: 2)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      initial_response = Rack::MockRequest.new(PiWebGateway).get("/")
+      assert_includes initial_response.body, "function sidebarFragmentUrl()"
+      assert_includes initial_response.body, "if (!sidebarUrl.searchParams.has(\"session\"))"
+      assert_includes initial_response.body, "a.session.selected[data-session-path]"
+
+      File.write(first_path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Background done" }] } }) + "\n", mode: "a")
+      Rack::MockRequest.new(PiWebGateway).get("/sidebar")
+
+      unread_response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => second_path })
+      assert_includes unread_response.body, "class=\"session recent-session unread"
     end
   end
 

@@ -9,6 +9,7 @@ require "securerandom"
 require "set"
 require_relative "lib/pi_session_store"
 require_relative "lib/pi_attachment_store"
+require_relative "lib/gateway_read_state_store"
 require_relative "lib/pi_rpc_client"
 require_relative "lib/pi_rpc_client_registry"
 
@@ -72,6 +73,7 @@ class PiWebGateway < Sinatra::Base
   set :root, File.dirname(__FILE__)
   set :sessions_root, ENV.fetch("PI_SESSIONS_ROOT", File.expand_path("~/.pi/agent/sessions"))
   set :attachments_root, ENV.fetch("PI_ATTACHMENTS_ROOT", File.expand_path("~/.pi/web-gateway/attachments"))
+  set :read_state_path, ENV.fetch("PI_READ_STATE_PATH", File.expand_path("~/.pi/web-gateway/read-state.json"))
   set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
   set :new_rpc_client_factory, [->(cwd) { PiRpcClient.start_in_cwd(cwd) }]
   set :rpc_client_registry, nil
@@ -88,6 +90,14 @@ class PiWebGateway < Sinatra::Base
 
     def selected?(session)
       @selected_session&.path == session.path
+    end
+
+    def unread?(session)
+      !selected?(session) && read_state_store.unread?(session)
+    end
+
+    def session_classes(session, *classes)
+      (classes + [selected?(session) ? "selected" : nil, unread?(session) ? "unread" : nil]).compact.join(" ")
     end
 
     def visible_sidebar_sessions(cwd, sessions)
@@ -418,14 +428,29 @@ class PiWebGateway < Sinatra::Base
     PiAttachmentStore.new(root: settings.attachments_root)
   end
 
+  def read_state_store
+    if @read_state_store_path != settings.read_state_path
+      @read_state_store_path = settings.read_state_path
+      @read_state_store = GatewayReadStateStore.new(path: settings.read_state_path)
+    end
+    @read_state_store
+  end
+
   def prepare_session_view
     @store = PiSessionStore.new(root: settings.sessions_root, delete_missing_cwds: true)
     @groups = @store.grouped_sessions
     append_pending_active_session(@groups)
-    @selected_session = find_selected_session(@groups.values.flatten)
+    all_sessions = @groups.values.flatten
+    read_state_store.observe_sessions(all_sessions)
+    @selected_session = find_selected_session(all_sessions)
+    read_state_store.mark_read(@selected_session) if @selected_session && should_mark_selected_session_read?
     @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path) : []
     @attachment_counts = @selected_session && File.exist?(@selected_session.path) ? attachment_store.counts_for_messages(@selected_session.path, @messages) : {}
     @session_status = @selected_session && File.exist?(@selected_session.path) ? @store.status(@selected_session.path) : nil
+  end
+
+  def should_mark_selected_session_read?
+    request.path_info != "/sidebar" || !params["session"].to_s.empty?
   end
 
   def session_view_url
