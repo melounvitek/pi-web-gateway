@@ -270,7 +270,7 @@ Produce and, if approved, implement a notification system that alerts the user a
 
 ### Checklist
 
-- [ ] First establish a valid HTTPS origin for the gateway, ideally via Tailscale MagicDNS/custom port or a reverse proxy, because browser notifications and PWA push require a secure context.
+- [x] First establish a valid HTTPS origin for the gateway, ideally via Tailscale MagicDNS/custom port or a reverse proxy, because browser notifications and PWA push require a secure context.
 - [x] Inspect how the web UI currently detects session state changes and new messages.
 - [x] Determine whether browser notifications are sufficient or whether another mechanism is needed.
 - [x] Identify which events are worth notifying about and which would be too noisy.
@@ -285,6 +285,7 @@ Produce and, if approved, implement a notification system that alerts the user a
 ### Notes
 
 - Prefer opt-in notifications; do not surprise the user with permission prompts on page load.
+- Gateway HTTPS origin is now `https://remote-workspace.tail8fd8b2.ts.net/` via Tailscale Serve; Mattermost moved to plain HTTP at `http://remote-workspace.tail8fd8b2.ts.net/`.
 - HTTPS is the first implementation prerequisite. Without it, desktop browser notifications are unlikely to work from the current `http://100.103.198.74:4567` origin, and iPhone Home Screen/PWA push will not work.
 - For iPhone Home Screen usage, plan for PWA-compatible notifications: manifest/service worker first, then Web Push if notifications must work after the app is closed.
 - Snooze should suppress non-critical notifications, but critical errors may need separate consideration.
