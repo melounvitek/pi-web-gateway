@@ -81,4 +81,4 @@ curl -sS --max-time 2 -o /dev/null -w '%{http_code}\n' http://100.103.198.74:456
 tail -80 /tmp/pi-web-gateway-restart.log
 ```
 
-Do not restart it unless explicitly asked; for code changes, tell the user a restart is needed.
+Do not restart it unless explicitly asked; for code changes, tell the user a restart is needed. For design-only changes (CSS/markup presentation tweaks), a restart is not needed; a browser refresh is enough.
