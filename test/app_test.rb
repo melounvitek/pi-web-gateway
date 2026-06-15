@@ -1019,7 +1019,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--tool message--compact" data-role="toolResult"'
       assert_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
       assert_includes response.body, 'class="message message--tool message--compact message--tool-error" data-role="toolResult"'
-      assert_includes response.body, '<details class="message-details" open>'
+      refute_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, "Thinking through the problem"
       assert_includes response.body, "file list"
     end
@@ -1104,7 +1104,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_renders_failed_tool_transcripts_open_with_call_context
+  def test_renders_failed_tool_transcripts_collapsed_with_call_context
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
         {
@@ -1190,7 +1190,7 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
 
       assert_equal 200, response.status
-      assert_includes response.body, '<details class="message-details" open>'
+      refute_includes response.body, '<details class="message-details" open>'
       assert_includes response.body, 'class="message message--assistant message--compact message--tool-transcript message--tool-error" data-role="assistant"'
       assert_includes response.body, 'Edit 1'
       assert_includes response.body, '- old item'
@@ -1273,9 +1273,11 @@ class AppTest < Minitest::Test
       assert_includes response.body, "toolSummaryParts(toolName, toolPart?.arguments || {})"
       assert_includes response.body, "function transcriptToolCallText(name, args = {})"
       assert_includes response.body, 'if (lines[lines.length - 1] === "") lines.pop();'
-      assert_includes response.body, "segment.toolTranscript && !segment.expanded ? segment.text"
+      assert_includes response.body, "segment.toolTranscript && segment.error !== true ? segment.text"
       assert_includes response.body, 'details.open = options.open === true;'
+      assert_includes response.body, 'error: message.isError === true'
       assert_includes response.body, 'open: segment.expanded'
+      assert_includes response.body, 'error: segment.error'
       assert_includes response.body, '["bash", "read", "edit", "write"].includes(segment.toolName)'
       assert_includes response.body, "part.type === \"toolCall\""
       assert_includes response.body, "part.type === \"thinking\""

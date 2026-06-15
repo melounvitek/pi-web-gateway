@@ -706,7 +706,8 @@
           thinking: group.parts.length === 1 && thinkingPart(group.parts[0]) && message.role !== "toolResult",
           summary: message.toolName || [...new Set(labels)].join(" + ") || "tool output",
           summaryParts,
-          expanded: message.isError === true,
+          expanded: false,
+          error: message.isError === true,
           startIndex: group.startIndex,
           endIndex: group.endIndex,
           toolCallId: message.toolCallId || toolPart?.id || toolPart?.toolCallId,
@@ -896,7 +897,7 @@
       const roleKey = messageRoleKey(roleName);
 
       const article = document.createElement("article");
-      article.className = `message message--${roleKey} message--compact${options.toolTranscript ? " message--tool-transcript" : ""}${expanded ? " message--tool-error" : ""}${live ? " message--live" : ""}`;
+      article.className = `message message--${roleKey} message--compact${options.toolTranscript ? " message--tool-transcript" : ""}${options.error === true ? " message--tool-error" : ""}${live ? " message--live" : ""}`;
       article.dataset.role = roleName;
       article.dataset.messageTimestamp = timestampKey;
       article.dataset.messageFingerprint = messageFingerprint(roleName, text, timestampKey);
@@ -1091,7 +1092,7 @@
       if (liveMessageAlreadyRendered(roleName, segment.text, messageTimestampKey(timestamp))) return null;
 
       const entry = segment.compact ?
-        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded }) :
+        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded, error: segment.error }) :
         appendMessage("assistant", segment.text, true, shouldScroll, timestamp, { thinking: segment.thinking });
       if (!entry) return null;
       liveAssistantSegments.set(key, entry);
@@ -1114,19 +1115,18 @@
         segments.forEach((segment, index) => {
           const bashCallEntry = ["bash", "read", "edit", "write"].includes(segment.toolName) && segment.toolCallId && liveBashToolCalls.get(segment.toolCallId);
           if (bashCallEntry && segment.isToolResult) {
-            const mergedText = segment.toolTranscript && !segment.expanded ? segment.text : [bashCallEntry.body.textContent, segment.text].filter(Boolean).join("\n\n");
+            const mergedText = segment.toolTranscript && segment.error !== true ? segment.text : [bashCallEntry.body.textContent, segment.text].filter(Boolean).join("\n\n");
             bashCallEntry.body.textContent = mergedText;
             if (bashCallEntry.rawBody) {
               bashCallEntry.rawBody.textContent = [bashCallEntry.rawBody.textContent, segment.rawDetails].filter(Boolean).join("\n\n");
             }
-            bashCallEntry.article.classList.toggle("message--tool-error", segment.expanded);
-            if (segment.expanded && bashCallEntry.details) bashCallEntry.details.open = true;
+            bashCallEntry.article.classList.toggle("message--tool-error", segment.error === true);
             if (!markLiveEntryRendered(bashCallEntry, bashCallEntry.article.dataset.role || "assistant", mergedText)) return;
             afterLiveOutputChange(shouldScroll);
           } else if (roleName === "user" && !segment.compact) {
             upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);
           } else if (segment.compact) {
-            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded });
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, open: segment.expanded, error: segment.error });
           } else {
             appendMessage(roleName, segment.text, true, shouldScroll, timestamp);
           }

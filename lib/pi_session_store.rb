@@ -187,7 +187,7 @@ class PiSessionStore
         timestamp: parse_time(entry["timestamp"]),
         compact: compact_message?(message),
         summary: compact_summary(message),
-        expanded: message["isError"] == true,
+        expanded: role == "toolResult" ? false : message["isError"] == true,
         error: message["isError"] == true,
         tool_call_id: message["toolCallId"],
         tool_name: message["toolName"],
