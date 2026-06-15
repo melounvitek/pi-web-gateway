@@ -1583,6 +1583,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "openRecentSessionShortcut(shortcut)"
       assert_includes response.body, "function currentSessionPath()"
       assert_includes response.body, "window.location.href = link.href;"
+      refute_includes response.body, "clearUnreadSession(link.dataset.sessionPath)"
       assert_includes response.body, "exitSessionShortcutMode();\n      if (!link || !normalLeftClick(event)) return;"
       assert_includes response.body, "sessionShortcutTimer = setTimeout(exitSessionShortcutMode, 5000);"
       assert_includes response.body, "session-shortcuts-visible"
