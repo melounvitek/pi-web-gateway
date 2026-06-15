@@ -278,6 +278,8 @@ Produce and, if approved, implement a notification system that alerts the user a
 - [x] Design snooze behavior, including available durations, persistence, and how to unsnooze.
 - [x] Define duplicate-suppression rules so repeated polling does not resend the same notification.
 - [x] Propose a minimal first implementation scope.
+- [x] Add a proof-of-life PWA notification test page for manual iPhone/desktop verification.
+- [x] Verify local notification display from the iPhone Home Screen app.
 - [ ] Implement the approved notification behavior.
 - [ ] Verify notifications, snooze, duplicate suppression, and permission-denied behavior.
 - [ ] Note whether a gateway restart is needed.
@@ -290,6 +292,7 @@ Produce and, if approved, implement a notification system that alerts the user a
 - For iPhone Home Screen usage, plan for PWA-compatible notifications: manifest/service worker first, then Web Push if notifications must work after the app is closed.
 - Snooze should suppress non-critical notifications, but critical errors may need separate consideration.
 - Keep notification text concise and avoid exposing sensitive prompt or tool-output details unnecessarily.
+- 2026-06-15: Added a temporary `/notification-test` page, manifest, and service worker. The iPhone Home Screen app successfully requested permission and displayed a local test notification, proving the platform path works before implementing real session-event notifications.
 
 ---
 
