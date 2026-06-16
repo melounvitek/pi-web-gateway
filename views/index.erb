@@ -170,7 +170,7 @@
     .jump-controls--bottom { bottom: 0.75rem; }
     .jump-button { display: none; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); pointer-events: auto; }
     .jump-button.is-visible { display: inline-flex; }
-    .session-switch-overlay { position: fixed; inset: 0; z-index: 100; display: none; place-items: center; background: rgba(24, 24, 30, 0.5); backdrop-filter: blur(2px); }
+    .session-switch-overlay { position: fixed; inset: 0; z-index: 140; display: none; place-items: center; background: rgba(24, 24, 30, 0.5); backdrop-filter: blur(2px); }
     body.session-switching .session-switch-overlay { display: grid; }
     .session-switch-indicator { display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 999px; background: rgba(30, 30, 36, 0.94); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); font-weight: 700; }
     .session-switch-spinner { width: 1.1rem; height: 1.1rem; border: 2px solid rgba(138, 190, 183, 0.25); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
@@ -181,11 +181,12 @@
     .browser-access-meta { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
     .browser-access-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
     .modal-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 1rem; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px); }
-    .modal-card { width: min(34rem, 100%); display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 0.95rem; background: var(--panel); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45); }
+    .modal-card { width: min(34rem, 100%); max-height: calc(100dvh - 2rem); display: grid; gap: 1rem; overflow-y: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.95rem; background: var(--panel); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45); }
     .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
     .modal-header h2 { color: var(--text); font-size: 1rem; text-transform: none; letter-spacing: 0; }
     .modal-close-button { width: 2rem; height: 2rem; padding: 0; border-radius: 999px; font-size: 1.2rem; line-height: 1; }
     .modal-field { display: grid; gap: 0.35rem; color: var(--muted); font-size: 0.85rem; font-weight: 700; }
+    .modal-field input, .modal-field select { width: 100%; min-width: 0; }
     .new-session-cwd-form { display: grid; gap: 0.75rem; }
     .cwd-validation-message { min-height: 1.2rem; color: var(--muted); font-size: 0.85rem; }
     .cwd-validation-message.is-valid { color: var(--success); }
@@ -246,6 +247,11 @@
       textarea::placeholder { font-size: 0.95rem; }
       .attachment { max-width: 100%; }
       .attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .modal-overlay { place-items: end stretch; padding: 0; }
+      .modal-card { width: 100%; max-height: min(82dvh, calc(100dvh - env(safe-area-inset-top) - 1rem)); padding: 1rem; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); border-right: 0; border-bottom: 0; border-left: 0; border-radius: 1rem 1rem 0 0; }
+      .modal-header h2 { font-size: 1.1rem; }
+      .modal-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.6rem; }
+      .modal-actions button { width: 100%; justify-self: stretch; padding: 0.8rem 0.75rem; }
       .session-sidebar-content, .conversation-scroll, .command-list { scrollbar-width: none; }
       .session-sidebar-content::-webkit-scrollbar, .conversation-scroll::-webkit-scrollbar, .command-list::-webkit-scrollbar { display: none; }
     }
@@ -276,7 +282,7 @@
           </select>
         </label>
         <label class="modal-field">
-          <span>Other path</span>
+          <span>Path</span>
           <input type="text" name="cwd" autocomplete="off" placeholder="/home/vitek/Work/project" data-new-session-cwd-input>
         </label>
         <div class="cwd-validation-message" data-new-session-cwd-message aria-live="polite">Enter an existing directory.</div>
@@ -2108,14 +2114,19 @@
 
       const formData = new FormData(form);
       const modal = form.closest("[data-modal]");
+      const originalSubmitText = submit?.textContent || "Start session";
       form.dataset.submitting = "true";
-      if (submit) submit.disabled = true;
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Starting…";
+      }
       showSessionSwitching();
       try {
         const response = await fetch(form.action, { method: "POST", body: formData, headers: { "Accept": "application/json" } });
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
           setCwdValidationState(form, "invalid", payload?.error || "Path must be an existing directory.");
+          if (submit) submit.textContent = originalSubmitText;
           return;
         }
         const payload = await response.json();
@@ -2123,7 +2134,10 @@
         await switchSession(payload.redirect || `/?session=${encodeURIComponent(payload.session)}`, { push: true, focus: true });
       } catch (_error) {
         setCwdValidationState(form, "invalid", "Could not start the session. Try again.");
-        if (submit) submit.disabled = false;
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = originalSubmitText;
+        }
       } finally {
         delete form.dataset.submitting;
         hideSessionSwitching();

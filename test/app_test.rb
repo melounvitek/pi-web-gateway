@@ -1338,7 +1338,7 @@ class AppTest < Minitest::Test
       assert_includes modal.css('option').map { |option| option["value"] }, project_cwd(dir)
       assert_includes modal.text, "Start session"
       assert_includes modal.text, "Existing folder"
-      assert_includes modal.text, "Other path"
+      assert_includes modal.text, "Path"
     end
   end
 
@@ -1354,6 +1354,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function openModal(modal)"
       assert_includes response.body, "function closeModal(modal)"
       assert_includes response.body, "function modalIsOpen()"
+      assert_includes response.body, ".session-switch-overlay { position: fixed; inset: 0; z-index: 140;"
+      assert_includes response.body, ".modal-overlay { place-items: end stretch; padding: 0; }"
+      assert_includes response.body, "submit.textContent = \"Starting…\""
       assert_includes response.body, "abortEventPoll();"
       assert_includes response.body, "if (modalIsOpen()) return;"
       assert_includes response.body, "fetch(validationUrl"
