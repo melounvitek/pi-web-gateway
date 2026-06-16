@@ -1377,8 +1377,55 @@ class AppTest < Minitest::Test
       assert_equal older_cwd, options.find { |option| option["selected"] }["value"]
       assert_operator response.body.index("<h2>Sessions</h2>"), :<, response.body.index("sidebar-project-filter")
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      assert_equal ["Older work"], session_titles
-      assert_includes document.at_css(".recent-sessions a.session")["href"], "project=#{Rack::Utils.escape(older_cwd)}"
+      assert_equal ["Newer work", "Older work"], session_titles
+      assert_includes document.at_css('.recent-sessions a.session[href*="older.jsonl"]')["href"], "project=#{Rack::Utils.escape(older_cwd)}"
+    end
+  end
+
+  def test_sidebar_project_filter_keeps_current_and_unread_sessions_visible
+    Dir.mktmpdir do |dir|
+      selected_cwd = File.join(dir, "selected-project")
+      unread_cwd = File.join(dir, "unread-project")
+      filtered_cwd = File.join(dir, "filtered-project")
+      [selected_cwd, unread_cwd, filtered_cwd].each { |cwd| FileUtils.mkdir_p(cwd) }
+      session_dir = File.join(dir, "sessions")
+      FileUtils.mkdir_p(session_dir)
+      selected_path = File.join(session_dir, "selected.jsonl")
+      unread_path = File.join(session_dir, "unread.jsonl")
+      filtered_path = File.join(session_dir, "filtered.jsonl")
+      File.write(selected_path, [
+        JSON.generate({ type: "session", id: "selected", cwd: selected_cwd }),
+        JSON.generate({ type: "session_info", name: "Selected work" })
+      ].join("\n") + "\n")
+      File.write(unread_path, [
+        JSON.generate({ type: "session", id: "unread", cwd: unread_cwd }),
+        JSON.generate({ type: "session_info", name: "Unread work" })
+      ].join("\n") + "\n")
+      File.write(filtered_path, [
+        JSON.generate({ type: "session", id: "filtered", cwd: filtered_cwd }),
+        JSON.generate({ type: "session_info", name: "Filtered work" })
+      ].join("\n") + "\n")
+      FileUtils.touch(selected_path, mtime: Time.now - 30)
+      FileUtils.touch(unread_path, mtime: Time.now - 20)
+      FileUtils.touch(filtered_path, mtime: Time.now - 10)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => selected_path })
+      File.write(unread_path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Unread reply" }] } }) + "\n", mode: "a")
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/sidebar",
+        params: { "session" => selected_path, "project" => filtered_cwd }
+      )
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      assert_equal ["Unread", "Sessions"], document.css(".recent-sessions-header h2").map(&:text)
+      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
+      assert_equal ["Selected work", "Unread work", "Filtered work"], session_titles
+      assert document.at_css('.recent-sessions a.session[href*="selected.jsonl"]')["class"].include?("selected")
+      assert document.at_css('.recent-sessions a.session[href*="unread.jsonl"]')["class"].include?("unread")
     end
   end
 

@@ -156,21 +156,11 @@ class PiWebGateway < Sinatra::Base
     end
 
     def sorted_sidebar_sessions
-      @sorted_sidebar_sessions ||= sidebar_session_pool.sort_by { |session| session.modified_at || Time.at(0) }.reverse
-    end
-
-    def sidebar_session_pool
-      sessions = @groups.values.flatten
-      return sessions unless selected_project_cwd
-
-      sessions.select { |session| session.cwd == selected_project_cwd }
+      @sorted_sidebar_sessions ||= @groups.values.flatten.sort_by { |session| session.modified_at || Time.at(0) }.reverse
     end
 
     def sidebar_current_session
-      return @selected_session unless selected_project_cwd
-      return @selected_session if @selected_session&.cwd == selected_project_cwd
-
-      nil
+      @selected_session
     end
 
     def unread_sidebar_sessions
@@ -182,7 +172,10 @@ class PiWebGateway < Sinatra::Base
     end
 
     def regular_sidebar_session_pool
-      @regular_sidebar_session_pool ||= sorted_sidebar_sessions.reject { |session| selected?(session) || unread?(session) }
+      @regular_sidebar_session_pool ||= begin
+        sessions = sorted_sidebar_sessions.reject { |session| selected?(session) || unread?(session) }
+        selected_project_cwd ? sessions.select { |session| session.cwd == selected_project_cwd } : sessions
+      end
     end
 
     def recent_sidebar_sessions
