@@ -146,7 +146,7 @@
     .abort-form { display: none; }
     input, select, textarea { box-sizing: border-box; font: inherit; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.55rem; color: var(--text); background: var(--panel-soft); outline: none; }
     input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.2); }
-    textarea { width: 100%; resize: none; min-height: 2.75rem; max-height: 12rem; line-height: 1.4; }
+    textarea { width: 100%; resize: none; min-height: 2.75rem; max-height: 12rem; line-height: 1.4; overflow-y: hidden; }
     .send-button, .composer-stop-button { display: none; }
     .composer-stop-button.is-visible { position: relative; isolation: isolate; display: inline-flex; }
     .composer-stop-button.is-visible:not(:disabled)::before { content: ""; position: absolute; inset: -0.34rem; z-index: -1; border: 2px solid rgba(204, 102, 102, 0.78); border-radius: inherit; animation: stop-button-pulse 1400ms ease-out infinite; pointer-events: none; }
