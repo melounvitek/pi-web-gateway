@@ -579,7 +579,12 @@ class PiWebGateway < Sinatra::Base
   post "/abort" do
     session_path = canonical_rpc_session_path(params.fetch("session"))
     with_rpc_client(session_path) { |client| client.abort }
-    redirect "/?session=#{Rack::Utils.escape(session_path)}"
+    if json_request?
+      content_type :json
+      JSON.generate(ok: true, session: session_path)
+    else
+      redirect "/?session=#{Rack::Utils.escape(session_path)}"
+    end
   end
 
   post "/compact" do

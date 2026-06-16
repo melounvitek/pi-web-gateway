@@ -302,8 +302,8 @@
       </form>
     </div>
   </div>
-  <div class="session-switch-overlay" role="status" aria-live="polite" aria-label="Loading session">
-    <div class="session-switch-indicator"><span class="session-switch-spinner" aria-hidden="true"></span> Loading session…</div>
+  <div class="session-switch-overlay" role="status" aria-live="polite" aria-label="Loading">
+    <div class="session-switch-indicator"><span class="session-switch-spinner" aria-hidden="true"></span> Loading…</div>
   </div>
   <div class="browser-access-overlay" data-browser-access-overlay aria-live="polite">
     <div class="browser-access-card">
@@ -320,6 +320,7 @@
     let conversationPanel = null;
     let liveOutput = null;
     let promptForm = null;
+    let abortForm = null;
     let promptTextarea = null;
     let promptSessionInput = null;
     let sendButton = null;
@@ -384,6 +385,7 @@
       conversationPanel = document.querySelector(".conversation-panel");
       liveOutput = document.getElementById("live-output");
       promptForm = document.querySelector(".prompt-form");
+      abortForm = document.getElementById("abort-form");
       promptTextarea = promptForm?.querySelector("textarea") || null;
       promptSessionInput = promptForm?.querySelector('input[name="session"]') || null;
       sendButton = promptForm?.querySelector(".send-button") || null;
@@ -1762,6 +1764,25 @@
       scrollToBottom();
     }
 
+    async function submitAbort(event) {
+      event.preventDefault();
+      if (!abortForm || abortForm.dataset.submitting === "true") return;
+
+      abortForm.dataset.submitting = "true";
+      showSessionSwitching();
+      try {
+        const response = await fetch(abortForm.action, { method: "POST", body: new FormData(abortForm), headers: { "Accept": "application/json" } });
+        if (!response.ok) showStatus("Stop failed", true);
+      } catch (_error) {
+        showStatus("Stop failed", true);
+      } finally {
+        delete abortForm.dataset.submitting;
+        hideSessionSwitching();
+        scheduleNextEventPoll(0);
+        refreshSidebar().catch(() => {});
+      }
+    }
+
     function bindCommandFilter() {
       commandFilter?.addEventListener("input", () => {
         const query = commandFilter.value.trim().toLowerCase();
@@ -1876,6 +1897,7 @@
       });
 
       promptForm?.addEventListener("submit", submitPrompt);
+      abortForm?.addEventListener("submit", submitAbort);
     }
 
     async function copyText(text) {

@@ -1122,6 +1122,28 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_aborts_selected_session_with_json_response
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/abort",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      assert_equal({ "ok" => true, "session" => path }, JSON.parse(response.body))
+      assert_equal [[ :start, path ], [ :abort ]], calls
+    end
+  end
+
   def test_compacts_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -1232,6 +1254,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "send-button"
       assert_includes response.body, "composer-stop-button"
       assert_includes response.body, "session-abort-button composer-stop-button"
+      assert_includes response.body, "Loading…"
+      refute_includes response.body, "Loading session…"
       assert_includes response.body, "Pi is working…"
       assert_includes response.body, "[hidden] { display: none !important; }"
       assert_includes response.body, "Ask Pi… Enter to send, Shift+Enter for newline."
@@ -1406,6 +1430,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, ".modal-overlay { place-items: end stretch; padding: 0; }"
       assert_includes response.body, "submit.textContent = \"Starting…\""
       assert_includes response.body, "abortEventPoll();"
+      assert_includes response.body, "async function submitAbort(event)"
       assert_includes response.body, "if (modalIsOpen()) return;"
       assert_includes response.body, "fetch(validationUrl"
       assert_includes response.body, "if (select && select.value !== input.value.trim()) select.value = \"\";"
