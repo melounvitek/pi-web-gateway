@@ -26,6 +26,23 @@
             <h2>Sessions</h2>
             <button type="button" class="sidebar-icon-button" title="New session" aria-label="New session" data-modal-open="new-session-modal">+</button>
           </div>
+          <form class="sidebar-project-filter-form" method="get" action="/">
+            <% if @selected_session %>
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+            <% end %>
+            <% if show_all_sidebar_sessions? %>
+              <input type="hidden" name="show_all_sessions" value="1">
+            <% end %>
+            <% if sidebar_sessions_limit_param %>
+              <input type="hidden" name="sidebar_sessions_limit" value="<%= h sidebar_sessions_limit_param %>">
+            <% end %>
+            <select class="sidebar-project-filter" name="project" aria-label="Filter sessions by project" data-sidebar-project-filter>
+              <option value="">All projects</option>
+              <% known_session_cwds.each do |cwd| %>
+                <option value="<%= h cwd %>"<%= cwd == selected_project_cwd ? " selected" : "" %>><%= h File.basename(cwd) %></option>
+              <% end %>
+            </select>
+          </form>
           <% regular_sidebar_sessions.each do |session| %>
             <% shortcut_index += 1 %>
             <% shortcut = shortcut_index <= 9 ? shortcut_index : nil %>

@@ -156,11 +156,21 @@ class PiWebGateway < Sinatra::Base
     end
 
     def sorted_sidebar_sessions
-      @sorted_sidebar_sessions ||= @groups.values.flatten.sort_by { |session| session.modified_at || Time.at(0) }.reverse
+      @sorted_sidebar_sessions ||= sidebar_session_pool.sort_by { |session| session.modified_at || Time.at(0) }.reverse
+    end
+
+    def sidebar_session_pool
+      sessions = @groups.values.flatten
+      return sessions unless selected_project_cwd
+
+      sessions.select { |session| session.cwd == selected_project_cwd }
     end
 
     def sidebar_current_session
-      @selected_session
+      return @selected_session unless selected_project_cwd
+      return @selected_session if @selected_session&.cwd == selected_project_cwd
+
+      nil
     end
 
     def unread_sidebar_sessions
@@ -212,6 +222,7 @@ class PiWebGateway < Sinatra::Base
     def sidebar_sessions_load_more_url
       query = {}
       query["session"] = @selected_session.path if @selected_session
+      query["project"] = selected_project_cwd if selected_project_cwd
       query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
       query["sidebar_sessions_limit"] = sidebar_next_sessions_limit.to_s
       "/?#{Rack::Utils.build_nested_query(query)}"
@@ -224,12 +235,22 @@ class PiWebGateway < Sinatra::Base
       end
     end
 
+    def selected_project_cwd
+      project = params["project"].to_s
+      return if project.empty?
+      return project unless defined?(@groups) && @groups
+      return project if @groups.key?(project)
+
+      nil
+    end
+
     def project_label(session)
       File.basename(session.cwd.to_s)
     end
 
     def session_url(session_path)
       query = { "session" => session_path }
+      query["project"] = selected_project_cwd if selected_project_cwd
       "/?#{Rack::Utils.build_nested_query(query)}"
     end
 
@@ -604,7 +625,7 @@ class PiWebGateway < Sinatra::Base
       content_type :json
       JSON.generate(ok: true, session: session_path)
     else
-      redirect "/?session=#{Rack::Utils.escape(session_path)}"
+      redirect session_redirect_path(session_path)
     end
   end
 
@@ -612,7 +633,7 @@ class PiWebGateway < Sinatra::Base
     session_path = canonical_rpc_session_path(params.fetch("session"))
     instructions = params["instructions"].to_s.strip
     with_rpc_client(session_path) { |client| client.compact(instructions.empty? ? nil : instructions) }
-    redirect "/?session=#{Rack::Utils.escape(session_path)}"
+    redirect session_redirect_path(session_path)
   end
 
   post "/rename" do
@@ -621,7 +642,7 @@ class PiWebGateway < Sinatra::Base
     halt 400, "Name cannot be empty" if name.empty?
 
     with_rpc_client(session_path) { |client| client.set_session_name(name) }
-    redirect "/?session=#{Rack::Utils.escape(session_path)}"
+    redirect session_redirect_path(session_path)
   end
 
   get "/events" do
@@ -796,6 +817,7 @@ class PiWebGateway < Sinatra::Base
   def session_view_url
     query = {}
     query["session"] = @selected_session.path if @selected_session
+    query["project"] = selected_project_cwd if selected_project_cwd
     query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
     query["show_all_sessions"] = "1" if show_all_sidebar_sessions?
     query["sidebar_sessions_limit"] = sidebar_sessions_limit_param if sidebar_sessions_limit_param
@@ -812,6 +834,7 @@ class PiWebGateway < Sinatra::Base
 
   def session_redirect_path(session_path, expanded_cwds: [], show_all_sessions: false, sidebar_sessions_limit: nil)
     query = { "session" => session_path }
+    query["project"] = selected_project_cwd if selected_project_cwd
     query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
     query["show_all_sessions"] = "1" if show_all_sessions
     query["sidebar_sessions_limit"] = sidebar_sessions_limit if sidebar_sessions_limit

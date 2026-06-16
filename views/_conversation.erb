@@ -17,6 +17,9 @@
             <% if sidebar_sessions_limit_param %>
               <input type="hidden" name="sidebar_sessions_limit" value="<%= h sidebar_sessions_limit_param %>">
             <% end %>
+            <% if selected_project_cwd %>
+              <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
+            <% end %>
             <button type="submit" class="sidebar-icon-button" title="New session in this directory" aria-label="New session in this directory">+</button>
           </form>
         </header>
@@ -82,6 +85,9 @@
 
             <form method="post" action="/abort" class="abort-form" id="abort-form">
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <% if selected_project_cwd %>
+                <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
+              <% end %>
             </form>
 
             <div class="session-reconnect" role="status" aria-live="polite">
@@ -99,6 +105,9 @@
               <% end %>
               <% if sidebar_sessions_limit_param %>
                 <input type="hidden" name="sidebar_sessions_limit" value="<%= h sidebar_sessions_limit_param %>">
+              <% end %>
+              <% if selected_project_cwd %>
+                <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
               <% end %>
               <span class="composer-state" data-state="idle" aria-live="polite"></span>
               <div class="attachment-tray" aria-live="polite"></div>

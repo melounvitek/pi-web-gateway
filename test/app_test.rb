@@ -1344,6 +1344,82 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_sidebar_project_filter_lists_projects_by_recent_session_activity
+    Dir.mktmpdir do |dir|
+      older_cwd = File.join(dir, "older-project")
+      newer_cwd = File.join(dir, "newer-project")
+      FileUtils.mkdir_p(older_cwd)
+      FileUtils.mkdir_p(newer_cwd)
+      session_dir = File.join(dir, "sessions")
+      FileUtils.mkdir_p(session_dir)
+      older_path = File.join(session_dir, "older.jsonl")
+      newer_path = File.join(session_dir, "newer.jsonl")
+      File.write(older_path, [
+        JSON.generate({ type: "session", id: "older", cwd: older_cwd }),
+        JSON.generate({ type: "session_info", name: "Older work" })
+      ].join("\n") + "\n")
+      File.write(newer_path, [
+        JSON.generate({ type: "session", id: "newer", cwd: newer_cwd }),
+        JSON.generate({ type: "session_info", name: "Newer work" })
+      ].join("\n") + "\n")
+      FileUtils.touch(older_path, mtime: Time.now - 60)
+      FileUtils.touch(newer_path, mtime: Time.now)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => newer_path, "project" => older_cwd })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      options = document.css(".sidebar-project-filter option")
+      assert_equal ["", newer_cwd, older_cwd], options.map { |option| option["value"] }
+      assert_equal ["All projects", "newer-project", "older-project"], options.map(&:text)
+      assert_equal older_cwd, options.find { |option| option["selected"] }["value"]
+      assert_operator response.body.index("<h2>Sessions</h2>"), :<, response.body.index("sidebar-project-filter")
+      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
+      assert_equal ["Older work"], session_titles
+      assert_includes document.at_css(".recent-sessions a.session")["href"], "project=#{Rack::Utils.escape(older_cwd)}"
+    end
+  end
+
+  def test_sidebar_project_filter_preserves_project_when_loading_more_sessions
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 41)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/sidebar",
+        params: { "session" => paths.last, "project" => project_cwd(dir) }
+      )
+
+      assert_equal 200, response.status
+      load_more = Nokogiri::HTML(response.body).at_css(".sidebar-load-more")
+      assert load_more
+      assert_includes load_more["href"], "project=#{Rack::Utils.escape(project_cwd(dir))}"
+    end
+  end
+
+  def test_abort_redirect_preserves_sidebar_project_filter
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/abort",
+        params: { "session" => path, "project" => project_cwd(dir) }
+      )
+
+      assert_equal 303, response.status
+      assert_includes response["Location"], "project=#{Rack::Utils.escape(project_cwd(dir))}"
+    end
+  end
+
   def test_sidebar_uses_relative_time_formatter
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -1438,6 +1514,13 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (showAllSessionsActive()) {\n        formData.set(\"show_all_sessions\", \"1\");"
       assert_includes response.body, "form.action, { method: \"POST\", body: formData, headers: { \"Accept\": \"application/json\" } }"
       assert_includes response.body, "formData.set(\"sidebar_sessions_limit\", sidebarSessionsLimit);"
+      assert_includes response.body, "const currentProject = new URLSearchParams(window.location.search).get(\"project\");"
+      assert_includes response.body, "if (currentProject) url.searchParams.set(\"project\", currentProject);"
+      assert_includes response.body, "function sidebarProjectFilterActive()"
+      assert_includes response.body, "if (sidebarProjectFilterActive() || recentlyInteractedWithSidebar())"
+      assert_includes response.body, "if (sidebarProjectFilterActive()) {\n        scheduleSidebarRefresh(1000);\n        return;\n      }"
+      assert_includes response.body, "async function changeSidebarProjectFilter(select)"
+      assert_includes response.body, "replaceSidebarHtml(html, { scrollTop: 0, notify: false });"
     end
   end
 
@@ -2233,7 +2316,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "button.classList.add(\"is-loading\");"
       assert_includes response.body, "viewGeneration !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || sidebarGeneration !== sidebarUpdateGeneration"
       assert_includes response.body, "replaceSidebarHtml(html, { scrollTop: previousScrollTop });"
-      assert_includes response.body, "if (recentlyInteractedWithSidebar()) {\n        scheduleSidebarRefresh(1000);\n        return;\n      }"
+      assert_includes response.body, "if (sidebarProjectFilterActive() || recentlyInteractedWithSidebar()) {\n        scheduleSidebarRefresh(1000);\n        return;\n      }"
       assert_includes response.body, "fetch(sidebarFragmentUrl())"
       assert_includes response.body, "const previousScrollTop = sidebarScrollContainer()?.scrollTop || 0;"
       assert_includes response.body, "const refreshedScrollContainer = sidebarScrollContainer();\n      if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = scrollTop;"
