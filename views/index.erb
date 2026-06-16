@@ -69,7 +69,7 @@
     .session-running-indicator::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--success); box-shadow: 0 0 0 4px rgba(181, 189, 104, 0.16); animation: progress-blink 1000ms ease-in-out infinite; }
     .empty { color: var(--muted); background: var(--panel-soft); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; }
     .empty-state { max-width: 34rem; margin: 2rem auto; text-align: center; }
-    .message { min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 0.9rem; padding: 0.9rem; margin-bottom: 0.85rem; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); }
+    .message { position: relative; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 0.9rem; padding: 0.9rem; margin-bottom: 0.85rem; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); scroll-margin-top: 3.5rem; }
     .message--user { margin-left: 10%; background: #343541; border-color: rgba(69, 133, 255, 0.72); color: #d4d4d4; }
     .message--assistant { margin-right: 10%; background: #080d20; border-color: rgba(69, 133, 255, 0.32); color: #f0c7a4; }
     .message--thinking { margin-right: 16%; background: #080d20; border-color: rgba(69, 133, 255, 0.22); border-style: dashed; color: #7f7f88; box-shadow: none; }
@@ -85,6 +85,10 @@
     .message--compact { padding: 0.75rem 0.9rem; box-shadow: none; }
     .message--live { box-shadow: 0 0 0 1px rgba(138, 190, 183, 0.45) inset, 0 6px 18px rgba(0, 0, 0, 0.12); }
     .message-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+    .message-turn-nav { position: absolute; top: 0.6rem; right: 0.6rem; display: inline-flex; gap: 0.3rem; pointer-events: none; }
+    .message-turn-button { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; padding: 0; border: 0; border-radius: 0.48rem; background: rgba(138, 190, 183, 0.88); color: var(--button-text); font-size: 0.78rem; font-weight: 800; line-height: 1; text-decoration: none; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2); opacity: 0.72; pointer-events: auto; transition: background 120ms ease, opacity 120ms ease, transform 120ms ease; }
+    .message-turn-button:hover { background: var(--accent-hover); opacity: 1; transform: translateY(-1px); }
+    .message--user .message-header { margin-bottom: 0.75rem; padding-right: 4.35rem; }
     .role { font-size: 0.74rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
     .message--error .role { color: #ffb4b6; }
     .message-meta { font-size: 0.75rem; color: var(--muted-soft); }
@@ -168,7 +172,6 @@
     .jump-controls.is-visible { display: flex; }
     .jump-controls--top { top: 0.75rem; }
     .jump-controls--bottom { bottom: 0.75rem; }
-    .jump-controls--message-nav { top: calc(50% - 3rem); flex-direction: column; align-items: flex-end; width: max-content; height: 0; gap: 0.75rem; margin: 0 0.35rem 0 auto; }
     .jump-button { display: none; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); pointer-events: auto; }
     .jump-button.is-visible { display: inline-flex; }
     .session-switch-overlay { position: fixed; inset: 0; z-index: 140; display: none; place-items: center; background: rgba(24, 24, 30, 0.5); backdrop-filter: blur(2px); }
@@ -331,10 +334,7 @@
     let conversationScroll = null;
     let topJumpControls = null;
     let bottomJumpControls = null;
-    let messageNavJumpControls = null;
     let jumpToFirstButton = null;
-    let jumpToPreviousUserButton = null;
-    let jumpToNextUserButton = null;
     let jumpToLatestButton = null;
     let sessionStatusBar = null;
     let reconnectBanner = null;
@@ -396,10 +396,7 @@
       conversationScroll = document.getElementById("conversation-scroll");
       topJumpControls = document.querySelector(".jump-controls--top");
       bottomJumpControls = document.querySelector(".jump-controls--bottom");
-      messageNavJumpControls = document.querySelector(".jump-controls--message-nav");
       jumpToFirstButton = document.querySelector(".jump-to-first");
-      jumpToPreviousUserButton = document.querySelector(".jump-to-previous-user");
-      jumpToNextUserButton = document.querySelector(".jump-to-next-user");
       jumpToLatestButton = document.querySelector(".jump-to-latest");
       sessionStatusBar = document.getElementById("session-status-bar");
       const existingModelStatus = sessionStatusBar?.querySelector('[data-status-key="model"] .session-status-value')?.textContent || "";
@@ -409,6 +406,7 @@
       reconnectBanner = document.querySelector(".session-reconnect");
       reconnectButton = document.querySelector(".reconnect-button");
       bindSidebarScrollTracking();
+      syncMessageTurnNavs();
     }
 
     function markSidebarInteraction() {
@@ -442,22 +440,6 @@
       return elementRect.bottom > scrollRect.top && elementRect.top < scrollRect.bottom;
     }
 
-    function userMessages() {
-      return [...(conversationScroll?.querySelectorAll('[data-role="user"].message') || [])];
-    }
-
-    function previousUserMessageAboveViewport() {
-      if (!conversationScroll) return null;
-      const scrollTop = conversationScroll.getBoundingClientRect().top;
-      return userMessages().reverse().find((message) => message.getBoundingClientRect().bottom < scrollTop - 8) || null;
-    }
-
-    function nextUserMessageBelowViewport() {
-      if (!conversationScroll) return null;
-      const scrollBottom = conversationScroll.getBoundingClientRect().bottom;
-      return userMessages().find((message) => message.getBoundingClientRect().top > scrollBottom + 8) || null;
-    }
-
     function hideConversationJumpControlsSoon() {
       if (conversationScrollRevealTimer) clearTimeout(conversationScrollRevealTimer);
       conversationScrollRevealTimer = setTimeout(() => {
@@ -484,16 +466,42 @@
 
     function updateScrollJumpButtons() {
       const showFirst = !nearConversationTop();
-      const showPreviousUser = Boolean(previousUserMessageAboveViewport());
-      const showNextUser = Boolean(nextUserMessageBelowViewport());
       const showLatest = !nearConversationBottom() && !latestReadableAssistantMessageIsVisible();
       jumpToFirstButton?.classList.toggle("is-visible", showFirst);
-      jumpToPreviousUserButton?.classList.toggle("is-visible", showPreviousUser);
-      jumpToNextUserButton?.classList.toggle("is-visible", showNextUser);
       jumpToLatestButton?.classList.toggle("is-visible", showLatest);
       topJumpControls?.classList.toggle("is-visible", showFirst);
       bottomJumpControls?.classList.toggle("is-visible", showLatest);
-      messageNavJumpControls?.classList.toggle("is-visible", showPreviousUser || showNextUser);
+    }
+
+    function userMessages() {
+      return [...(conversationScroll?.querySelectorAll('[data-role="user"].message') || [])];
+    }
+
+    function makeMessageTurnButton(direction, label, text) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "message-turn-button";
+      button.dataset.direction = direction;
+      button.setAttribute("aria-label", label);
+      button.textContent = text;
+      return button;
+    }
+
+    function syncMessageTurnNavs() {
+      const messages = userMessages();
+      messages.forEach((message, index) => {
+        let nav = [...message.children].find((child) => child.classList?.contains("message-turn-nav"));
+        if (!nav) {
+          nav = document.createElement("nav");
+          nav.className = "message-turn-nav";
+          nav.setAttribute("aria-label", "User message navigation");
+          message.prepend(nav);
+        }
+
+        nav.replaceChildren();
+        if (index > 0) nav.append(makeMessageTurnButton("previous", "Previous user message", "↑"));
+        if (index < messages.length - 1) nav.append(makeMessageTurnButton("next", "Next user message", "↓"));
+      });
     }
 
     function latestReadableAssistantMessage() {
@@ -580,6 +588,7 @@
     }
 
     function afterLiveOutputChange(shouldScroll, live = true) {
+      syncMessageTurnNavs();
       if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();
       else if (live) updateScrollJumpButtons();
     }
@@ -1824,10 +1833,20 @@
         updateScrollJumpButtons();
       }, { passive: true });
       jumpToFirstButton?.addEventListener("click", () => scrollToTop());
-      jumpToPreviousUserButton?.addEventListener("click", () => scrollToUserMessage(previousUserMessageAboveViewport()));
-      jumpToNextUserButton?.addEventListener("click", () => scrollToUserMessage(nextUserMessageBelowViewport()));
       jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
       reconnectButton?.addEventListener("click", reconnectSession);
+      conversationPanel?.addEventListener("click", (event) => {
+        const turnButton = event.target.closest(".message-turn-button");
+        if (!turnButton) return;
+
+        event.preventDefault();
+        const messages = userMessages();
+        const currentIndex = messages.indexOf(turnButton.closest('[data-role="user"].message'));
+        const targetIndex = turnButton.dataset.direction === "previous" ? currentIndex - 1 : currentIndex + 1;
+        const target = messages[targetIndex];
+        if (!target) return;
+        scrollToUserMessage(target);
+      });
       conversationPanel?.addEventListener("click", (event) => {
         if (!event.target.closest("[data-collapse-details]")) return;
         const details = event.target.closest("details.message-details");

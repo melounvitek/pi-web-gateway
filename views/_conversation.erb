@@ -22,10 +22,6 @@
           <div class="jump-controls jump-controls--top">
             <button type="button" class="jump-button jump-to-first" aria-label="Top">↑↑</button>
           </div>
-          <div class="jump-controls jump-controls--message-nav">
-            <button type="button" class="jump-button jump-to-previous-user" aria-label="Previous user message">↑</button>
-            <button type="button" class="jump-button jump-to-next-user" aria-label="Next user message">↓</button>
-          </div>
           <% if @messages.empty? %>
             <p class="empty">No messages in this session.</p>
           <% end %>
