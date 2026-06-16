@@ -1416,8 +1416,71 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      shortcuts = document.css(".recent-sessions a.session").map { |link| [link["data-session-shortcut"], link.at_css(".session-shortcut")&.text] }
-      assert_equal (1..9).map { |number| [number.to_s, number.to_s] }, shortcuts
+      selected = document.at_css(".recent-sessions a.session.selected")
+      assert_nil selected["data-session-shortcut"]
+      assert_nil selected.at_css(".session-shortcut")
+      shortcuts = document.css(".recent-sessions a.session:not(.selected)").map { |link| [link["data-session-shortcut"], link.at_css(".session-shortcut")&.text] }
+      assert_equal (1..8).map { |number| [number.to_s, number.to_s] }, shortcuts
+    end
+  end
+
+  def test_sidebar_pins_current_session_before_sessions_without_header_or_shortcut
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 3)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/sidebar",
+        params: { "session" => paths.first }
+      )
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      links = document.css(".recent-sessions a.session")
+      assert_equal ["Session 1", "Session 3", "Session 2"], links.map { |link| link.at_css(".session-title").text }
+      assert links.first["class"].include?("selected")
+      assert_nil links.first["data-session-shortcut"]
+      assert_equal "Sessions", document.css(".recent-sessions-header h2").map(&:text).first
+      assert_operator response.body.index("Session 1"), :<, response.body.index("<h2>Sessions</h2>")
+    end
+  end
+
+  def test_sidebar_groups_unread_sessions_between_current_and_regular_sessions
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 4)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => paths.first })
+      File.write(paths[1], JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Unread done" }] } }) + "\n", mode: "a")
+      File.write(paths.first, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Current done" }] } }) + "\n", mode: "a")
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => paths.first })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      assert_equal ["Unread", "Sessions"], document.css(".recent-sessions-header h2").map(&:text)
+      links = document.css(".recent-sessions a.session")
+      assert_equal ["Session 1", "Session 2", "Session 4", "Session 3"], links.map { |link| link.at_css(".session-title").text }
+      assert_nil links[0]["data-session-shortcut"]
+      assert_equal ["1", "2", "3"], links[1..].map { |link| link["data-session-shortcut"] }
+      assert links[1]["class"].include?("unread")
+      refute links[0]["class"].include?("unread")
+    end
+  end
+
+  def test_sidebar_hides_unread_header_when_no_unread_sessions
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 2)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => paths.last })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      assert_equal ["Sessions"], document.css(".recent-sessions-header h2").map(&:text)
     end
   end
 
@@ -1452,13 +1515,12 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "Show all 21 sessions"
+      refute_includes response.body, "Show all 21 sessions"
       document = Nokogiri::HTML(response.body)
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      assert_equal 20, session_titles.length
+      assert_equal 21, session_titles.length
       assert_equal "Session 21", session_titles.first
-      assert_equal "Session 2", session_titles.last
-      refute_includes session_titles, "Session 1"
+      assert_equal "Session 1", session_titles.last
       assert_empty document.css(".cwd-group")
     end
   end
@@ -1478,8 +1540,9 @@ class AppTest < Minitest::Test
       document = Nokogiri::HTML(response.body)
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
       assert_equal 21, session_titles.length
-      assert_equal "Session 22", session_titles.first
-      assert_includes session_titles, "Session 1"
+      assert_equal "Session 1", session_titles.first
+      assert_equal "Session 22", session_titles[1]
+      assert_equal "Session 3", session_titles.last
       assert_equal "Session 1", document.at_css(".recent-sessions a.session.selected .session-title").text
     end
   end

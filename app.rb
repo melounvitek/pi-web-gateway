@@ -158,15 +158,23 @@ class PiWebGateway < Sinatra::Base
       @sorted_sidebar_sessions ||= @groups.values.flatten.sort_by { |session| session.modified_at || Time.at(0) }.reverse
     end
 
-    def recent_sidebar_sessions
-      return sorted_sidebar_sessions if show_all_sidebar_sessions?
+    def sidebar_current_session
+      @selected_session
+    end
 
-      visible = sorted_sidebar_sessions.first(RECENT_SIDEBAR_SESSION_LIMIT)
-      if @selected_session && !visible.any? { |session| selected?(session) }
-        visible + [@selected_session]
-      else
-        visible
+    def unread_sidebar_sessions
+      @unread_sidebar_sessions ||= sorted_sidebar_sessions.reject { |session| selected?(session) }.select { |session| unread?(session) }
+    end
+
+    def regular_sidebar_sessions
+      @regular_sidebar_sessions ||= begin
+        sessions = sorted_sidebar_sessions.reject { |session| selected?(session) || unread?(session) }
+        show_all_sidebar_sessions? ? sessions : sessions.first(RECENT_SIDEBAR_SESSION_LIMIT)
       end
+    end
+
+    def recent_sidebar_sessions
+      [sidebar_current_session, *unread_sidebar_sessions, *regular_sidebar_sessions].compact
     end
 
     def show_all_sidebar_sessions?
@@ -174,7 +182,9 @@ class PiWebGateway < Sinatra::Base
     end
 
     def sidebar_sessions_overflow?
-      !show_all_sidebar_sessions? && recent_sidebar_sessions.length < sorted_sidebar_sessions.length
+      return false if show_all_sidebar_sessions?
+
+      regular_sidebar_sessions.length < sorted_sidebar_sessions.count { |session| !selected?(session) && !unread?(session) }
     end
 
     def sidebar_sessions_toggle_url(show_all:)

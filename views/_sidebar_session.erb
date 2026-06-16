@@ -1,0 +1,15 @@
+            <a class="<%= h session_classes(session, "session", "recent-session") %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>"<% if shortcut %> data-session-shortcut="<%= h shortcut %>"<% end %>>
+              <div class="session-content">
+                <div class="session-title"><%= h session.display_name %></div>
+                <div class="session-project" title="<%= h session.cwd %>"><%= h project_label(session) %></div>
+                <div class="session-meta">
+                  updated <%= h format_relative_time(session.modified_at) %>
+                </div>
+              </div>
+              <div class="session-indicators">
+                <% if shortcut %><span class="session-shortcut" aria-hidden="true"><%= h shortcut %></span><% end %>
+                <% if rpc_clients.busy?(session.path) %>
+                  <span class="session-running-indicator" title="Pi is working" aria-label="Pi is working"></span>
+                <% end %>
+              </div>
+            </a>
