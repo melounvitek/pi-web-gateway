@@ -1270,6 +1270,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "Date.now() - lastConversationScrollRevealAt > 120"
       assert_includes response.body, "}, 300);"
       assert_includes response.body, "updateConversationJumpControlsReveal();"
+      assert_includes response.body, 'conversationScrollDirection === "up" && !nearConversationTop()'
+      assert_includes response.body, 'conversationScrollDirection === "down" && !nearConversationBottom()'
       assert_includes response.body, ".message--tool .message-details summary, .message--tool-transcript .message-details summary { max-width: 100%; overflow-x: auto; white-space: nowrap; }"
       assert_includes response.body, ".message--tool .message-body, .message--tool-transcript .message-body, .raw-details pre { max-width: 100%; overflow-x: auto; }"
       assert_includes response.body, "scrollbar-width: none"

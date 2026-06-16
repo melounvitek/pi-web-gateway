@@ -364,6 +364,8 @@
     let emptyEventPollCount = 0;
     let autoScrollEnabled = true;
     let programmaticScroll = false;
+    let lastConversationScrollTop = 0;
+    let conversationScrollDirection = null;
     let scheduledAutoScrollFrame = null;
     let sessionViewGeneration = 0;
     let sessionSwitchGeneration = 0;
@@ -394,6 +396,8 @@
       commandList = document.getElementById("command-list");
       commandFilter = commandList?.querySelector(".command-filter") || null;
       conversationScroll = document.getElementById("conversation-scroll");
+      lastConversationScrollTop = conversationScroll?.scrollTop || 0;
+      conversationScrollDirection = null;
       topJumpControls = document.querySelector(".jump-controls--top");
       bottomJumpControls = document.querySelector(".jump-controls--bottom");
       jumpToFirstButton = document.querySelector(".jump-to-first");
@@ -465,8 +469,8 @@
     }
 
     function updateScrollJumpButtons() {
-      const showFirst = !nearConversationTop();
-      const showLatest = !nearConversationBottom() && !latestReadableAssistantMessageIsVisible();
+      const showFirst = conversationScrollDirection === "up" && !nearConversationTop();
+      const showLatest = conversationScrollDirection === "down" && !nearConversationBottom() && !latestReadableAssistantMessageIsVisible();
       jumpToFirstButton?.classList.toggle("is-visible", showFirst);
       jumpToLatestButton?.classList.toggle("is-visible", showLatest);
       topJumpControls?.classList.toggle("is-visible", showFirst);
@@ -1826,10 +1830,14 @@
       });
 
       conversationScroll?.addEventListener("scroll", () => {
+        const currentScrollTop = conversationScroll.scrollTop;
         if (!programmaticScroll) {
+          if (currentScrollTop > lastConversationScrollTop) conversationScrollDirection = "down";
+          if (currentScrollTop < lastConversationScrollTop) conversationScrollDirection = "up";
           autoScrollEnabled = nearConversationBottom();
           updateConversationJumpControlsReveal();
         }
+        lastConversationScrollTop = currentScrollTop;
         updateScrollJumpButtons();
       }, { passive: true });
       jumpToFirstButton?.addEventListener("click", () => scrollToTop());
