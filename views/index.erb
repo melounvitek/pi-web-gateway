@@ -148,7 +148,7 @@
     input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.2); }
     textarea { width: 100%; resize: none; min-height: 2.75rem; max-height: 12rem; line-height: 1.4; overflow-y: hidden; }
     .send-button, .composer-stop-button { display: none; }
-    .composer-stop-button.is-visible { position: relative; isolation: isolate; display: inline-flex; }
+    .composer-stop-button.is-visible { position: relative; isolation: isolate; display: inline-flex; align-self: center; }
     .composer-stop-button.is-visible:not(:disabled)::before { content: ""; position: absolute; inset: -0.34rem; z-index: -1; border: 2px solid rgba(204, 102, 102, 0.78); border-radius: inherit; animation: stop-button-pulse 1400ms ease-out infinite; pointer-events: none; }
     .attach-button.is-disabled { opacity: 0.48; cursor: not-allowed; pointer-events: none; }
     button { justify-self: end; padding: 0.5rem 0.9rem; border: 0; border-radius: 0.55rem; background: var(--accent); color: var(--button-text); font-weight: 700; cursor: pointer; transition: background 120ms ease, transform 120ms ease; }
