@@ -1437,6 +1437,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "form.dataset.submitting === \"true\""
       assert_includes response.body, "if (showAllSessionsActive()) {\n        formData.set(\"show_all_sessions\", \"1\");"
       assert_includes response.body, "form.action, { method: \"POST\", body: formData, headers: { \"Accept\": \"application/json\" } }"
+      assert_includes response.body, "formData.set(\"sidebar_sessions_limit\", sidebarSessionsLimit);"
     end
   end
 
@@ -1542,7 +1543,7 @@ class AppTest < Minitest::Test
 
   def test_trims_sidebar_sessions_to_latest_twenty_by_default
     Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 21)
+      paths = write_sessions(dir, count: 41)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
@@ -1552,19 +1553,24 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      refute_includes response.body, "Show all 21 sessions"
       document = Nokogiri::HTML(response.body)
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
       assert_equal 21, session_titles.length
-      assert_equal "Session 21", session_titles.first
-      assert_equal "Session 1", session_titles.last
+      assert_equal "Session 41", session_titles.first
+      assert_equal "Session 21", session_titles.last
+      refute_includes response.body, "Session 20"
+      load_more = document.at_css(".sidebar-load-more")
+      assert load_more
+      assert_equal "Load 20 more", load_more.text.gsub(/\s+/, " ").strip
+      assert_includes load_more["href"], "sidebar_sessions_limit=40"
+      assert load_more.at_css(".sidebar-load-more-spinner")
       assert_empty document.css(".cwd-group")
     end
   end
 
   def test_keeps_older_selected_session_visible_when_sidebar_is_trimmed
     Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 22)
+      paths = write_sessions(dir, count: 42)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
@@ -1578,29 +1584,31 @@ class AppTest < Minitest::Test
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
       assert_equal 21, session_titles.length
       assert_equal "Session 1", session_titles.first
-      assert_equal "Session 22", session_titles[1]
-      assert_equal "Session 3", session_titles.last
+      assert_equal "Session 42", session_titles[1]
+      assert_equal "Session 23", session_titles.last
       assert_equal "Session 1", document.at_css(".recent-sessions a.session.selected .session-title").text
+      assert_includes document.at_css(".sidebar-load-more")["href"], "sidebar_sessions_limit=40"
     end
   end
 
-  def test_expands_sidebar_sessions_to_show_all_sessions
+  def test_loads_next_sidebar_session_page
     Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 21)
+      paths = write_sessions(dir, count: 41)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
       response = Rack::MockRequest.new(PiWebGateway).get(
         "/",
-        params: { "session" => paths.last, "show_all_sessions" => "1" }
+        params: { "session" => paths.last, "sidebar_sessions_limit" => "40" }
       )
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      assert_includes response.body, "Show recent sessions"
-      assert_equal 21, document.css(".recent-sessions a.session .session-title").length
-      assert_includes response.body, "Session 21"
-      assert_includes response.body, "Session 1"
+      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
+      assert_equal 41, session_titles.length
+      assert_equal "Session 41", session_titles.first
+      assert_equal "Session 1", session_titles.last
+      refute document.at_css(".sidebar-load-more")
     end
   end
 
@@ -2211,15 +2219,21 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "function sidebarFragmentUrl()"
+      assert_includes response.body, "function sidebarFragmentUrl(url = window.location.href)"
       assert_includes response.body, "function sidebarScrollContainer()"
       assert_includes response.body, "function bindSidebarScrollTracking()"
       assert_includes response.body, "function recentlyInteractedWithSidebar()"
       assert_includes response.body, "async function refreshSidebar(generation = sessionViewGeneration)"
+      assert_includes response.body, "async function loadMoreSidebarSessions(button)"
+      assert_includes response.body, "let sidebarUpdateGeneration = 0;"
+      assert_includes response.body, "const sidebarGeneration = ++sidebarUpdateGeneration;"
+      assert_includes response.body, "button.classList.add(\"is-loading\");"
+      assert_includes response.body, "viewGeneration !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || sidebarGeneration !== sidebarUpdateGeneration"
+      assert_includes response.body, "replaceSidebarHtml(html, { scrollTop: previousScrollTop });"
       assert_includes response.body, "if (recentlyInteractedWithSidebar()) {\n        scheduleSidebarRefresh(1000);\n        return;\n      }"
       assert_includes response.body, "fetch(sidebarFragmentUrl())"
       assert_includes response.body, "const previousScrollTop = sidebarScrollContainer()?.scrollTop || 0;"
-      assert_includes response.body, "const refreshedScrollContainer = sidebarScrollContainer();\n      if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = previousScrollTop;"
+      assert_includes response.body, "const refreshedScrollContainer = sidebarScrollContainer();\n      if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = scrollTop;"
       assert_includes response.body, "bindSidebarScrollTracking();"
       assert_includes response.body, "setTimeout(() => refreshSidebar().catch(() => {}), delay)"
     end
@@ -2587,7 +2601,7 @@ class AppTest < Minitest::Test
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
       initial_response = Rack::MockRequest.new(PiWebGateway).get("/")
-      assert_includes initial_response.body, "function sidebarFragmentUrl()"
+      assert_includes initial_response.body, "function sidebarFragmentUrl(url = window.location.href)"
       assert_includes initial_response.body, "if (!sidebarUrl.searchParams.has(\"session\"))"
       assert_includes initial_response.body, "a.session.selected[data-session-path]"
 

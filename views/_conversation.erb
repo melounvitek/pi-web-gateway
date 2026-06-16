@@ -14,6 +14,9 @@
             <% if show_all_sidebar_sessions? %>
               <input type="hidden" name="show_all_sessions" value="1">
             <% end %>
+            <% if sidebar_sessions_limit_param %>
+              <input type="hidden" name="sidebar_sessions_limit" value="<%= h sidebar_sessions_limit_param %>">
+            <% end %>
             <button type="submit" class="sidebar-icon-button" title="New session in this directory" aria-label="New session in this directory">+</button>
           </form>
         </header>
@@ -93,6 +96,9 @@
               <% end %>
               <% if show_all_sidebar_sessions? %>
                 <input type="hidden" name="show_all_sessions" value="1">
+              <% end %>
+              <% if sidebar_sessions_limit_param %>
+                <input type="hidden" name="sidebar_sessions_limit" value="<%= h sidebar_sessions_limit_param %>">
               <% end %>
               <span class="composer-state" data-state="idle" aria-live="polite"></span>
               <div class="attachment-tray" aria-live="polite"></div>

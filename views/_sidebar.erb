@@ -32,9 +32,10 @@
             <%= erb :_sidebar_session, layout: false, locals: { session: session, shortcut: shortcut } %>
           <% end %>
           <% if sidebar_sessions_overflow? %>
-            <a class="cwd-toggle" href="<%= h sidebar_sessions_toggle_url(show_all: true) %>">Show all <%= h sorted_sidebar_sessions.length %> sessions</a>
-          <% elsif show_all_sidebar_sessions? && sorted_sidebar_sessions.length > RECENT_SIDEBAR_SESSION_LIMIT %>
-            <a class="cwd-toggle" href="<%= h sidebar_sessions_toggle_url(show_all: false) %>">Show recent sessions</a>
+            <a class="sidebar-load-more" href="<%= h sidebar_sessions_load_more_url %>" data-sidebar-load-more>
+              <span class="sidebar-load-more-spinner" aria-hidden="true"></span>
+              <span class="sidebar-load-more-label">Load <%= h [SIDEBAR_SESSION_PAGE_SIZE, sidebar_sessions_remaining_count].min %> more</span>
+            </a>
           <% end %>
         </section>
       <% end %>

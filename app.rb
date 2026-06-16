@@ -141,6 +141,7 @@ class PiWebGateway < Sinatra::Base
     end
 
     RECENT_SIDEBAR_SESSION_LIMIT = 20
+    SIDEBAR_SESSION_PAGE_SIZE = 20
 
     def selected?(session)
       @selected_session&.path == session.path
@@ -167,10 +168,11 @@ class PiWebGateway < Sinatra::Base
     end
 
     def regular_sidebar_sessions
-      @regular_sidebar_sessions ||= begin
-        sessions = sorted_sidebar_sessions.reject { |session| selected?(session) || unread?(session) }
-        show_all_sidebar_sessions? ? sessions : sessions.first(RECENT_SIDEBAR_SESSION_LIMIT)
-      end
+      @regular_sidebar_sessions ||= regular_sidebar_session_pool.first(sidebar_sessions_limit)
+    end
+
+    def regular_sidebar_session_pool
+      @regular_sidebar_session_pool ||= sorted_sidebar_sessions.reject { |session| selected?(session) || unread?(session) }
     end
 
     def recent_sidebar_sessions
@@ -181,16 +183,37 @@ class PiWebGateway < Sinatra::Base
       params["show_all_sessions"] == "1"
     end
 
-    def sidebar_sessions_overflow?
-      return false if show_all_sidebar_sessions?
+    def sidebar_sessions_limit
+      return regular_sidebar_session_pool.length if show_all_sidebar_sessions?
 
-      regular_sidebar_sessions.length < sorted_sidebar_sessions.count { |session| !selected?(session) && !unread?(session) }
+      requested_limit = params["sidebar_sessions_limit"].to_i
+      requested_limit = RECENT_SIDEBAR_SESSION_LIMIT if requested_limit < RECENT_SIDEBAR_SESSION_LIMIT
+      requested_limit
     end
 
-    def sidebar_sessions_toggle_url(show_all:)
+    def sidebar_sessions_limit_param
+      return nil if show_all_sidebar_sessions? || sidebar_sessions_limit <= RECENT_SIDEBAR_SESSION_LIMIT
+
+      sidebar_sessions_limit.to_s
+    end
+
+    def sidebar_sessions_overflow?
+      regular_sidebar_sessions.length < regular_sidebar_session_pool.length
+    end
+
+    def sidebar_next_sessions_limit
+      [sidebar_sessions_limit + SIDEBAR_SESSION_PAGE_SIZE, regular_sidebar_session_pool.length].min
+    end
+
+    def sidebar_sessions_remaining_count
+      regular_sidebar_session_pool.length - regular_sidebar_sessions.length
+    end
+
+    def sidebar_sessions_load_more_url
       query = {}
       query["session"] = @selected_session.path if @selected_session
-      query["show_all_sessions"] = "1" if show_all
+      query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
+      query["sidebar_sessions_limit"] = sidebar_next_sessions_limit.to_s
       "/?#{Rack::Utils.build_nested_query(query)}"
     end
 
@@ -209,6 +232,7 @@ class PiWebGateway < Sinatra::Base
       query = { "session" => session_path }
       query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
       query["show_all_sessions"] = "1" if show_all_sidebar_sessions?
+      query["sidebar_sessions_limit"] = sidebar_sessions_limit_param if sidebar_sessions_limit_param
       "/?#{Rack::Utils.build_nested_query(query)}"
     end
 
@@ -529,7 +553,7 @@ class PiWebGateway < Sinatra::Base
       with_rpc_client(session_path) { |client| client.prompt(message, images) }
       attachment_store.record_prompt(session_path, message, images.length, timestamp: submitted_at)
     end
-    redirect_path = session_redirect_path(session_path, expanded_cwds: expanded_cwds, show_all_sessions: show_all_sidebar_sessions?)
+    redirect_path = session_redirect_path(session_path, expanded_cwds: expanded_cwds, show_all_sessions: show_all_sidebar_sessions?, sidebar_sessions_limit: sidebar_sessions_limit_param)
     if json_request?
       content_type :json
       payload = { session: session_path, redirect: redirect_path }
@@ -704,7 +728,7 @@ class PiWebGateway < Sinatra::Base
   end
 
   def redirect_to_new_session(new_session_path)
-    redirect_path = session_redirect_path(new_session_path, expanded_cwds: expanded_cwds, show_all_sessions: show_all_sidebar_sessions?)
+    redirect_path = session_redirect_path(new_session_path, expanded_cwds: expanded_cwds, show_all_sessions: show_all_sidebar_sessions?, sidebar_sessions_limit: sidebar_sessions_limit_param)
     if json_request?
       content_type :json
       JSON.generate(session: new_session_path, redirect: redirect_path)
@@ -777,6 +801,7 @@ class PiWebGateway < Sinatra::Base
     query["session"] = @selected_session.path if @selected_session
     query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
     query["show_all_sessions"] = "1" if show_all_sidebar_sessions?
+    query["sidebar_sessions_limit"] = sidebar_sessions_limit_param if sidebar_sessions_limit_param
     "/?#{Rack::Utils.build_nested_query(query)}"
   end
 
@@ -788,10 +813,11 @@ class PiWebGateway < Sinatra::Base
     name ? { name: name } : { error: "Usage: /#{match[1]} <name>" }
   end
 
-  def session_redirect_path(session_path, expanded_cwds: [], show_all_sessions: false)
+  def session_redirect_path(session_path, expanded_cwds: [], show_all_sessions: false, sidebar_sessions_limit: nil)
     query = { "session" => session_path }
     query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
     query["show_all_sessions"] = "1" if show_all_sessions
+    query["sidebar_sessions_limit"] = sidebar_sessions_limit if sidebar_sessions_limit
     "/?#{Rack::Utils.build_nested_query(query)}"
   end
 

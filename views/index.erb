@@ -45,6 +45,11 @@
     .cwd-header h2 { flex: 1; min-width: 0; }
     .cwd-toggle { display: inline-block; margin: 0.35rem 0 0.5rem; font-size: 0.8rem; color: var(--muted); text-decoration: none; }
     .cwd-toggle:hover { color: var(--text); text-decoration: underline; }
+    .sidebar-load-more { display: flex; align-items: center; justify-content: center; gap: 0.45rem; margin: 0.7rem 0 0.5rem; padding: 0.6rem 0.75rem; border-radius: 0.6rem; background: var(--panel-softer); color: var(--text); font-size: 0.84rem; font-weight: 800; text-decoration: none; }
+    .sidebar-load-more:hover { background: var(--border); }
+    .sidebar-load-more-spinner { display: none; width: 0.95rem; height: 0.95rem; border: 2px solid rgba(138, 190, 183, 0.25); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
+    .sidebar-load-more.is-loading { pointer-events: none; opacity: 0.82; }
+    .sidebar-load-more.is-loading .sidebar-load-more-spinner { display: inline-block; }
     a.session { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.65rem 0.75rem; margin: 0.25rem 0; border-radius: 0.6rem; color: inherit; text-decoration: none; border: 1px solid transparent; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
     a.session:hover { background: var(--panel-soft); border-color: var(--border); transform: translateX(1px); }
     a.session.selected { background: linear-gradient(90deg, rgba(138, 190, 183, 0.22), rgba(138, 190, 183, 0.08)); border-color: rgba(138, 190, 183, 0.55); }
@@ -281,6 +286,9 @@
         <% if show_all_sidebar_sessions? %>
           <input type="hidden" name="show_all_sessions" value="1">
         <% end %>
+        <% if sidebar_sessions_limit_param %>
+          <input type="hidden" name="sidebar_sessions_limit" value="<%= h sidebar_sessions_limit_param %>">
+        <% end %>
         <label class="modal-field">
           <span>Existing folder</span>
           <select name="known_cwd" data-new-session-known-cwd>
@@ -354,6 +362,7 @@
     let pendingImages = [];
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
+    let sidebarUpdateGeneration = 0;
     let eventPollInFlight = false;
     let eventPollAbortController = null;
     let eventPollResumeTimer = null;
@@ -1942,8 +1951,8 @@
       clearAttachments();
     }
 
-    function sidebarFragmentUrl() {
-      const target = new URL(window.location.href);
+    function sidebarFragmentUrl(url = window.location.href) {
+      const target = new URL(url, window.location.href);
       const sidebarUrl = new URL("/sidebar", window.location.origin);
       target.searchParams.forEach((value, key) => sidebarUrl.searchParams.append(key, value));
       if (!sidebarUrl.searchParams.has("session")) {
@@ -1998,6 +2007,17 @@
       if (selectedTitle) updateSessionHeaderName(selectedTitle);
     }
 
+    function replaceSidebarHtml(html, { scrollTop = sidebarScrollContainer()?.scrollTop || 0, notify = true } = {}) {
+      const previousAssistantCounts = sidebarAssistantResponseCounts();
+      sessionSidebar.outerHTML = html;
+      sessionSidebar = document.querySelector(".session-sidebar");
+      if (notify) notifyBackgroundFinalReplies(previousAssistantCounts);
+      const refreshedScrollContainer = sidebarScrollContainer();
+      if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = scrollTop;
+      updateHeaderFromSelectedSidebarSession();
+      bindSidebarScrollTracking();
+    }
+
     async function refreshSidebar(generation = sessionViewGeneration) {
       if (modalIsOpen()) return;
       if (recentlyInteractedWithSidebar()) {
@@ -2005,20 +2025,48 @@
         return;
       }
 
+      const sidebarGeneration = ++sidebarUpdateGeneration;
       const response = await fetch(sidebarFragmentUrl());
-      if (!response.ok || generation !== sessionViewGeneration) return;
+      if (!response.ok || generation !== sessionViewGeneration || sidebarGeneration !== sidebarUpdateGeneration) return;
       const html = await response.text();
-      if (generation !== sessionViewGeneration || !sessionSidebar) return;
+      if (generation !== sessionViewGeneration || sidebarGeneration !== sidebarUpdateGeneration || !sessionSidebar) return;
       const previousScrollTop = sidebarScrollContainer()?.scrollTop || 0;
-      const previousAssistantCounts = sidebarAssistantResponseCounts();
-      sessionSidebar.outerHTML = html;
-      sessionSidebar = document.querySelector(".session-sidebar");
-      notifyBackgroundFinalReplies(previousAssistantCounts);
-      const refreshedScrollContainer = sidebarScrollContainer();
-      if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = previousScrollTop;
-      updateHeaderFromSelectedSidebarSession();
-      bindSidebarScrollTracking();
+      replaceSidebarHtml(html, { scrollTop: previousScrollTop });
       scheduleSidebarRefresh();
+    }
+
+    async function loadMoreSidebarSessions(button) {
+      if (!button || button.classList.contains("is-loading")) return;
+
+      const viewGeneration = sessionViewGeneration;
+      const switchGeneration = sessionSwitchGeneration;
+      const sidebarGeneration = ++sidebarUpdateGeneration;
+      const previousScrollTop = sidebarScrollContainer()?.scrollTop || 0;
+      const originalLabel = button.querySelector(".sidebar-load-more-label")?.textContent || "Load more";
+      button.classList.add("is-loading");
+      button.setAttribute("aria-busy", "true");
+      const label = button.querySelector(".sidebar-load-more-label");
+      if (label) label.textContent = "Loading…";
+
+      try {
+        const targetUrl = new URL(button.href, window.location.href);
+        const response = await fetch(sidebarFragmentUrl(targetUrl.href));
+        if (!response.ok || !sessionSidebar || viewGeneration !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || sidebarGeneration !== sidebarUpdateGeneration) return;
+        const html = await response.text();
+        if (!sessionSidebar || viewGeneration !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || sidebarGeneration !== sidebarUpdateGeneration) return;
+        replaceSidebarHtml(html, { scrollTop: previousScrollTop });
+        history.replaceState(history.state, "", targetUrl.href);
+        scheduleSidebarRefresh();
+      } catch (_error) {
+      } finally {
+        if (viewGeneration === sessionViewGeneration && switchGeneration === sessionSwitchGeneration) scheduleSidebarRefresh();
+        if (button.isConnected) {
+          button.classList.remove("is-loading");
+          button.removeAttribute("aria-busy");
+          const currentLabel = button.querySelector(".sidebar-load-more-label");
+          if (currentLabel) currentLabel.textContent = originalLabel;
+        }
+      }
     }
 
     function sessionFragmentUrl(url) {
@@ -2089,6 +2137,10 @@
 
     function showAllSessionsActive() {
       return new URLSearchParams(window.location.search).get("show_all_sessions") === "1";
+    }
+
+    function activeSidebarSessionsLimit() {
+      return new URLSearchParams(window.location.search).get("sidebar_sessions_limit") || "";
     }
 
     async function openRecentSessionShortcut(shortcut) {
@@ -2245,6 +2297,12 @@
       } else {
         formData.delete("show_all_sessions");
       }
+      const sidebarSessionsLimit = activeSidebarSessionsLimit();
+      if (sidebarSessionsLimit) {
+        formData.set("sidebar_sessions_limit", sidebarSessionsLimit);
+      } else {
+        formData.delete("sidebar_sessions_limit");
+      }
       const modal = form.closest("[data-modal]");
       const originalSubmitText = submit?.textContent || "Start session";
       form.dataset.submitting = "true";
@@ -2313,6 +2371,14 @@
     });
 
     document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-sidebar-load-more]");
+      if (!button || !normalLeftClick(event)) return;
+
+      event.preventDefault();
+      await loadMoreSidebarSessions(button);
+    });
+
+    document.addEventListener("click", async (event) => {
       const link = event.target.closest(".session-sidebar a.session");
       exitSessionShortcutMode();
       if (!link || !normalLeftClick(event)) return;
@@ -2336,7 +2402,14 @@
       let navigatingAway = false;
       showSessionSwitching();
       try {
-        const response = await fetch(form.action, { method: "POST", body: new FormData(form), headers: { "Accept": "application/json" } });
+        const formData = new FormData(form);
+        const sidebarSessionsLimit = activeSidebarSessionsLimit();
+        if (sidebarSessionsLimit) {
+          formData.set("sidebar_sessions_limit", sidebarSessionsLimit);
+        } else {
+          formData.delete("sidebar_sessions_limit");
+        }
+        const response = await fetch(form.action, { method: "POST", body: formData, headers: { "Accept": "application/json" } });
         if (switchGeneration !== sessionSwitchGeneration || viewGeneration !== sessionViewGeneration) return;
         if (!response.ok) {
           navigatingAway = true;
