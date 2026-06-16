@@ -176,6 +176,10 @@ class PiWebGateway < Sinatra::Base
       @recent_sidebar_session_paths ||= recent_sidebar_sessions.map(&:path).to_set
     end
 
+    def known_session_cwds
+      @known_session_cwds ||= @groups.keys.sort_by { |cwd| File.basename(cwd).downcase }
+    end
+
     def project_label(session)
       File.basename(session.cwd.to_s)
     end

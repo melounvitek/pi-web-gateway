@@ -39,7 +39,8 @@
     h2 { font-size: 0.78rem; margin: 0; color: var(--muted-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em; }
     .session-sidebar-header { display: block; }
     .recent-sessions { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(80, 80, 80, 0.7); }
-    .recent-sessions h2 { margin: 0.75rem 0 0.5rem; }
+    .recent-sessions-header { display: flex; align-items: center; gap: 0.4rem; margin: 0.75rem 0 0.5rem; }
+    .recent-sessions-header h2 { flex: 1; min-width: 0; }
     .cwd-group { margin-bottom: 0.75rem; }
     .cwd-header { display: flex; align-items: center; gap: 0.4rem; margin: 1.25rem 0 0.5rem; }
     .cwd-header h2 { flex: 1; min-width: 0; }
@@ -143,8 +144,8 @@
     .session-reconnect.is-visible { display: flex; }
     .reconnect-button { flex: 0 0 auto; padding: 0.35rem 0.6rem; font-size: 0.82rem; }
     .abort-form { display: none; }
-    input, textarea { box-sizing: border-box; font: inherit; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.55rem; color: var(--text); background: var(--panel-soft); outline: none; }
-    input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.2); }
+    input, select, textarea { box-sizing: border-box; font: inherit; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.55rem; color: var(--text); background: var(--panel-soft); outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(138, 190, 183, 0.2); }
     textarea { width: 100%; resize: none; min-height: 2.75rem; max-height: 12rem; line-height: 1.4; }
     .send-button, .composer-stop-button { display: none; }
     .composer-stop-button.is-visible { position: relative; isolation: isolate; display: inline-flex; }
@@ -179,6 +180,17 @@
     .browser-access-title { font-weight: 850; }
     .browser-access-meta { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
     .browser-access-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+    .modal-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 1rem; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px); }
+    .modal-card { width: min(34rem, 100%); display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 0.95rem; background: var(--panel); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45); }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .modal-header h2 { color: var(--text); font-size: 1rem; text-transform: none; letter-spacing: 0; }
+    .modal-close-button { width: 2rem; height: 2rem; padding: 0; border-radius: 999px; font-size: 1.2rem; line-height: 1; }
+    .modal-field { display: grid; gap: 0.35rem; color: var(--muted); font-size: 0.85rem; font-weight: 700; }
+    .new-session-cwd-form { display: grid; gap: 0.75rem; }
+    .cwd-validation-message { min-height: 1.2rem; color: var(--muted); font-size: 0.85rem; }
+    .cwd-validation-message.is-valid { color: var(--success); }
+    .cwd-validation-message.is-invalid { color: #ffb4b6; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
     @keyframes session-switch-spin { to { transform: rotate(360deg); } }
     @keyframes stop-button-pulse { 0% { transform: scale(0.82); opacity: 0.9; } 70%, 100% { transform: scale(1.28); opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .composer-stop-button.is-visible:not(:disabled)::before { animation: none; opacity: 0.55; } }
@@ -229,7 +241,7 @@
       .session-status-bar { width: 100%; max-width: 100%; min-width: 0; justify-content: center; text-align: center; flex-wrap: wrap; gap: 0.35rem 0.7rem; overflow: hidden; font-size: 0.72rem; }
       .session-status-item { min-width: 0; }
       .session-status-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      input, textarea { font-size: 16px; }
+      input, select, textarea { font-size: 16px; }
       textarea { min-height: 2.75rem; max-height: 8rem; padding: 0.65rem 0.7rem; }
       textarea::placeholder { font-size: 0.95rem; }
       .attachment { max-width: 100%; }
@@ -246,6 +258,34 @@
     <label for="mobile-session-toggle" class="mobile-sidebar-backdrop" aria-label="Hide sessions"></label>
 
     <%= erb :_conversation, layout: false %>
+  </div>
+  <div class="modal-overlay" data-modal="new-session-modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="new-session-modal-title">
+      <div class="modal-header">
+        <h2 id="new-session-modal-title">New session</h2>
+        <button type="button" class="modal-close-button secondary" aria-label="Close" data-modal-close>&times;</button>
+      </div>
+      <form class="new-session-cwd-form" method="post" action="/sessions/new_at_cwd" data-cwd-validation-url="/sessions/validate_cwd">
+        <label class="modal-field">
+          <span>Existing folder</span>
+          <select name="known_cwd" data-new-session-known-cwd>
+            <option value="">Choose a folder…</option>
+            <% known_session_cwds.each do |cwd| %>
+              <option value="<%= h cwd %>"><%= h cwd %></option>
+            <% end %>
+          </select>
+        </label>
+        <label class="modal-field">
+          <span>Other path</span>
+          <input type="text" name="cwd" autocomplete="off" placeholder="/home/vitek/Work/project" data-new-session-cwd-input>
+        </label>
+        <div class="cwd-validation-message" data-new-session-cwd-message aria-live="polite">Enter an existing directory.</div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-modal-close>Cancel</button>
+          <button type="submit" data-new-session-submit disabled>Start session</button>
+        </div>
+      </form>
+    </div>
   </div>
   <div class="session-switch-overlay" role="status" aria-live="polite" aria-label="Loading session">
     <div class="session-switch-indicator"><span class="session-switch-spinner" aria-hidden="true"></span> Loading session…</div>
@@ -314,6 +354,8 @@
     let sessionSwitchGeneration = 0;
     let sessionShortcutTimer = null;
     let lastSidebarInteractionAt = 0;
+    let cwdValidationTimer = null;
+    let cwdValidationController = null;
     let notificationRegistration = null;
     const notifiedFinalReplyKeys = new Set();
 
@@ -1452,6 +1494,7 @@
     function scheduleNextEventPoll(delay = eventPollDelay()) {
       if (!liveOutput) return;
       clearTimeout(eventPollTimer);
+      if (modalIsOpen()) return;
       eventPollTimer = setTimeout(() => pollEvents().catch(() => {}), delay);
     }
 
@@ -1518,6 +1561,7 @@
 
     async function pollEvents() {
       if (!liveOutput) return;
+      if (modalIsOpen()) return;
       if (eventPollInFlight) return;
 
       const generation = sessionViewGeneration;
@@ -1782,7 +1826,7 @@
 
     function scheduleSidebarRefresh(delay = 2500) {
       clearTimeout(sidebarRefreshTimer);
-      if (document.hidden) return;
+      if (document.hidden || modalIsOpen()) return;
       sidebarRefreshTimer = setTimeout(() => refreshSidebar().catch(() => {}), delay);
     }
 
@@ -1826,6 +1870,7 @@
     }
 
     async function refreshSidebar(generation = sessionViewGeneration) {
+      if (modalIsOpen()) return;
       if (recentlyInteractedWithSidebar()) {
         scheduleSidebarRefresh(1000);
         return;
@@ -1940,11 +1985,160 @@
       if (toggle) toggle.checked = false;
     }
 
+    function modalIsOpen() {
+      return !!document.querySelector("[data-modal]:not([hidden])");
+    }
+
+    function openModal(modal) {
+      if (!modal) return;
+      modal.hidden = false;
+      clearTimeout(eventPollTimer);
+      clearTimeout(sidebarRefreshTimer);
+      clearTimeout(browserAccessPollTimer);
+      browserAccessPollTimer = null;
+      abortEventPoll();
+      document.body.classList.add("modal-open");
+      modal.querySelector("input, select, textarea, button")?.focus();
+    }
+
+    function closeModal(modal) {
+      if (!modal) return;
+      modal.hidden = true;
+      document.body.classList.toggle("modal-open", modalIsOpen());
+      if (!modalIsOpen() && !document.hidden) {
+        scheduleNextEventPoll(0);
+        scheduleSidebarRefresh(0);
+        if (document.body.dataset.browserAccessEnabled === "true" && !browserAccessPollTimer) pollBrowserAccessRequests();
+      }
+    }
+
+    function setCwdValidationState(form, state, message) {
+      const status = form?.querySelector("[data-new-session-cwd-message]");
+      const submit = form?.querySelector("[data-new-session-submit]");
+      if (!status || !submit) return;
+      status.textContent = message;
+      status.classList.toggle("is-valid", state === "valid");
+      status.classList.toggle("is-invalid", state === "invalid");
+      submit.disabled = state !== "valid";
+    }
+
+    function validateNewSessionCwd(form, { delay = 250 } = {}) {
+      const input = form?.querySelector("[data-new-session-cwd-input]");
+      const validationEndpoint = form?.dataset.cwdValidationUrl;
+      if (!input || !validationEndpoint) return;
+
+      clearTimeout(cwdValidationTimer);
+      cwdValidationController?.abort();
+      const cwd = input.value.trim();
+      if (!cwd) {
+        setCwdValidationState(form, "invalid", "Enter an existing directory.");
+        return;
+      }
+
+      setCwdValidationState(form, "pending", "Checking…");
+      cwdValidationTimer = setTimeout(async () => {
+        const controller = new AbortController();
+        cwdValidationController = controller;
+        try {
+          const validationUrl = new URL(validationEndpoint, window.location.origin);
+          validationUrl.searchParams.set("cwd", cwd);
+          const response = await fetch(validationUrl, { headers: { "Accept": "application/json" }, signal: controller.signal });
+          const payload = await response.json().catch(() => null);
+          if (controller.signal.aborted || input.value.trim() !== cwd) return;
+          if (response.ok && payload?.valid) {
+            input.value = payload.cwd || cwd;
+            setCwdValidationState(form, "valid", "Directory exists.");
+          } else {
+            setCwdValidationState(form, "invalid", payload?.error || "Path must be an existing directory.");
+          }
+        } catch (_error) {
+          if (!controller.signal.aborted) setCwdValidationState(form, "invalid", "Could not validate this path.");
+        } finally {
+          if (cwdValidationController === controller) cwdValidationController = null;
+        }
+      }, delay);
+    }
+
     function normalLeftClick(event) {
       return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
     }
 
+    document.addEventListener("click", (event) => {
+      const opener = event.target.closest("[data-modal-open]");
+      if (opener) {
+        event.preventDefault();
+        openModal(document.querySelector(`[data-modal="${opener.dataset.modalOpen}"]`));
+        return;
+      }
+
+      const closer = event.target.closest("[data-modal-close]");
+      if (closer) {
+        event.preventDefault();
+        closeModal(closer.closest("[data-modal]"));
+        return;
+      }
+
+      const modal = event.target.matches("[data-modal]") ? event.target : null;
+      if (modal) closeModal(modal);
+    });
+
+    document.addEventListener("input", (event) => {
+      const input = event.target.closest("[data-new-session-cwd-input]");
+      if (!input) return;
+      validateNewSessionCwd(input.closest("form"));
+    });
+
+    document.addEventListener("change", (event) => {
+      const select = event.target.closest("[data-new-session-known-cwd]");
+      if (!select) return;
+      const form = select.closest("form");
+      const input = form?.querySelector("[data-new-session-cwd-input]");
+      if (!input) return;
+      input.value = select.value;
+      validateNewSessionCwd(form, { delay: 0 });
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest(".new-session-cwd-form");
+      if (!form) return;
+
+      event.preventDefault();
+      const submit = form.querySelector("[data-new-session-submit]");
+      if (submit?.disabled || form.dataset.submitting === "true") return;
+
+      const formData = new FormData(form);
+      const modal = form.closest("[data-modal]");
+      form.dataset.submitting = "true";
+      if (submit) submit.disabled = true;
+      showSessionSwitching();
+      try {
+        const response = await fetch(form.action, { method: "POST", body: formData, headers: { "Accept": "application/json" } });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          setCwdValidationState(form, "invalid", payload?.error || "Path must be an existing directory.");
+          return;
+        }
+        const payload = await response.json();
+        closeModal(modal);
+        await switchSession(payload.redirect || `/?session=${encodeURIComponent(payload.session)}`, { push: true, focus: true });
+      } catch (_error) {
+        setCwdValidationState(form, "invalid", "Could not start the session. Try again.");
+        if (submit) submit.disabled = false;
+      } finally {
+        delete form.dataset.submitting;
+        hideSessionSwitching();
+      }
+    });
+
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && modalIsOpen()) {
+        event.preventDefault();
+        closeModal(document.querySelector("[data-modal]:not([hidden])"));
+        return;
+      }
+
+      if (modalIsOpen()) return;
+
       if (event.ctrlKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
         enterSessionShortcutMode();
@@ -2051,6 +2245,7 @@
     }
 
     async function pollBrowserAccessRequests() {
+      if (modalIsOpen()) return;
       try {
         const response = await fetch("/browser-access/pending", { headers: { "Accept": "application/json" } });
         if (response.ok) {
@@ -2059,7 +2254,7 @@
         }
       } catch (_error) {
       } finally {
-        browserAccessPollTimer = setTimeout(pollBrowserAccessRequests, 3000);
+        if (!modalIsOpen()) browserAccessPollTimer = setTimeout(pollBrowserAccessRequests, 3000);
       }
     }
 

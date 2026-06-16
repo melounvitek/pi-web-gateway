@@ -8,7 +8,10 @@
         <p class="empty">No sessions found.</p>
       <% else %>
         <section class="recent-sessions">
-          <h2>Recent sessions</h2>
+          <div class="recent-sessions-header">
+            <h2>Recent sessions</h2>
+            <button type="button" class="sidebar-icon-button" title="New session" aria-label="New session" data-modal-open="new-session-modal">+</button>
+          </div>
           <% recent_sidebar_sessions.each_with_index do |session, index| %>
             <% shortcut = index + 1 %>
             <a class="<%= h session_classes(session, "session", "recent-session") %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>" data-session-shortcut="<%= h shortcut %>">
@@ -75,6 +78,7 @@
         </section>
       <% end %>
       </div>
+
 
       <a class="sidebar-notification-test-link" href="/notification-test">Notifications</a>
     </aside>

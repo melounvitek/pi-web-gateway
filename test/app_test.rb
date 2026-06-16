@@ -1319,6 +1319,49 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_recent_sessions_include_new_session_modal
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      button = document.at_css('.recent-sessions [data-modal-open="new-session-modal"]')
+      assert button
+      assert_equal "+", button.text.strip
+      modal = document.at_css('body > [data-modal="new-session-modal"]')
+      assert modal
+      assert_equal "/sessions/new_at_cwd", modal.at_css('form.new-session-cwd-form')["action"]
+      assert_includes modal.css('option').map { |option| option["value"] }, project_cwd(dir)
+      assert_includes modal.text, "Start session"
+      assert_includes modal.text, "Existing folder"
+      assert_includes modal.text, "Other path"
+    end
+  end
+
+  def test_page_includes_generic_modal_and_new_session_cwd_scripts
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, "function openModal(modal)"
+      assert_includes response.body, "function closeModal(modal)"
+      assert_includes response.body, "function modalIsOpen()"
+      assert_includes response.body, "abortEventPoll();"
+      assert_includes response.body, "if (modalIsOpen()) return;"
+      assert_includes response.body, "fetch(validationUrl"
+      assert_includes response.body, "form.dataset.submitting === \"true\""
+      assert_includes response.body, "form.action, { method: \"POST\", body: formData, headers: { \"Accept\": \"application/json\" } }"
+    end
+  end
+
   def test_recent_sessions_include_keyboard_shortcut_indices
     Dir.mktmpdir do |dir|
       paths = write_sessions(dir, count: 9)
