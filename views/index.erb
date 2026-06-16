@@ -369,8 +369,8 @@
     let sessionSwitchGeneration = 0;
     let sessionShortcutTimer = null;
     let conversationScrollRevealTimer = null;
-    let conversationScrollRevealResetTimer = null;
-    let conversationScrollRevealStartTop = null;
+    let conversationScrollRevealDelayTimer = null;
+    let lastConversationScrollRevealAt = 0;
     let lastSidebarInteractionAt = 0;
     let cwdValidationTimer = null;
     let cwdValidationController = null;
@@ -458,25 +458,28 @@
       return userMessages().find((message) => message.getBoundingClientRect().top > scrollBottom + 8) || null;
     }
 
-    function updateConversationJumpControlsReveal() {
-      if (!conversationScroll) return;
-      const scrollTop = conversationScroll.scrollTop;
-      if (conversationScrollRevealStartTop == null) conversationScrollRevealStartTop = scrollTop;
-      if (conversationScrollRevealResetTimer) clearTimeout(conversationScrollRevealResetTimer);
-      conversationScrollRevealResetTimer = setTimeout(() => {
-        if (!document.body.classList.contains("is-conversation-scrolling")) conversationScrollRevealStartTop = null;
-        conversationScrollRevealResetTimer = null;
-      }, 300);
+    function hideConversationJumpControlsSoon() {
+      if (conversationScrollRevealTimer) clearTimeout(conversationScrollRevealTimer);
+      conversationScrollRevealTimer = setTimeout(() => {
+        document.body.classList.remove("is-conversation-scrolling");
+        conversationScrollRevealTimer = null;
+      }, 1400);
+    }
 
-      if (document.body.classList.contains("is-conversation-scrolling") || Math.abs(scrollTop - conversationScrollRevealStartTop) >= 48) {
-        document.body.classList.add("is-conversation-scrolling");
-        if (conversationScrollRevealTimer) clearTimeout(conversationScrollRevealTimer);
-        conversationScrollRevealTimer = setTimeout(() => {
-          document.body.classList.remove("is-conversation-scrolling");
-          conversationScrollRevealTimer = null;
-          conversationScrollRevealStartTop = null;
-        }, 1400);
+    function updateConversationJumpControlsReveal() {
+      lastConversationScrollRevealAt = Date.now();
+      if (document.body.classList.contains("is-conversation-scrolling")) {
+        hideConversationJumpControlsSoon();
+        return;
       }
+      if (conversationScrollRevealDelayTimer) return;
+
+      conversationScrollRevealDelayTimer = setTimeout(() => {
+        conversationScrollRevealDelayTimer = null;
+        if (Date.now() - lastConversationScrollRevealAt > 120) return;
+        document.body.classList.add("is-conversation-scrolling");
+        hideConversationJumpControlsSoon();
+      }, 300);
     }
 
     function updateScrollJumpButtons() {
