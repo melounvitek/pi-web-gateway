@@ -442,21 +442,20 @@
       return elementRect.bottom > scrollRect.top && elementRect.top < scrollRect.bottom;
     }
 
-    function jumpNavigationMessages() {
-      const selector = '[data-role="user"].message, [data-role="assistant"].message--assistant:not(.message--thinking):not(.message--compact):not(.message--live)';
-      return [...(conversationScroll?.querySelectorAll(selector) || [])];
+    function userMessages() {
+      return [...(conversationScroll?.querySelectorAll('[data-role="user"].message') || [])];
     }
 
-    function previousJumpNavigationMessageAboveViewport() {
+    function previousUserMessageAboveViewport() {
       if (!conversationScroll) return null;
       const scrollTop = conversationScroll.getBoundingClientRect().top;
-      return jumpNavigationMessages().reverse().find((message) => message.getBoundingClientRect().bottom < scrollTop - 8) || null;
+      return userMessages().reverse().find((message) => message.getBoundingClientRect().bottom < scrollTop - 8) || null;
     }
 
-    function nextJumpNavigationMessageBelowViewport() {
+    function nextUserMessageBelowViewport() {
       if (!conversationScroll) return null;
       const scrollBottom = conversationScroll.getBoundingClientRect().bottom;
-      return jumpNavigationMessages().find((message) => message.getBoundingClientRect().top > scrollBottom + 8) || null;
+      return userMessages().find((message) => message.getBoundingClientRect().top > scrollBottom + 8) || null;
     }
 
     function hideConversationJumpControlsSoon() {
@@ -485,16 +484,16 @@
 
     function updateScrollJumpButtons() {
       const showFirst = !nearConversationTop();
-      const showPreviousJumpMessage = Boolean(previousJumpNavigationMessageAboveViewport());
-      const showNextJumpMessage = Boolean(nextJumpNavigationMessageBelowViewport());
+      const showPreviousUser = Boolean(previousUserMessageAboveViewport());
+      const showNextUser = Boolean(nextUserMessageBelowViewport());
       const showLatest = !nearConversationBottom() && !latestReadableAssistantMessageIsVisible();
       jumpToFirstButton?.classList.toggle("is-visible", showFirst);
-      jumpToPreviousUserButton?.classList.toggle("is-visible", showPreviousJumpMessage);
-      jumpToNextUserButton?.classList.toggle("is-visible", showNextJumpMessage);
+      jumpToPreviousUserButton?.classList.toggle("is-visible", showPreviousUser);
+      jumpToNextUserButton?.classList.toggle("is-visible", showNextUser);
       jumpToLatestButton?.classList.toggle("is-visible", showLatest);
       topJumpControls?.classList.toggle("is-visible", showFirst);
       bottomJumpControls?.classList.toggle("is-visible", showLatest);
-      messageNavJumpControls?.classList.toggle("is-visible", showPreviousJumpMessage || showNextJumpMessage);
+      messageNavJumpControls?.classList.toggle("is-visible", showPreviousUser || showNextUser);
     }
 
     function latestReadableAssistantMessage() {
@@ -558,7 +557,7 @@
       return remSize * 3.5;
     }
 
-    function scrollToJumpNavigationMessage(message, behavior = "smooth") {
+    function scrollToUserMessage(message, behavior = "smooth") {
       if (!message) return;
       autoScrollEnabled = false;
       withProgrammaticScroll(() => scrollElementTopIntoView(message, behavior, topJumpControlsOffset()));
@@ -1825,8 +1824,8 @@
         updateScrollJumpButtons();
       }, { passive: true });
       jumpToFirstButton?.addEventListener("click", () => scrollToTop());
-      jumpToPreviousUserButton?.addEventListener("click", () => scrollToJumpNavigationMessage(previousJumpNavigationMessageAboveViewport()));
-      jumpToNextUserButton?.addEventListener("click", () => scrollToJumpNavigationMessage(nextJumpNavigationMessageBelowViewport()));
+      jumpToPreviousUserButton?.addEventListener("click", () => scrollToUserMessage(previousUserMessageAboveViewport()));
+      jumpToNextUserButton?.addEventListener("click", () => scrollToUserMessage(nextUserMessageBelowViewport()));
       jumpToLatestButton?.addEventListener("click", () => scrollToBottom());
       reconnectButton?.addEventListener("click", reconnectSession);
       conversationPanel?.addEventListener("click", (event) => {
