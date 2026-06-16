@@ -41,7 +41,6 @@
     .recent-sessions { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(80, 80, 80, 0.7); }
     .recent-sessions-header { display: flex; align-items: center; gap: 0.4rem; margin: 0.75rem 0 0.5rem; }
     .recent-sessions-header h2 { flex: 1; min-width: 0; }
-    .cwd-group { margin-bottom: 0.75rem; }
     .cwd-header { display: flex; align-items: center; gap: 0.4rem; margin: 1.25rem 0 0.5rem; }
     .cwd-header h2 { flex: 1; min-width: 0; }
     .cwd-toggle { display: inline-block; margin: 0.35rem 0 0.5rem; font-size: 0.8rem; color: var(--muted); text-decoration: none; }
@@ -59,7 +58,8 @@
     .session-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sidebar-notification-test-link { display: flex; align-items: center; justify-content: center; margin-top: 1.25rem; padding: 0.65rem 0.75rem; border-radius: 0.6rem; background: var(--panel-softer); color: var(--text); font-size: 0.86rem; font-weight: 800; text-decoration: none; }
     .sidebar-notification-test-link:hover { background: var(--border); }
-    .session-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-project { margin-top: 0.25rem; color: var(--text); font-size: 0.84rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sidebar-icon-button { flex: 0 0 auto; width: 1.65rem; height: 1.65rem; padding: 0; border-radius: 999px; line-height: 1; }
     .session-rename { display: none; gap: 0.35rem; grid-template-columns: minmax(0, 1fr) auto; margin: 0.3rem 0 0.55rem; }
     a.session.selected + .session-rename { display: grid; }
@@ -211,7 +211,6 @@
       .session-sidebar-header { position: sticky; top: calc(-0.75rem - env(safe-area-inset-top)); z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: calc(-0.75rem - env(safe-area-inset-top)) -0.75rem 0.5rem; padding: calc(0.75rem + env(safe-area-inset-top)) 0.75rem 0.5rem; background: rgba(30, 30, 36, 0.96); backdrop-filter: blur(8px); }
       .mobile-sessions-close-button { margin-left: auto; }
       .session-sidebar h1 { margin: 0; font-size: 1rem; }
-      .cwd-group { margin-bottom: 0.5rem; }
       .cwd-header { margin: 0.85rem 0 0.4rem; }
       a.session { padding: 0.55rem 0.65rem; }
       a.session.selected::before { left: -0.75rem; }
@@ -273,6 +272,9 @@
       </div>
       <% default_new_session_cwd = known_session_cwds.first %>
       <form class="new-session-cwd-form" method="post" action="/sessions/new_at_cwd" data-cwd-validation-url="/sessions/validate_cwd">
+        <% if show_all_sidebar_sessions? %>
+          <input type="hidden" name="show_all_sessions" value="1">
+        <% end %>
         <label class="modal-field">
           <span>Existing folder</span>
           <select name="known_cwd" data-new-session-known-cwd>
@@ -2003,6 +2005,10 @@
       return promptSessionInput?.value || new URLSearchParams(window.location.search).get("session") || "";
     }
 
+    function showAllSessionsActive() {
+      return new URLSearchParams(window.location.search).get("show_all_sessions") === "1";
+    }
+
     async function openRecentSessionShortcut(shortcut) {
       const link = sessionSidebar?.querySelector(`.recent-session[data-session-shortcut="${shortcut}"]`);
       if (!link) return false;
@@ -2152,6 +2158,11 @@
       if (submit?.disabled || form.dataset.submitting === "true") return;
 
       const formData = new FormData(form);
+      if (showAllSessionsActive()) {
+        formData.set("show_all_sessions", "1");
+      } else {
+        formData.delete("show_all_sessions");
+      }
       const modal = form.closest("[data-modal]");
       const originalSubmitText = submit?.textContent || "Start session";
       form.dataset.submitting = "true";

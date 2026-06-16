@@ -9,71 +9,31 @@
       <% else %>
         <section class="recent-sessions">
           <div class="recent-sessions-header">
-            <h2>Recent sessions</h2>
+            <h2>Sessions</h2>
             <button type="button" class="sidebar-icon-button" title="New session" aria-label="New session" data-modal-open="new-session-modal">+</button>
           </div>
           <% recent_sidebar_sessions.each_with_index do |session, index| %>
-            <% shortcut = index + 1 %>
-            <a class="<%= h session_classes(session, "session", "recent-session") %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>" data-session-shortcut="<%= h shortcut %>">
+            <% shortcut = index < 9 ? index + 1 : nil %>
+            <a class="<%= h session_classes(session, "session", "recent-session") %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>"<% if shortcut %> data-session-shortcut="<%= h shortcut %>"<% end %>>
               <div class="session-content">
                 <div class="session-title"><%= h session.display_name %></div>
+                <div class="session-project" title="<%= h session.cwd %>"><%= h project_label(session) %></div>
                 <div class="session-meta">
-                  <%= h project_label(session) %> · updated <%= h format_relative_time(session.modified_at) %>
+                  updated <%= h format_relative_time(session.modified_at) %>
                 </div>
               </div>
               <div class="session-indicators">
-                <span class="session-shortcut" aria-hidden="true"><%= h shortcut %></span>
+                <% if shortcut %><span class="session-shortcut" aria-hidden="true"><%= h shortcut %></span><% end %>
                 <% if rpc_clients.busy?(session.path) %>
                   <span class="session-running-indicator" title="Pi is working" aria-label="Pi is working"></span>
                 <% end %>
               </div>
             </a>
           <% end %>
-        </section>
-      <% end %>
-
-      <% @groups.each do |cwd, sessions| %>
-        <% sidebar_sessions = visible_sidebar_sessions(cwd, sessions) %>
-        <% next if sidebar_sessions.empty? && !expanded_cwd?(cwd) %>
-        <section class="cwd-group">
-          <div class="cwd-header">
-            <h2 title="<%= h cwd %>"><%= h File.basename(cwd) %></h2>
-            <form method="post" action="/sessions/new">
-              <input type="hidden" name="session" value="<%= h sessions.first.path %>">
-              <% expanded_cwds.each do |expanded_cwd| %>
-                <input type="hidden" name="expanded_cwd[]" value="<%= h expanded_cwd %>">
-              <% end %>
-              <button type="submit" class="sidebar-icon-button" title="New session in this directory" aria-label="New session in this directory">+</button>
-            </form>
-          </div>
-          <% sidebar_sessions.each do |session| %>
-            <a class="<%= h session_classes(session, "session") %>" href="<%= h session_url(session.path) %>" data-session-path="<%= h session.path %>" data-assistant-response-count="<%= h session.assistant_response_count.to_i %>">
-              <div class="session-content">
-                <div class="session-title"><%= h session.display_name %></div>
-                <div class="session-meta">
-                  <%= h session.message_count %> messages · updated <%= h format_relative_time(session.modified_at) %>
-                </div>
-              </div>
-              <div class="session-indicators">
-                <% if rpc_clients.busy?(session.path) %>
-                  <span class="session-running-indicator" title="Pi is working" aria-label="Pi is working"></span>
-                <% end %>
-              </div>
-            </a>
-            <%# Rename UI placeholder: hidden for now until the sidebar interaction is polished. %>
-            <% if false && selected?(session) %>
-              <form method="post" action="/rename" class="session-rename">
-                <input type="hidden" name="session" value="<%= h session.path %>">
-                <input type="text" name="name" value="<%= h session.display_name %>" aria-label="Session name">
-                <button type="submit" class="secondary">Rename</button>
-              </form>
-            <% end %>
-          <% end %>
-
-          <% if sidebar_group_overflow?(cwd, sessions) %>
-            <a class="cwd-toggle" href="<%= h sidebar_group_url(cwd, expanded: true) %>">Show all <%= h sessions.length %></a>
-          <% elsif expanded_cwd?(cwd) && sessions.length > 5 %>
-            <a class="cwd-toggle" href="<%= h sidebar_group_url(cwd, expanded: false) %>">Show fewer</a>
+          <% if sidebar_sessions_overflow? %>
+            <a class="cwd-toggle" href="<%= h sidebar_sessions_toggle_url(show_all: true) %>">Show all <%= h sorted_sidebar_sessions.length %> sessions</a>
+          <% elsif show_all_sidebar_sessions? && sorted_sidebar_sessions.length > RECENT_SIDEBAR_SESSION_LIMIT %>
+            <a class="cwd-toggle" href="<%= h sidebar_sessions_toggle_url(show_all: false) %>">Show recent sessions</a>
           <% end %>
         </section>
       <% end %>

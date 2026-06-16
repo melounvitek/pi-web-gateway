@@ -285,7 +285,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_json_prompt_redirect_preserves_expanded_sidebar_groups
+  def test_json_prompt_redirect_preserves_sidebar_view_state
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       calls = []
@@ -297,7 +297,7 @@ class AppTest < Minitest::Test
 
       response = Rack::MockRequest.new(PiWebGateway).post(
         "/prompt",
-        params: { "session" => path, "message" => "Hello Pi", "expanded_cwd" => [project_cwd(dir)] },
+        params: { "session" => path, "message" => "Hello Pi", "expanded_cwd" => [project_cwd(dir)], "show_all_sessions" => "1" },
         "HTTP_ACCEPT" => "application/json"
       )
 
@@ -305,6 +305,7 @@ class AppTest < Minitest::Test
       payload = JSON.parse(response.body)
       assert_includes payload.fetch("redirect"), Rack::Utils.escape(path)
       assert_includes payload.fetch("redirect"), "expanded_cwd"
+      assert_includes payload.fetch("redirect"), "show_all_sessions=1"
     end
   end
 
@@ -731,7 +732,7 @@ class AppTest < Minitest::Test
 
       response = Rack::MockRequest.new(PiWebGateway).post(
         "/sessions/new",
-        params: { "session" => path, "expanded_cwd" => [project_cwd(dir)] },
+        params: { "session" => path, "expanded_cwd" => [project_cwd(dir)], "show_all_sessions" => "1" },
         "HTTP_ACCEPT" => "application/json"
       )
 
@@ -741,6 +742,7 @@ class AppTest < Minitest::Test
       assert_equal new_path, payload.fetch("session")
       assert_includes payload.fetch("redirect"), Rack::Utils.escape(new_path)
       assert_includes payload.fetch("redirect"), "expanded_cwd"
+      assert_includes payload.fetch("redirect"), "show_all_sessions=1"
       assert_equal [[ :start_new, project_cwd(dir) ], [ :get_state ]], calls
     end
   end
@@ -792,7 +794,7 @@ class AppTest < Minitest::Test
 
       response = Rack::MockRequest.new(PiWebGateway).post(
         "/sessions/new_at_cwd",
-        params: { "cwd" => cwd },
+        params: { "cwd" => cwd, "show_all_sessions" => "1" },
         "HTTP_ACCEPT" => "application/json"
       )
 
@@ -800,6 +802,7 @@ class AppTest < Minitest::Test
       payload = JSON.parse(response.body)
       assert_equal new_path, payload.fetch("session")
       assert_includes payload.fetch("redirect"), Rack::Utils.escape(new_path)
+      assert_includes payload.fetch("redirect"), "show_all_sessions=1"
       assert_equal [[ :start_new, File.realpath(cwd) ], [ :get_state ]], calls
     end
   end
@@ -1295,7 +1298,7 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => path_b })
 
       assert_equal 200, response.status
-      assert_includes response.body, "Recent sessions"
+      assert_includes response.body, "Sessions"
       assert_includes response.body, "recent-sessions"
       assert_includes response.body, "Beta work"
       assert_includes response.body, "Alpha work"
@@ -1326,7 +1329,7 @@ class AppTest < Minitest::Test
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
-      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path, "show_all_sessions" => "1" })
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
@@ -1336,6 +1339,7 @@ class AppTest < Minitest::Test
       modal = document.at_css('body > [data-modal="new-session-modal"]')
       assert modal
       assert_equal "/sessions/new_at_cwd", modal.at_css('form.new-session-cwd-form')["action"]
+      assert_equal "1", modal.at_css('input[name="show_all_sessions"]')["value"]
       assert_includes modal.css('option').map { |option| option["value"] }, project_cwd(dir)
       assert_includes modal.text, "Start session"
       assert_includes modal.text, "Existing folder"
@@ -1394,6 +1398,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "fetch(validationUrl"
       assert_includes response.body, "if (select && select.value !== input.value.trim()) select.value = \"\";"
       assert_includes response.body, "form.dataset.submitting === \"true\""
+      assert_includes response.body, "if (showAllSessionsActive()) {\n        formData.set(\"show_all_sessions\", \"1\");"
       assert_includes response.body, "form.action, { method: \"POST\", body: formData, headers: { \"Accept\": \"application/json\" } }"
     end
   end
@@ -1416,7 +1421,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_omits_recent_sessions_from_collapsed_project_groups
+  def test_sidebar_uses_one_flat_sessions_list_without_project_groups
     Dir.mktmpdir do |dir|
       paths = write_sessions(dir, count: 11)
       PiWebGateway.set :sessions_root, dir
@@ -1429,44 +1434,15 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      recent_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      project_titles = document.css(".cwd-group a.session .session-title").map(&:text)
-      assert_equal ["Session 11", "Session 10", "Session 9", "Session 8", "Session 7", "Session 6", "Session 5", "Session 4", "Session 3"], recent_titles
-      refute_includes project_titles, "Session 11"
-      refute_includes project_titles, "Session 10"
-      refute_includes project_titles, "Session 9"
-      refute_includes project_titles, "Session 8"
-      refute_includes project_titles, "Session 7"
-      refute_includes project_titles, "Session 6"
-      refute_includes project_titles, "Session 5"
-      refute_includes project_titles, "Session 4"
-      refute_includes project_titles, "Session 3"
-      assert_includes project_titles, "Session 2"
-      assert_includes project_titles, "Session 1"
-    end
-  end
-
-  def test_hides_collapsed_project_groups_with_only_recent_sessions
-    Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 2)
-      PiWebGateway.set :sessions_root, dir
-      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
-
-      response = Rack::MockRequest.new(PiWebGateway).get(
-        "/sidebar",
-        params: { "session" => paths.last }
-      )
-
-      assert_equal 200, response.status
-      document = Nokogiri::HTML(response.body)
-      assert_equal ["Session 2", "Session 1"], document.css(".recent-sessions a.session .session-title").map(&:text)
+      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
+      assert_equal ["Session 11", "Session 10", "Session 9", "Session 8", "Session 7", "Session 6", "Session 5", "Session 4", "Session 3", "Session 2", "Session 1"], session_titles
       assert_empty document.css(".cwd-group")
     end
   end
 
-  def test_trims_sidebar_sessions_to_latest_five_by_default
+  def test_trims_sidebar_sessions_to_latest_twenty_by_default
     Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 11)
+      paths = write_sessions(dir, count: 21)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
@@ -1476,18 +1452,20 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "Show all 11"
+      assert_includes response.body, "Show all 21 sessions"
       document = Nokogiri::HTML(response.body)
-      project_titles = document.css(".cwd-group a.session .session-title").map(&:text)
-      assert_operator project_titles.length, :<=, 5
-      assert_includes project_titles, "Session 2"
-      assert_includes project_titles, "Session 1"
+      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
+      assert_equal 20, session_titles.length
+      assert_equal "Session 21", session_titles.first
+      assert_equal "Session 2", session_titles.last
+      refute_includes session_titles, "Session 1"
+      assert_empty document.css(".cwd-group")
     end
   end
 
   def test_keeps_older_selected_session_visible_when_sidebar_is_trimmed
     Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 7)
+      paths = write_sessions(dir, count: 22)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
@@ -1497,25 +1475,31 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "Session 1"
-      assert_includes response.body, "selected"
+      document = Nokogiri::HTML(response.body)
+      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
+      assert_equal 21, session_titles.length
+      assert_equal "Session 22", session_titles.first
+      assert_includes session_titles, "Session 1"
+      assert_equal "Session 1", document.at_css(".recent-sessions a.session.selected .session-title").text
     end
   end
 
-  def test_expands_sidebar_cwd_group_to_show_all_sessions
+  def test_expands_sidebar_sessions_to_show_all_sessions
     Dir.mktmpdir do |dir|
-      paths = write_sessions(dir, count: 7)
+      paths = write_sessions(dir, count: 21)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
       response = Rack::MockRequest.new(PiWebGateway).get(
         "/",
-        params: { "session" => paths.last, "expanded_cwd" => [project_cwd(dir)] }
+        params: { "session" => paths.last, "show_all_sessions" => "1" }
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, "Show fewer"
-      assert_includes response.body, "Session 7"
+      document = Nokogiri::HTML(response.body)
+      assert_includes response.body, "Show recent sessions"
+      assert_equal 21, document.css(".recent-sessions a.session .session-title").length
+      assert_includes response.body, "Session 21"
       assert_includes response.body, "Session 1"
     end
   end

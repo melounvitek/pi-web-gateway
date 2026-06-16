@@ -11,6 +11,9 @@
             <% expanded_cwds.each do |expanded_cwd| %>
               <input type="hidden" name="expanded_cwd[]" value="<%= h expanded_cwd %>">
             <% end %>
+            <% if show_all_sidebar_sessions? %>
+              <input type="hidden" name="show_all_sessions" value="1">
+            <% end %>
             <button type="submit" class="sidebar-icon-button" title="New session in this directory" aria-label="New session in this directory">+</button>
           </form>
         </header>
@@ -88,6 +91,9 @@
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
               <% expanded_cwds.each do |expanded_cwd| %>
                 <input type="hidden" name="expanded_cwd[]" value="<%= h expanded_cwd %>">
+              <% end %>
+              <% if show_all_sidebar_sessions? %>
+                <input type="hidden" name="show_all_sessions" value="1">
               <% end %>
               <span class="composer-state" data-state="idle" aria-live="polite"></span>
               <div class="attachment-tray" aria-live="polite"></div>
