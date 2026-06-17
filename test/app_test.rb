@@ -2316,7 +2316,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_live_script_supports_ctrl_k_recent_session_shortcuts
+  def test_live_script_supports_ctrl_held_recent_session_shortcuts
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
@@ -2326,7 +2326,8 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, "function enterSessionShortcutMode()"
-      assert_includes response.body, "event.ctrlKey && event.key.toLowerCase() === \"k\""
+      assert_includes response.body, "event.key === \"Control\""
+      assert_includes response.body, "if (!event.ctrlKey) return;"
       assert_includes response.body, "function recentSessionShortcutFromEvent(event)"
       assert_includes response.body, "event.code.match(/^Digit([1-9])$/)"
       assert_includes response.body, "event.code.match(/^Numpad([1-9])$/)"
@@ -2335,7 +2336,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "window.location.href = link.href;"
       refute_includes response.body, "clearUnreadSession(link.dataset.sessionPath)"
       assert_includes response.body, "exitSessionShortcutMode();\n      if (!link || !normalLeftClick(event)) return;"
-      assert_includes response.body, "sessionShortcutTimer = setTimeout(exitSessionShortcutMode, 5000);"
+      assert_includes response.body, "document.addEventListener(\"keyup\", (event) => {"
+      assert_includes response.body, "window.addEventListener(\"blur\", exitSessionShortcutMode);"
+      refute_includes response.body, "sessionShortcutTimer = setTimeout(exitSessionShortcutMode, 5000);"
       assert_includes response.body, "session-shortcuts-visible"
     end
   end

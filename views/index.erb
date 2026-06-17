@@ -384,7 +384,6 @@
     let scheduledAutoScrollFrame = null;
     let sessionViewGeneration = 0;
     let sessionSwitchGeneration = 0;
-    let sessionShortcutTimer = null;
     let conversationScrollRevealTimer = null;
     let conversationScrollRevealDelayTimer = null;
     let lastConversationScrollRevealAt = 0;
@@ -2164,14 +2163,10 @@
     }
 
     function enterSessionShortcutMode() {
-      clearTimeout(sessionShortcutTimer);
       document.body.classList.add("session-shortcuts-visible");
-      sessionShortcutTimer = setTimeout(exitSessionShortcutMode, 5000);
     }
 
     function exitSessionShortcutMode() {
-      clearTimeout(sessionShortcutTimer);
-      sessionShortcutTimer = null;
       document.body.classList.remove("session-shortcuts-visible");
     }
 
@@ -2387,8 +2382,7 @@
 
       if (modalIsOpen()) return;
 
-      if (event.ctrlKey && event.key.toLowerCase() === "k") {
-        event.preventDefault();
+      if (event.key === "Control") {
         enterSessionShortcutMode();
         return;
       }
@@ -2400,15 +2394,19 @@
         return;
       }
 
+      if (!event.ctrlKey) return;
       const shortcut = recentSessionShortcutFromEvent(event);
       if (shortcut) {
         event.preventDefault();
         openRecentSessionShortcut(shortcut).catch(() => {});
-        return;
       }
-
-      if (!["Alt", "Control", "Meta", "Shift", "Tab"].includes(event.key)) exitSessionShortcutMode();
     });
+
+    document.addEventListener("keyup", (event) => {
+      if (event.key === "Control") exitSessionShortcutMode();
+    });
+
+    window.addEventListener("blur", exitSessionShortcutMode);
 
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".session-sidebar")) exitSessionShortcutMode();
