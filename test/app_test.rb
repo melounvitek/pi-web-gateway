@@ -1360,7 +1360,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "scrollbar-gutter: stable"
       assert_includes response.body, ".conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden;"
       assert_includes response.body, ".jump-controls { position: sticky; z-index: 3; display: flex;"
-      assert_includes response.body, "height: 0; margin: 0 auto; overflow: visible; visibility: hidden; opacity: 0;"
+      assert_includes response.body, "min-height: 2.75rem; margin: 0.5rem auto; visibility: hidden; opacity: 0;"
       assert_includes response.body, ".jump-controls.is-visible { visibility: visible; opacity: 1; }"
       assert_includes response.body, "body:not(.is-conversation-scrolling) .jump-controls.is-visible { visibility: hidden; opacity: 0; pointer-events: none; }"
       assert_includes response.body, "function updateConversationJumpControlsReveal()"
