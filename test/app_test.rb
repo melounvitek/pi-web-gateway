@@ -867,6 +867,37 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_pending_fork_session_remains_selectable_before_file_exists
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      forked_path = File.join(File.dirname(path), "pending-fork.jsonl")
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls, [], forked_path)
+      }]
+
+      post_response = Rack::MockRequest.new(PiWebGateway).post(
+        "/sessions/fork",
+        params: { "session" => path, "entry_id" => "entry-1" },
+        "HTTP_ACCEPT" => "application/json"
+      )
+      assert_equal forked_path, JSON.parse(post_response.body).fetch("session")
+      assert_equal project_cwd(dir), PiWebGateway.pending_rpc_cwds.fetch(forked_path)
+
+      fragment_response = Rack::MockRequest.new(PiWebGateway).get(
+        "/session_fragment",
+        params: { "session" => forked_path }
+      )
+
+      assert_equal 200, fragment_response.status
+      payload = JSON.parse(fragment_response.body)
+      assert_equal forked_path, payload.fetch("session")
+      assert_includes payload.fetch("conversation_html"), "New session (pending first assistant response)"
+    end
+  end
+
   def test_clones_session_and_returns_new_session_as_json
     Dir.mktmpdir do |dir|
       path = write_session(dir)

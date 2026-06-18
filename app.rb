@@ -845,8 +845,15 @@ class PiWebGateway < Sinatra::Base
   def branch_session_path(previous_session_path)
     client = rpc_clients.client_for(previous_session_path)
     new_session_path = session_file_from(client&.get_state) || previous_session_path
-    rpc_clients.move(previous_session_path, new_session_path) unless new_session_path == previous_session_path
+    if new_session_path != previous_session_path
+      rpc_clients.move(previous_session_path, new_session_path)
+      remember_pending_rpc_cwd(new_session_path, branched_session_cwd(previous_session_path)) unless File.exist?(new_session_path)
+    end
     new_session_path
+  end
+
+  def branched_session_cwd(previous_session_path)
+    session_cwd(previous_session_path) || pending_rpc_cwd(previous_session_path) || File.dirname(previous_session_path)
   end
 
   def validated_session_cwd(raw_cwd)

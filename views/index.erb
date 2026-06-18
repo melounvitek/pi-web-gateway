@@ -2488,6 +2488,7 @@
       const list = modal?.querySelector("[data-fork-session-list]");
       if (!list) return;
       list.replaceChildren();
+      delete list.dataset.loaded;
       const status = document.createElement("p");
       status.className = "fork-session-status";
       status.dataset.forkSessionStatus = "";
