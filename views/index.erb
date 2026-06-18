@@ -137,9 +137,8 @@
     .command-list summary:hover { color: var(--text); }
     .command-list h3 { font-size: 0.75rem; text-transform: uppercase; color: var(--muted-soft); margin: 0.75rem 0 0.25rem; }
     .command-list h3:first-child { margin-top: 0.75rem; }
-    .command-filter { width: 100%; margin-top: 0.6rem; padding: 0.45rem 0.6rem; font-size: 0.9rem; }
     .command { font-size: 0.9rem; margin: 0.25rem 0; padding: 0.2rem 0.25rem; border-radius: 0.35rem; cursor: pointer; }
-    .command:hover { background: var(--panel-softer); }
+    .command:hover, .command.is-highlighted { background: var(--panel-softer); }
     .command code { font-weight: 700; color: var(--accent); }
     .composer-state { display: none; align-items: center; gap: 0.4rem; min-height: 1.1rem; font-size: 0.85rem; color: var(--muted); }
     .composer-state::before { content: ""; width: 0.48rem; height: 0.48rem; border-radius: 999px; background: var(--muted-soft); }
@@ -309,7 +308,7 @@
     let composerState = null;
     let abortButton = null;
     let commandList = null;
-    let commandFilter = null;
+    let highlightedCommandIndex = 0;
     let conversationScroll = null;
     let topJumpControls = null;
     let bottomJumpControls = null;
@@ -378,7 +377,7 @@
       composerState = document.querySelector(".composer-state");
       abortButton = document.querySelector(".abort-button");
       commandList = document.getElementById("command-list");
-      commandFilter = commandList?.querySelector(".command-filter") || null;
+      highlightedCommandIndex = 0;
       conversationScroll = document.getElementById("conversation-scroll");
       lastConversationScrollTop = conversationScroll?.scrollTop || 0;
       conversationScrollDirection = null;
@@ -1898,8 +1897,7 @@
       clearAttachments();
       commandList?.classList.remove("is-visible");
       commandList?.removeAttribute("open");
-      if (commandFilter) commandFilter.value = "";
-      commandList?.querySelectorAll(".command").forEach((command) => { command.hidden = false; });
+      resetCommandSelection();
       resizePromptTextarea();
       if (shouldAutofocusPrompt()) promptTextarea.focus();
       setComposerState("sending", renameCommand ? "Renaming…" : steering ? "Queueing steer…" : "Sending…");
@@ -1961,13 +1959,57 @@
       }
     }
 
-    function bindCommandFilter() {
-      commandFilter?.addEventListener("input", () => {
-        const query = commandFilter.value.trim().toLowerCase();
-        commandList?.querySelectorAll(".command").forEach((command) => {
-          command.hidden = query && !command.dataset.commandText.toLowerCase().includes(query);
-        });
+    function visibleCommands() {
+      return [...(commandList?.querySelectorAll(".command") || [])].filter((command) => !command.hidden);
+    }
+
+    function updateHighlightedCommand() {
+      const commands = visibleCommands();
+      if (highlightedCommandIndex >= commands.length) highlightedCommandIndex = commands.length - 1;
+      if (highlightedCommandIndex < 0) highlightedCommandIndex = 0;
+      commandList?.querySelectorAll(".command").forEach((command) => command.classList.remove("is-highlighted"));
+      commands[highlightedCommandIndex]?.classList.add("is-highlighted");
+    }
+
+    function resetCommandSelection() {
+      highlightedCommandIndex = 0;
+      commandList?.querySelectorAll(".command").forEach((command) => {
+        command.hidden = false;
+        command.classList.remove("is-highlighted");
       });
+    }
+
+    function filterCommandsFromPrompt() {
+      if (!commandList || !promptTextarea) return;
+      const query = promptTextarea.value.startsWith("/") ? promptTextarea.value.slice(1).trim().toLowerCase() : "";
+      commandList.querySelectorAll(".command").forEach((command) => {
+        command.hidden = query && !command.dataset.commandText.toLowerCase().includes(query);
+      });
+      highlightedCommandIndex = 0;
+      updateHighlightedCommand();
+    }
+
+    function selectCommand(command) {
+      if (!command || !promptTextarea) return false;
+      promptTextarea.value = `/${command.dataset.commandName} `;
+      commandList?.classList.remove("is-visible");
+      commandList?.removeAttribute("open");
+      resetCommandSelection();
+      resizePromptTextarea();
+      promptTextarea.focus();
+      return true;
+    }
+
+    function selectHighlightedCommand() {
+      return selectCommand(visibleCommands()[highlightedCommandIndex]);
+    }
+
+    function moveHighlightedCommand(direction) {
+      const commands = visibleCommands();
+      if (commands.length === 0) return;
+      highlightedCommandIndex = (highlightedCommandIndex + direction + commands.length) % commands.length;
+      updateHighlightedCommand();
+      commands[highlightedCommandIndex]?.scrollIntoView({ block: "nearest" });
     }
 
     async function ensureCommandsLoaded() {
@@ -1985,11 +2027,11 @@
         if (commandList !== list || !list.isConnected || generation !== sessionSwitchGeneration || list.dataset.commandsUrl !== url) return;
         list.outerHTML = html;
         commandList = document.getElementById("command-list");
-        commandFilter = commandList?.querySelector(".command-filter") || null;
-        bindCommandFilter();
+        highlightedCommandIndex = 0;
         if (promptTextarea?.value.startsWith("/")) {
           commandList?.classList.add("is-visible");
           commandList?.setAttribute("open", "");
+          filterCommandsFromPrompt();
         }
       } catch (_error) {
       } finally {
@@ -1998,9 +2040,25 @@
     }
 
     function bindSessionControls() {
-      bindCommandFilter();
-
       promptTextarea?.addEventListener("keydown", (event) => {
+        if (promptTextarea.value.startsWith("/") && commandList?.classList.contains("is-visible")) {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveHighlightedCommand(1);
+            return;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveHighlightedCommand(-1);
+            return;
+          }
+          if (event.key === "Enter" && !event.shiftKey && visibleCommands().length > 0) {
+            event.preventDefault();
+            selectHighlightedCommand();
+            return;
+          }
+        }
+
         if (event.key === "Enter" && !event.shiftKey && shouldAutofocusPrompt()) {
           event.preventDefault();
           promptForm.requestSubmit();
@@ -2072,9 +2130,11 @@
           ensureCommandsLoaded();
           commandList?.classList.add("is-visible");
           commandList?.setAttribute("open", "");
+          filterCommandsFromPrompt();
         } else {
           commandList?.classList.remove("is-visible");
           commandList?.removeAttribute("open");
+          resetCommandSelection();
         }
       });
 
@@ -2703,9 +2763,7 @@
       const command = event.target.closest(".command");
       if (!command || !commandList?.contains(command) || !promptTextarea) return;
 
-      promptTextarea.value = `/${command.dataset.commandName} `;
-      resizePromptTextarea();
-      promptTextarea.focus();
+      selectCommand(command);
     });
 
     function browserAccessElements() {

@@ -1086,7 +1086,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "/review"
       assert_includes response.body, "Review code"
       refute_includes response.body, "<code>/new</code>"
-      assert_includes response.body, "command-filter"
+      refute_includes response.body, "command-filter"
       assert_equal [[ :start, path ], [ :get_commands ]], calls
     end
   end
@@ -2916,8 +2916,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "promptForm.requestSubmit();"
       assert_includes response.body, "function resizePromptTextarea()"
       assert_includes response.body, "commandList?.removeAttribute(\"open\");"
-      assert_includes response.body, "if (commandFilter) commandFilter.value = \"\";"
-      assert_includes response.body, "commandList?.querySelectorAll(\".command\").forEach((command) => { command.hidden = false; });"
+      assert_includes response.body, "function filterCommandsFromPrompt()"
+      assert_includes response.body, "const query = promptTextarea.value.startsWith(\"/\") ? promptTextarea.value.slice(1).trim().toLowerCase() : \"\";"
+      assert_includes response.body, "function selectHighlightedCommand()"
       assert_includes response.body, "setComposerState(\"running\", \"Pi is running…\");"
       assert_includes response.body, "composerStopButton = document.querySelector(\".session-header .composer-stop-button\") || null;"
       assert_includes response.body, "if (!steering) resetLiveAssistantTracking();"
