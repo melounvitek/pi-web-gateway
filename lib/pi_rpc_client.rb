@@ -76,6 +76,18 @@ class PiRpcClient
     request("compact", id: next_id("compact"), **payload)
   end
 
+  def get_fork_messages
+    request("get_fork_messages", id: next_id("get_fork_messages"))
+  end
+
+  def fork(entry_id)
+    request("fork", id: next_id("fork"), entryId: entry_id)
+  end
+
+  def clone_session
+    request("clone", id: next_id("clone"))
+  end
+
   def set_session_name(name)
     request("set_session_name", id: next_id("set_session_name"), name: name)
   end

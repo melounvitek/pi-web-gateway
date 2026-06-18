@@ -158,7 +158,10 @@ class PiRpcClientTest < Minitest::Test
       JSON.generate({ id: "switch_session-7", type: "response", command: "switch_session", success: true, data: { cancelled: false } }),
       JSON.generate({ id: "get_commands-8", type: "response", command: "get_commands", success: true, data: { commands: [] } }),
       JSON.generate({ id: "compact-9", type: "response", command: "compact", success: true, data: {} }),
-      JSON.generate({ id: "set_session_name-10", type: "response", command: "set_session_name", success: true })
+      JSON.generate({ id: "set_session_name-10", type: "response", command: "set_session_name", success: true }),
+      JSON.generate({ id: "get_fork_messages-11", type: "response", command: "get_fork_messages", success: true, data: { messages: [] } }),
+      JSON.generate({ id: "fork-12", type: "response", command: "fork", success: true, data: { text: "Hello", cancelled: false } }),
+      JSON.generate({ id: "clone-13", type: "response", command: "clone", success: true, data: { cancelled: false } })
     ].join("\n") + "\n")
     client = PiRpcClient.new(stdin: input, stdout: output)
 
@@ -172,6 +175,9 @@ class PiRpcClientTest < Minitest::Test
     client.get_commands
     client.compact("Focus summary")
     client.set_session_name("Useful name")
+    client.get_fork_messages
+    client.fork("entry-1")
+    client.clone_session
 
     assert_equal [
       { "id" => "get_state-1", "type" => "get_state" },
@@ -183,7 +189,10 @@ class PiRpcClientTest < Minitest::Test
       { "id" => "switch_session-7", "type" => "switch_session", "sessionPath" => "/tmp/other-session.jsonl" },
       { "id" => "get_commands-8", "type" => "get_commands" },
       { "id" => "compact-9", "type" => "compact", "customInstructions" => "Focus summary" },
-      { "id" => "set_session_name-10", "type" => "set_session_name", "name" => "Useful name" }
+      { "id" => "set_session_name-10", "type" => "set_session_name", "name" => "Useful name" },
+      { "id" => "get_fork_messages-11", "type" => "get_fork_messages" },
+      { "id" => "fork-12", "type" => "fork", "entryId" => "entry-1" },
+      { "id" => "clone-13", "type" => "clone" }
     ], input.string.lines.map { |line| JSON.parse(line) }
   end
 end
