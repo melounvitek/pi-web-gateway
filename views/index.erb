@@ -92,10 +92,7 @@
     .message--compact { padding: 0.75rem 0.9rem; box-shadow: none; }
     .message--live { box-shadow: 0 0 0 1px rgba(138, 190, 183, 0.45) inset, 0 6px 18px rgba(0, 0, 0, 0.12); }
     .message-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
-    .message-turn-nav { position: absolute; top: 0.6rem; right: 0.6rem; display: inline-flex; gap: 0.3rem; pointer-events: none; }
-    .message-turn-button { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; padding: 0; border: 0; border-radius: 0.48rem; background: rgba(138, 190, 183, 0.88); color: var(--button-text); font-size: 0.78rem; font-weight: 800; line-height: 1; text-decoration: none; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2); opacity: 0.72; pointer-events: auto; transition: background 120ms ease, opacity 120ms ease, transform 120ms ease; }
-    .message-turn-button:hover { background: var(--accent-hover); opacity: 1; transform: translateY(-1px); }
-    .message--assistant .message-header { padding-right: 4.35rem; }
+    .message--assistant .message-header { padding-right: 2.2rem; }
     .message--user .message-header { margin-bottom: 0.75rem; }
     .role { font-size: 0.74rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
     .message--error .role { color: #ffb4b6; }
@@ -394,7 +391,6 @@
       reconnectButton = document.querySelector(".reconnect-button");
       bindSidebarScrollTracking();
       syncMobileSessionsUnreadBadges();
-      syncMessageTurnNavs();
     }
 
     function markSidebarInteraction() {
@@ -461,45 +457,6 @@
       bottomJumpControls?.classList.toggle("is-visible", showLatest);
     }
 
-    function finalAssistantResponseMessages() {
-      return [...(conversationScroll?.querySelectorAll('[data-final-assistant-response="true"]') || [])];
-    }
-
-    function previousFinalAssistantResponse(message) {
-      return finalAssistantResponseMessages().reverse().find((assistantMessage) => assistantMessage.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING) || null;
-    }
-
-    function nextFinalAssistantResponse(message) {
-      return finalAssistantResponseMessages().find((assistantMessage) => message.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING) || null;
-    }
-
-    function makeMessageTurnButton(direction, label, text) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "message-turn-button";
-      button.dataset.direction = direction;
-      button.setAttribute("aria-label", label);
-      button.textContent = text;
-      return button;
-    }
-
-    function syncMessageTurnNavs() {
-      conversationScroll?.querySelectorAll(".message-turn-nav").forEach((nav) => nav.remove());
-
-      finalAssistantResponseMessages().forEach((message) => {
-        const previousTarget = previousFinalAssistantResponse(message);
-        const nextTarget = nextFinalAssistantResponse(message);
-        if (!previousTarget && !nextTarget) return;
-
-        const nav = document.createElement("nav");
-        nav.className = "message-turn-nav";
-        nav.setAttribute("aria-label", "Assistant response navigation");
-        if (previousTarget) nav.append(makeMessageTurnButton("previous", "Previous assistant response", "↑"));
-        if (nextTarget) nav.append(makeMessageTurnButton("next", "Next assistant response", "↓"));
-        message.prepend(nav);
-      });
-    }
-
     function latestReadableAssistantMessage() {
       const messages = conversationScroll?.querySelectorAll('[data-role="assistant"].message--assistant:not(.message--thinking):not(.message--compact)');
       return messages?.[messages.length - 1] || null;
@@ -557,19 +514,6 @@
       updateScrollJumpButtons();
     }
 
-    function topJumpControlsOffset() {
-      const remSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      return remSize * 3.5;
-    }
-
-    function scrollToUserMessage(message, behavior = "smooth") {
-      if (!message) return;
-      autoScrollEnabled = false;
-      forceBottomAutoScroll = false;
-      withProgrammaticScroll(() => scrollElementTopIntoView(message, behavior, topJumpControlsOffset()));
-      updateScrollJumpButtons();
-    }
-
     function scrollToBottom(behavior = "auto", { force = false } = {}) {
       if (!conversationScroll) return;
       autoScrollEnabled = true;
@@ -587,7 +531,6 @@
     }
 
     function afterLiveOutputChange(shouldScroll, live = true) {
-      syncMessageTurnNavs();
       if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();
       else if (live) updateScrollJumpButtons();
     }
@@ -1437,10 +1380,7 @@
       if (existing) {
         const updated = updateLiveSegment(existing, roleName, segment, shouldScroll, timestamp);
         if (updated) {
-          if (finalAssistantResponse) {
-            updated.article.dataset.finalAssistantResponse = "true";
-            syncMessageTurnNavs();
-          }
+          if (finalAssistantResponse) updated.article.dataset.finalAssistantResponse = "true";
           return updated;
         }
         forgetLiveEntry(existing);
@@ -2093,16 +2033,6 @@
       jumpToFirstButton?.addEventListener("click", () => scrollToTop());
       jumpToLatestButton?.addEventListener("click", () => scrollToBottom("auto", { force: true }));
       reconnectButton?.addEventListener("click", reconnectSession);
-      conversationPanel?.addEventListener("click", (event) => {
-        const turnButton = event.target.closest(".message-turn-button");
-        if (!turnButton) return;
-
-        event.preventDefault();
-        const message = turnButton.closest(".message");
-        const target = turnButton.dataset.direction === "previous" ? previousFinalAssistantResponse(message) : nextFinalAssistantResponse(message);
-        if (!target) return;
-        scrollToUserMessage(target);
-      });
       conversationPanel?.addEventListener("click", (event) => {
         if (!event.target.closest("[data-collapse-details]")) return;
         const details = event.target.closest("details.message-details");

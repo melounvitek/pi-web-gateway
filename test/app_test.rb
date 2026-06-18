@@ -1340,7 +1340,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "jump-controls--bottom"
       refute_includes response.body, "jump-controls--message-nav"
       assert_includes response.body, "jump-to-first"
-      assert_includes response.body, "message-turn-button"
+      refute_includes response.body, "message-turn-button"
       assert_includes response.body, "jump-to-latest"
       assert_includes response.body, "aria-label=\"Top\">↑↑</button>"
       assert_includes response.body, "aria-label=\"Bottom\">↓↓</button>"
@@ -2091,7 +2091,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_message_navigation_connects_user_messages_and_assistant_responses
+  def test_message_navigation_arrows_are_not_rendered
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
@@ -2103,14 +2103,11 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, 'function previousFinalAssistantResponse(message)'
-      assert_includes response.body, 'function nextFinalAssistantResponse(message)'
-      assert_includes response.body, 'const previousTarget = previousFinalAssistantResponse(message);'
-      assert_includes response.body, 'const nextTarget = nextFinalAssistantResponse(message);'
-      assert_includes response.body, 'if (!previousTarget && !nextTarget) return;'
-      assert_includes response.body, 'if (previousTarget) nav.append(makeMessageTurnButton("previous", "Previous assistant response", "↑"));'
-      assert_includes response.body, 'if (nextTarget) nav.append(makeMessageTurnButton("next", "Next assistant response", "↓"));'
-      assert_includes response.body, 'const finalAssistantResponse = event.type === "message_end" && !segment.compact && !segment.thinking'
+      refute_includes response.body, "message-turn-button"
+      refute_includes response.body, "message-turn-nav"
+      refute_includes response.body, "previousFinalAssistantResponse"
+      refute_includes response.body, "nextFinalAssistantResponse"
+      refute_includes response.body, 'const turnButton = event.target.closest(".message-turn-button");'
     end
   end
 
@@ -2569,11 +2566,11 @@ class AppTest < Minitest::Test
       assert_includes response.body, "if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();"
       assert_includes response.body, "applyAutoScroll(\"auto\");"
       assert_includes response.body, "scrollToTop"
-      assert_includes response.body, "const turnButton = event.target.closest(\".message-turn-button\");"
-      assert_includes response.body, "turnButton.dataset.direction === \"previous\""
-      assert_includes response.body, "scrollToUserMessage(target);"
-      assert_includes response.body, "function topJumpControlsOffset()"
-      assert_includes response.body, "return remSize * 3.5;"
+      refute_includes response.body, "const turnButton = event.target.closest(\".message-turn-button\");"
+      refute_includes response.body, "turnButton.dataset.direction === \"previous\""
+      refute_includes response.body, "scrollToUserMessage(target);"
+      refute_includes response.body, "function topJumpControlsOffset()"
+      refute_includes response.body, "return remSize * 3.5;"
       assert_includes response.body, "function scrollToBottom(behavior = \"auto\", { force = false } = {})"
       assert_includes response.body, "autoScrollEnabled = true;"
       assert_includes response.body, "forceBottomAutoScroll = force;"
