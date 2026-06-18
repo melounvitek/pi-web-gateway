@@ -56,6 +56,10 @@ class PiSessionStore
   def messages(path)
     pending_tool_calls = {}
     read_entries(path).each_with_object([]) do |entry, rendered_messages|
+      if entry["type"] == "compaction"
+        rendered_messages << compaction_message_from_entry(entry)
+        next
+      end
       next unless entry["type"] == "message"
 
       messages_from_entry(entry).each do |message|
@@ -204,6 +208,20 @@ class PiSessionStore
     rescue JSON::ParserError
       nil
     end
+  end
+
+  def compaction_message_from_entry(entry)
+    summary = entry["summary"].to_s.strip
+    text = summary.empty? ? JSON.pretty_generate(entry) : summary
+    Message.new(
+      role: "status",
+      text: text,
+      timestamp: parse_time(entry["timestamp"]),
+      compact: true,
+      summary: "Conversation compacted",
+      expanded: false,
+      raw_details: JSON.pretty_generate(entry)
+    )
   end
 
   def messages_from_entry(entry)

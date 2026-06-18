@@ -95,6 +95,30 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_reads_compaction_entries_as_compact_status_messages
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "compaction",
+          timestamp: "2026-06-13T10:00:00Z",
+          summary: "Important summary",
+          tokensBefore: 1234
+        }
+      ])
+
+      messages = PiSessionStore.new(root: dir).messages(path)
+
+      assert_equal 1, messages.length
+      assert_equal "status", messages.first.role
+      assert_equal "Important summary", messages.first.text
+      assert_equal "Conversation compacted", messages.first.summary
+      assert messages.first.compact
+      assert_equal Time.parse("2026-06-13T10:00:00Z"), messages.first.timestamp
+    end
+  end
+
   def test_reads_messages_for_a_selected_session
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")

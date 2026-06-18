@@ -2230,6 +2230,23 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_compaction_entries_as_compact_status_messages
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "compaction", timestamp: "2026-06-13T10:00:00Z", summary: "Important summary" }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, 'class="message message--status message--compact" data-role="status"'
+      assert_includes response.body, '<summary><span class="compact-summary">Conversation compacted</span></summary>'
+      assert_includes response.body, "Important summary"
+    end
+  end
+
   def test_renders_messages_with_role_specific_structure
     Dir.mktmpdir do |dir|
       path = write_session_with_messages(dir, [
@@ -3111,6 +3128,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'if (["custom", "system", "status"].includes(role)) return "status";'
       assert_includes response.body, "function showStatus(_text, _forceScroll = false) {}"
       assert_includes response.body, "showStatus(eventStatusText(event));"
+      assert_includes response.body, "function renderCompactionEvent(event)"
+      assert_includes response.body, "appendCompactMessage(\"status\", \"Conversation compacted\", event.summary || \"Compaction completed\""
+      assert_includes response.body, "if (event.type === \"compaction\") {\n        renderCompactionEvent(event);\n        return;\n      }"
       assert_includes response.body, "if (/^\\/(?:name|rename)$/.test(trimmed)) return { valid: false };"
       assert_includes response.body, "if (/^\\/(?:name|rename)[ \\t]+[^\\r\\n]+$/.test(trimmed)) return { valid: true };"
       assert_includes response.body, "function sessionNameSlashCommand(message)"

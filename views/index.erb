@@ -1587,6 +1587,12 @@
       if (entry) liveToolExecutions.set(event.toolCallId, entry);
     }
 
+    function renderCompactionEvent(event) {
+      appendCompactMessage("status", "Conversation compacted", event.summary || "Compaction completed", false, true, true, JSON.stringify(event, null, 2), eventTimestamp(event));
+      showStatus("Compaction finished");
+      setComposerState("done", "Done");
+    }
+
     function renderMessageEvent(event) {
       const message = eventMessage(event);
       const segments = message?.content ? contentSegments(message.content, message) : [{ text: messageText(message), compact: false, summary: "", startIndex: 0, endIndex: 0 }].filter((segment) => segment.text);
@@ -1658,6 +1664,11 @@
 
       if (["tool_execution_start", "tool_execution_update", "tool_execution_end"].includes(event.type)) {
         renderToolExecutionEvent(event);
+        return;
+      }
+
+      if (event.type === "compaction") {
+        renderCompactionEvent(event);
         return;
       }
 
