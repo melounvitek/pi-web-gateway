@@ -2056,7 +2056,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_message_navigation_targets_user_messages_and_final_assistant_responses
+  def test_message_navigation_connects_user_messages_and_assistant_responses
     Dir.mktmpdir do |dir|
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
@@ -2068,8 +2068,10 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, 'conversationTurnMessages()'
-      assert_includes response.body, '[data-role="user"].message, [data-final-assistant-response="true"]'
+      assert_includes response.body, 'function previousFinalAssistantResponse(message)'
+      assert_includes response.body, 'function nextFinalAssistantResponse(message)'
+      assert_includes response.body, 'makeMessageTurnButton("previous", "Previous assistant response", "↑")'
+      assert_includes response.body, 'makeMessageTurnButton("next", "Next assistant response", "↓")'
       assert_includes response.body, 'const finalAssistantResponse = event.type === "message_end" && !segment.compact && !segment.thinking'
     end
   end
