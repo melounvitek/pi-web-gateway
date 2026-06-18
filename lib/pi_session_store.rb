@@ -11,6 +11,7 @@ class PiSessionStore
     :first_user_message,
     :message_count,
     :assistant_response_count,
+    :latest_assistant_response_preview,
     :created_at,
     :modified_at,
     keyword_init: true
@@ -118,6 +119,7 @@ class PiSessionStore
     first_user_message = nil
     message_count = 0
     assistant_response_count = 0
+    latest_assistant_response_preview = nil
 
     read_entries(path).each do |entry|
       case entry["type"]
@@ -128,7 +130,10 @@ class PiSessionStore
       when "message"
         message = entry["message"] || {}
         message_count += 1 unless message["role"] == "toolResult"
-        assistant_response_count += 1 if final_assistant_response?(message)
+        if final_assistant_response?(message)
+          assistant_response_count += 1
+          latest_assistant_response_preview = response_preview(final_assistant_response_text(message))
+        end
         if first_user_message.nil? && message["role"] == "user"
           first_user_message = content_text(message["content"])
         end
@@ -148,6 +153,7 @@ class PiSessionStore
       first_user_message: first_user_message,
       message_count: message_count,
       assistant_response_count: assistant_response_count,
+      latest_assistant_response_preview: latest_assistant_response_preview,
       created_at: parse_time(session_entry["timestamp"]) || stat.ctime,
       modified_at: stat.mtime
     )
@@ -156,11 +162,21 @@ class PiSessionStore
   end
 
   def final_assistant_response?(message)
-    return false unless message["role"] == "assistant"
+    message["role"] == "assistant" && !final_assistant_response_text(message).empty?
+  end
 
-    Array(message["content"]).any? do |part|
-      part.is_a?(String) ? !part.strip.empty? : part.is_a?(Hash) && part["type"] == "text" && !part["text"].to_s.strip.empty?
-    end
+  def final_assistant_response_text(message)
+    Array(message["content"]).filter_map do |part|
+      next part if part.is_a?(String)
+      next unless part.is_a?(Hash) && part["type"] == "text"
+
+      part["text"]
+    end.join("\n").strip
+  end
+
+  def response_preview(text)
+    preview = text.to_s.gsub(/\s+/, " ").strip
+    preview.length > 180 ? "#{preview[0, 177]}…" : preview
   end
 
   def delete_session_with_missing_cwd?(path, cwd)

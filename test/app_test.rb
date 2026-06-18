@@ -2725,6 +2725,7 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_includes response.body, "data-session-path=\"#{ERB::Util.html_escape(path)}\""
       assert_includes response.body, "data-assistant-response-count=\"1\""
+      assert_includes response.body, "data-latest-assistant-response-preview=\"Final response\""
     end
   end
 

@@ -32,6 +32,25 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_exposes_latest_assistant_response_preview
+    Dir.mktmpdir do |dir|
+      session_dir = File.join(dir, "--project--")
+      FileUtils.mkdir_p(session_dir)
+      path = File.join(session_dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: "private" }] } },
+        { type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "echo hi" } }] } },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Older answer" }] } },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Latest\nanswer" }] } }
+      ])
+
+      session = PiSessionStore.new(root: dir).sessions.first
+
+      assert_equal "Latest answer", session.latest_assistant_response_preview
+    end
+  end
+
   def test_uses_first_user_message_when_session_has_no_name
     Dir.mktmpdir do |dir|
       session_dir = File.join(dir, "--project--")
