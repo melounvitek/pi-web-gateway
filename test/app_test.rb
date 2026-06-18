@@ -3148,7 +3148,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "appendCompactMessage(\"status\", \"Conversation compacted\", event.summary || \"Compaction completed\""
       assert_includes response.body, "refreshSessionStatus().catch(() => {});"
       assert_includes response.body, "if (event.type === \"compaction\") {\n        renderCompactionEvent(event);\n        return;\n      }"
-      assert_includes response.body, "if (event.type === \"compaction_end\") {\n          removePendingCompactionMessage();\n          if (!liveAgentRunning) setComposerState(\"done\", event.aborted ? \"Compaction aborted\" : \"Done\");\n          if (!event.aborted) refreshSessionStatus().catch(() => {});\n          refreshSidebar().catch(() => {});\n        }"
+      assert_includes response.body, "if (event.type === \"compaction_start\") resetLiveCompactionTracking();"
+      assert_includes response.body, "if (event.type === \"compaction_end\") {\n          removePendingCompactionMessage();\n          if (!event.aborted && !liveCompactionRendered) renderCompactionEvent(event);\n          if (!liveAgentRunning) setComposerState(\"done\", event.aborted ? \"Compaction aborted\" : \"Done\");\n          if (!event.aborted) refreshSessionStatus().catch(() => {});\n          refreshSidebar().catch(() => {});\n        }"
       assert_includes response.body, "if (/^\\/(?:name|rename)$/.test(trimmed)) return { valid: false };"
       assert_includes response.body, "if (/^\\/(?:name|rename)[ \\t]+[^\\r\\n]+$/.test(trimmed)) return { valid: true };"
       assert_includes response.body, "function sessionNameSlashCommand(message)"
@@ -3314,7 +3315,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_sidebar_shows_persisted_compaction_activity
+  def test_sidebar_hides_persisted_compaction_activity
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
         { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Older answer" }] } },
@@ -3328,10 +3329,10 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
       link = document.at_css("a.session")
-      assert_includes link.text, "Conversation compacted"
-      assert_includes link.text, "Important summary with details"
-      assert_equal "compaction", link["data-latest-activity-kind"]
-      assert_equal "Important summary with details", link["data-latest-activity-preview"]
+      refute_includes link.text, "Conversation compacted"
+      refute_includes link.text, "Important summary with details"
+      assert_nil link["data-latest-activity-kind"]
+      assert_nil link["data-latest-activity-preview"]
     end
   end
 
@@ -3348,7 +3349,7 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => path })
 
       assert_equal 200, response.status
-      assert_includes response.body, "Compacting…"
+      refute_includes response.body, "Compacting…"
       assert_includes response.body, "session-compacting-indicator"
     end
   end

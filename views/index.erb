@@ -334,6 +334,7 @@
     let liveAssistantSegments = new Map();
     let liveAssistantSeen = false;
     let liveAgentRunning = false;
+    let liveCompactionRendered = false;
     let liveBashToolCalls = new Map();
     let liveToolExecutions = new Map();
     let liveUserMessages = new Map();
@@ -1304,6 +1305,10 @@
       liveAssistantSeen = false;
     }
 
+    function resetLiveCompactionTracking() {
+      liveCompactionRendered = false;
+    }
+
     function segmentIdentity(event, segment, fallbackIndex) {
       const update = event.assistantMessageEvent || {};
       if (segment.toolCallId) return `${segment.toolCallId}-${segment.compact ? "compact" : "text"}`;
@@ -1603,6 +1608,7 @@
 
     function renderCompactionEvent(event) {
       removePendingCompactionMessage();
+      liveCompactionRendered = true;
       appendCompactMessage("status", "Conversation compacted", event.summary || "Compaction completed", false, true, true, JSON.stringify(event, null, 2), eventTimestamp(event));
       showStatus("Compaction finished");
       setComposerState("done", "Done");
@@ -1692,8 +1698,10 @@
       if (["custom", "custom_message", "session_info", "queue_update", "compaction_start", "compaction_end"].includes(event.type)) {
         updateSessionHeaderName(sessionTitleFromEvent(event));
         showStatus(eventStatusText(event));
+        if (event.type === "compaction_start") resetLiveCompactionTracking();
         if (event.type === "compaction_end") {
           removePendingCompactionMessage();
+          if (!event.aborted && !liveCompactionRendered) renderCompactionEvent(event);
           if (!liveAgentRunning) setComposerState("done", event.aborted ? "Compaction aborted" : "Done");
           if (!event.aborted) refreshSessionStatus().catch(() => {});
           refreshSidebar().catch(() => {});
@@ -1898,6 +1906,7 @@
         appendMessage("user", [message, pendingImages.length > 0 ? `[${imageAttachmentLabel(pendingImages.length)}]` : ""].filter(Boolean).join("\n"), true, true, new Date(), { optimistic: true, optimisticText: message });
       } else if (compactCommand) {
         resetLiveAssistantTracking();
+        resetLiveCompactionTracking();
         resetEventPollBackoff();
         scheduleNextEventPoll(0);
         appendPendingCompactionMessage(new Date());
@@ -2182,6 +2191,7 @@
       eventPollResumeTimer = null;
       scheduledAutoScrollFrame = null;
       resetLiveAssistantTracking();
+      resetLiveCompactionTracking();
       liveAgentRunning = false;
       resetEventPollBackoff();
       stopWaitingForOutput();
@@ -2215,16 +2225,14 @@
       const link = sessionSidebar.querySelector(selector);
       if (!link) return;
       link.classList.add("compacting");
-      const content = link.querySelector(".session-content");
-      let activity = link.querySelector(".session-activity");
-      if (!activity && content) {
-        activity = document.createElement("div");
-        content.insertBefore(activity, content.querySelector(".session-meta"));
-      }
-      if (activity) {
-        activity.className = "session-activity session-activity--running";
-        activity.textContent = "Compacting…";
-      }
+      const indicators = link.querySelector(".session-indicators");
+      if (!indicators || indicators.querySelector(".session-compacting-indicator")) return;
+      indicators.querySelector(".session-running-indicator")?.remove();
+      const indicator = document.createElement("span");
+      indicator.className = "session-compacting-indicator";
+      indicator.title = "Compacting context";
+      indicator.setAttribute("aria-label", "Compacting context");
+      indicators.appendChild(indicator);
     }
 
     function sidebarAssistantResponseCounts(root = sessionSidebar) {
