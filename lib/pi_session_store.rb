@@ -18,7 +18,7 @@ class PiSessionStore
   )
 
   Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, :tool_call_id, :tool_name, :raw_details, :thinking, :tool_summary_html, :tool_transcript, :final_assistant_response, :entry_id, keyword_init: true)
-  Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :cost_total, keyword_init: true)
+  Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
 
   @session_cache = {}
   @session_cache_mutex = Mutex.new
@@ -80,8 +80,11 @@ class PiSessionStore
 
   def status(path)
     latest = Status.new
+    entries = read_entries(path)
+    latest_usage_index = nil
+    latest_compaction_index = nil
 
-    read_entries(path).each do |entry|
+    entries.each_with_index do |entry, index|
       case entry["type"]
       when "model_change"
         latest.provider = entry["provider"] unless entry["provider"].to_s.empty?
@@ -89,8 +92,16 @@ class PiSessionStore
       when "thinking_level_change"
         latest.thinking_level = entry["thinkingLevel"] || entry["thinking_level"] unless (entry["thinkingLevel"] || entry["thinking_level"]).to_s.empty?
       when "message"
-        apply_usage(latest, entry["message"])
+        if apply_usage(latest, entry["message"])
+          latest_usage_index = index
+        end
+      when "compaction"
+        latest_compaction_index = index
       end
+    end
+
+    if latest_compaction_index && (!latest_usage_index || latest_compaction_index > latest_usage_index)
+      apply_compaction_estimate(latest, entries, latest_compaction_index)
     end
 
     latest
@@ -99,13 +110,47 @@ class PiSessionStore
   private
 
   def apply_usage(status, message)
-    return unless message.is_a?(Hash) && message["role"] == "assistant" && message["usage"].is_a?(Hash)
+    return false unless message.is_a?(Hash) && message["role"] == "assistant" && message["usage"].is_a?(Hash)
 
     usage = message["usage"]
     status.context_tokens = usage["totalTokens"] || usage["total_tokens"] || usage["tokens"]
     status.context_limit = usage["contextWindow"] || usage["context_window"] || usage["contextLimit"] || usage["context_limit"]
     status.context_percent = usage["contextPercent"] || usage["context_percent"]
+    status.context_estimated = false
     status.cost_total = usage.dig("cost", "total") || usage["costTotal"] || usage["cost_total"]
+    true
+  end
+
+  def apply_compaction_estimate(status, entries, compaction_index)
+    compaction = entries[compaction_index]
+    tokens = estimate_compacted_context_tokens(entries, compaction_index, compaction)
+    return unless tokens && tokens.positive?
+
+    status.context_tokens = tokens
+    status.context_limit = nil
+    status.context_percent = nil
+    status.context_estimated = true
+  end
+
+  def estimate_compacted_context_tokens(entries, compaction_index, compaction)
+    first_kept_entry_id = compaction["firstKeptEntryId"].to_s
+    first_kept_index = first_kept_entry_id.empty? ? nil : entries.find_index { |entry| entry["id"] == first_kept_entry_id }
+    kept_entries = first_kept_index ? entries[first_kept_index...compaction_index] : []
+    text = [compaction["summary"], *kept_entries.map { |entry| estimate_text_from_entry(entry) }].compact.join("\n")
+    estimate_tokens(text)
+  end
+
+  def estimate_text_from_entry(entry)
+    return unless entry["type"] == "message"
+
+    content_text(entry.dig("message", "content"))
+  end
+
+  def estimate_tokens(text)
+    text = text.to_s
+    return 0 if text.empty?
+
+    (text.length / 4.0).ceil
   end
 
   def parse_session(path)

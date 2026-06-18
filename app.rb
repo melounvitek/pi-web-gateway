@@ -365,12 +365,13 @@ class PiWebGateway < Sinatra::Base
     def format_context_usage(status)
       return if status.context_tokens.nil?
 
-      if status.context_limit
+      usage = if status.context_limit
         percent = status.context_percent || ((status.context_tokens.to_f / status.context_limit) * 100).round(1)
         "#{percent}%/#{compact_number(status.context_limit)}"
       else
         compact_number(status.context_tokens)
       end
+      status.context_estimated ? "≈#{usage}" : usage
     end
 
     def format_model(status)

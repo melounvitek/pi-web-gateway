@@ -136,6 +136,61 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_estimates_latest_status_from_newer_compaction_entry
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      summary = "Compacted summary text"
+      kept_text = "Retained conversation text"
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "old-entry", timestamp: "2026-06-13T10:00:00Z", message: { role: "assistant", content: [{ type: "text", text: "Old answer" }], usage: { totalTokens: 12_345 } } },
+        { type: "message", id: "kept-entry", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: kept_text }] } },
+        { type: "compaction", timestamp: "2026-06-13T10:02:00Z", summary: summary, firstKeptEntryId: "kept-entry", tokensBefore: 12_345 }
+      ])
+
+      status = PiSessionStore.new(root: dir).status(path)
+
+      assert status.context_estimated
+      assert_operator status.context_tokens, :<, 12_345
+      assert_equal ([summary, kept_text].join("\n").length / 4.0).ceil, status.context_tokens
+    end
+  end
+
+  def test_estimates_compaction_status_from_summary_when_first_kept_entry_is_missing
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      summary = "Summary only"
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "model_change", provider: "openai-codex", modelId: "gpt-5.5" },
+        { type: "message", id: "old-entry", timestamp: "2026-06-13T10:00:00Z", message: { role: "assistant", content: [{ type: "text", text: "Old answer" * 200 }], usage: { totalTokens: 12_345 } } },
+        { type: "compaction", timestamp: "2026-06-13T10:02:00Z", summary: summary, tokensBefore: 12_345 }
+      ])
+
+      status = PiSessionStore.new(root: dir).status(path)
+
+      assert status.context_estimated
+      assert_equal (summary.length / 4.0).ceil, status.context_tokens
+    end
+  end
+
+  def test_keeps_later_usage_when_compaction_has_same_timestamp
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "compaction", timestamp: "2026-06-13T10:02:00Z", summary: "Summary", tokensBefore: 12_345 },
+        { type: "message", timestamp: "2026-06-13T10:02:00Z", message: { role: "assistant", content: [{ type: "text", text: "New answer" }], usage: { totalTokens: 999, contextWindow: 1000 } } }
+      ])
+
+      status = PiSessionStore.new(root: dir).status(path)
+
+      refute status.context_estimated
+      assert_equal 999, status.context_tokens
+      assert_equal 1000, status.context_limit
+    end
+  end
+
   def test_reads_latest_status_from_session_entries
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")

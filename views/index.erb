@@ -1591,6 +1591,7 @@
       appendCompactMessage("status", "Conversation compacted", event.summary || "Compaction completed", false, true, true, JSON.stringify(event, null, 2), eventTimestamp(event));
       showStatus("Compaction finished");
       setComposerState("done", "Done");
+      refreshSessionStatus().catch(() => {});
     }
 
     function renderMessageEvent(event) {
@@ -1675,6 +1676,7 @@
       if (["custom", "custom_message", "session_info", "queue_update", "compaction_start", "compaction_end"].includes(event.type)) {
         updateSessionHeaderName(sessionTitleFromEvent(event));
         showStatus(eventStatusText(event));
+        if (event.type === "compaction_end" && !event.aborted) refreshSessionStatus().catch(() => {});
         return;
       }
 

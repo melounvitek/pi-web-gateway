@@ -1349,6 +1349,22 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_returns_estimated_session_status_after_compaction
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "message", id: "old-entry", timestamp: "2026-06-13T10:00:00Z", message: { role: "assistant", content: [{ type: "text", text: "Old answer" }], usage: { totalTokens: 12_345 } } },
+        { type: "message", id: "kept-entry", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Retained text" }] } },
+        { type: "compaction", timestamp: "2026-06-13T10:02:00Z", summary: "Summary text", firstKeptEntryId: "kept-entry" }
+      ])
+      PiWebGateway.set :sessions_root, dir
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/status", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_equal "≈7", JSON.parse(response.body).fetch("context")
+    end
+  end
+
   def test_aborts_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -3130,7 +3146,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "showStatus(eventStatusText(event));"
       assert_includes response.body, "function renderCompactionEvent(event)"
       assert_includes response.body, "appendCompactMessage(\"status\", \"Conversation compacted\", event.summary || \"Compaction completed\""
+      assert_includes response.body, "refreshSessionStatus().catch(() => {});"
       assert_includes response.body, "if (event.type === \"compaction\") {\n        renderCompactionEvent(event);\n        return;\n      }"
+      assert_includes response.body, "if (event.type === \"compaction_end\" && !event.aborted) refreshSessionStatus().catch(() => {});"
       assert_includes response.body, "if (/^\\/(?:name|rename)$/.test(trimmed)) return { valid: false };"
       assert_includes response.body, "if (/^\\/(?:name|rename)[ \\t]+[^\\r\\n]+$/.test(trimmed)) return { valid: true };"
       assert_includes response.body, "function sessionNameSlashCommand(message)"
