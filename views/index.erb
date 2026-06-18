@@ -1391,6 +1391,50 @@
       if (header) header.append(makeForkButton(entryId));
     }
 
+    function forkMessagesUrl() {
+      return document.querySelector("[data-fork-session-list]")?.dataset.forkMessagesUrl;
+    }
+
+    function scheduleResolveForkButton(entry, text) {
+      if (!entry?.article || entry.article.querySelector("[data-fork-entry-id]") || entry.article.dataset.forkResolving === "true") return;
+
+      entry.article.dataset.forkResolving = "true";
+      setTimeout(() => resolveForkButtonFromMessages(entry, text, sessionViewGeneration, 1), 150);
+    }
+
+    async function resolveForkButtonFromMessages(entry, text, generation, attempt) {
+      if (!entry?.article || entry.article.querySelector("[data-fork-entry-id]") || generation !== sessionViewGeneration) return;
+
+      const url = forkMessagesUrl();
+      if (!url) {
+        delete entry.article.dataset.forkResolving;
+        return;
+      }
+
+      try {
+        const response = await fetch(url, { headers: { "Accept": "application/json" } });
+        if (!response.ok || generation !== sessionViewGeneration) throw new Error("fork messages failed");
+
+        const payload = await response.json();
+        const match = [...(payload.messages || [])].reverse().find((message) => {
+          const entryId = message.entryId || message.entry_id;
+          return entryId && normalizedMessageText(message.text) === normalizedMessageText(text);
+        });
+        if (match) {
+          ensureForkButton(entry, match.entryId || match.entry_id);
+          delete entry.article.dataset.forkResolving;
+          return;
+        }
+      } catch (_error) {
+      }
+
+      if (attempt < 6 && generation === sessionViewGeneration && document.body.contains(entry.article)) {
+        setTimeout(() => resolveForkButtonFromMessages(entry, text, generation, attempt + 1), attempt * 300);
+      } else {
+        delete entry.article.dataset.forkResolving;
+      }
+    }
+
     function optimisticUserEntry(segment, timestamp, entryId = null) {
       const article = optimisticUserMessage(segment.text);
       if (!article) return null;
@@ -1415,11 +1459,13 @@
       if (existing) {
         const updated = updateLiveSegment(existing, "user", segment, shouldScroll, timestamp);
         ensureForkButton(updated, entryId);
+        if (updated && !entryId) scheduleResolveForkButton(updated, segment.text);
         return updated;
       }
 
       const entry = optimisticUserEntry(segment, timestamp, entryId) || appendMessage("user", segment.text, true, shouldScroll, timestamp, { entryId });
       if (!entry) return null;
+      if (!entryId) scheduleResolveForkButton(entry, segment.text);
       liveUserMessages.set(key, entry);
       return entry;
     }
