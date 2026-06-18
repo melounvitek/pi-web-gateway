@@ -624,7 +624,7 @@
     function updatePromptPlaceholder() {
       if (!promptTextarea) return;
       if (composerState?.dataset.state === "running") {
-        promptTextarea.placeholder = "Steer Pi…";
+        promptTextarea.placeholder = "Send to queue…";
         return;
       }
       if (promptTextarea.disabled) {
@@ -835,8 +835,8 @@
       if (abortButton) abortButton.disabled = !agentBusy;
       if (sendButton) {
         sendButton.hidden = submitting;
-        sendButton.textContent = state === "running" ? "Steer" : state === "sending" ? "Sending…" : "Send";
-        sendButton.setAttribute("aria-label", state === "running" ? "Steer Pi" : "Send message");
+        sendButton.textContent = state === "running" ? "Queue" : state === "sending" ? "Sending…" : "Send";
+        sendButton.setAttribute("aria-label", state === "running" ? "Send to queue" : "Send message");
       }
       if (composerStopButton) {
         composerStopButton.hidden = !agentBusy;
@@ -1921,7 +1921,7 @@
           return;
         }
         setComposerState("running", "Pi is running…");
-        if (payload?.steer) showStatus("Steer queued", true);
+        if (payload?.steer) showStatus("Sent to queue", true);
       } else {
         setComposerState("running", "Pi is running…");
       }
