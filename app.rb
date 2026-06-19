@@ -466,7 +466,7 @@ class PiWebGateway < Sinatra::Base
   post "/browser-access/request" do
     halt 404 unless browser_access_enabled?
 
-    browser_access_store.request_access(browser_token)
+    browser_access_store.request_access(browser_token, ip: request.ip, user_agent: request.user_agent)
     redirect safe_return_to
   end
 
@@ -808,17 +808,18 @@ class PiWebGateway < Sinatra::Base
     /browser-access/approve
     /browser-access/deny
   ].freeze
+  BROWSER_ACCESS_STORE_CACHE = {}
+  BROWSER_ACCESS_STORE_CACHE_MUTEX = Mutex.new
 
   def browser_access_enabled?
     !settings.gateway_admin_password.to_s.empty?
   end
 
   def browser_access_store
-    if @browser_access_store_path != settings.browser_access_path
-      @browser_access_store_path = settings.browser_access_path
-      @browser_access_store = BrowserAccessStore.new(path: settings.browser_access_path)
+    path = settings.browser_access_path
+    BROWSER_ACCESS_STORE_CACHE_MUTEX.synchronize do
+      BROWSER_ACCESS_STORE_CACHE[path] ||= BrowserAccessStore.new(path: path)
     end
-    @browser_access_store
   end
 
   def browser_token
@@ -828,7 +829,7 @@ class PiWebGateway < Sinatra::Base
     return @browser_token unless @browser_token.to_s.empty?
 
     @browser_token = SecureRandom.hex(32)
-    response.set_cookie("pi_gateway_browser", value: @browser_token, path: "/", httponly: true, same_site: :lax)
+    response.set_cookie("pi_gateway_browser", value: @browser_token, path: "/", httponly: true, same_site: :lax, max_age: 365 * 24 * 60 * 60)
     @browser_token
   end
 

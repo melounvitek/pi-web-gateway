@@ -157,6 +157,7 @@ class AppTest < Minitest::Test
       assert_equal 403, response.status
       assert_includes response.body, "Browser access required"
       assert_includes response.body, "Ask access"
+      assert_includes response["Set-Cookie"], "max-age=31536000"
       state = JSON.parse(File.read(PiWebGateway.settings.browser_access_path))
       assert_equal 1, state.fetch("pending_requests").length
       refute state.fetch("pending_requests").first.fetch("requested")
@@ -198,6 +199,30 @@ class AppTest < Minitest::Test
       assert_includes allowed.body, "Pi Web Gateway"
       refute_includes allowed.body, "Browser access required"
     end
+  end
+
+  def test_stale_pending_browser_can_request_access_with_one_click
+    old_time = (Time.now.utc - (31 * 24 * 60 * 60)).iso8601
+    File.write(
+      PiWebGateway.settings.browser_access_path,
+      JSON.pretty_generate(
+        "approved_browsers" => [],
+        "pending_requests" => [
+          { "code" => "OLD1", "token" => "stale-token", "requested" => false, "created_at" => old_time, "requested_at" => nil }
+        ]
+      ) + "\n"
+    )
+    PiWebGateway.set :gateway_admin_password, "secret"
+    request = Rack::MockRequest.new(PiWebGateway)
+
+    response = request.post("/browser-access/request", "HTTP_COOKIE" => "pi_gateway_browser=stale-token")
+
+    assert_equal 303, response.status
+    state = JSON.parse(File.read(PiWebGateway.settings.browser_access_path))
+    pending = state.fetch("pending_requests").first
+    assert_equal "stale-token", pending.fetch("token")
+    assert pending.fetch("requested")
+    refute_equal "OLD1", pending.fetch("code")
   end
 
   def test_access_redirects_reject_external_return_targets
