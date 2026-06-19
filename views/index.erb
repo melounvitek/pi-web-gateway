@@ -139,8 +139,10 @@
     .message-body--markdown ul, .message-body--markdown ol { padding-left: 1.4rem; }
     .message-body--markdown blockquote { margin: 0.75rem 0; padding-left: 1rem; border-left: 3px solid var(--accent); color: var(--muted); }
     .message-body--markdown code { padding: 0.1rem 0.25rem; border-radius: 0.25rem; background: var(--code); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.92em; }
+    .message-code-block { position: relative; }
     .message-body--markdown pre { padding: 0.85rem; border-radius: 0.6rem; background: var(--code); color: var(--text); overflow-x: auto; white-space: pre; border: 1px solid var(--border); }
     .message-body--markdown pre code { padding: 0; background: transparent; color: inherit; }
+    .code-block-copy-button { position: absolute; top: 0.45rem; right: 0.45rem; margin-left: 0; background: rgba(24, 24, 30, 0.88); }
     .message-body--markdown a { color: var(--link); }
     .message-attachments { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.6rem; padding: 0.25rem 0.45rem; border-radius: 0.45rem; background: rgba(138, 190, 183, 0.12); color: var(--muted); font-size: 0.82rem; font-weight: 700; }
     .message--tool-error .message-details summary { color: #ffb4b6; }
@@ -1213,12 +1215,30 @@
           const payload = await response.json();
           if (body.dataset.plainText === text) {
             body.innerHTML = payload.html;
+            enhanceMarkdownCodeBlocks(body);
             delete body.dataset.rendering;
             if (autoScrollEnabled && body.closest(".message") === latestReadableAssistantMessage()) scheduleAutoScroll();
           }
         } catch (_error) {
         }
       }, delay);
+    }
+
+    function enhanceMarkdownCodeBlocks(root = document) {
+      root.querySelectorAll?.(".message-body--markdown pre:not([data-copy-enhanced])").forEach((pre) => {
+        pre.dataset.copyEnhanced = "true";
+        const wrapper = document.createElement("div");
+        wrapper.className = "message-code-block";
+        pre.before(wrapper);
+        wrapper.append(pre);
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy-button code-block-copy-button";
+        button.dataset.copyTarget = "code-block";
+        button.textContent = "Copy";
+        wrapper.append(button);
+      });
     }
 
     function normalizedMessageText(text) {
@@ -2373,6 +2393,21 @@
       abortForm?.addEventListener("submit", submitAbort);
     }
 
+    function copyTargetText(button) {
+      if (button.dataset.copyTarget === "code-block") {
+        const block = button.closest(".message-code-block")?.querySelector("pre");
+        return block?.innerText || block?.textContent;
+      }
+
+      const body = button.closest(".message")?.querySelector(".message-body");
+      if (!body) return "";
+      if (body.dataset.plainText) return body.dataset.plainText;
+
+      const clone = body.cloneNode(true);
+      clone.querySelectorAll?.(".code-block-copy-button").forEach((copyButton) => copyButton.remove());
+      return clone.innerText || clone.textContent;
+    }
+
     async function copyText(text) {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -3138,12 +3173,10 @@
     });
 
     document.addEventListener("click", async (event) => {
-      const button = event.target.closest(".copy-button");
+      const button = event.target.closest("[data-copy-target]");
       if (!button) return;
 
-      const article = button.closest(".message");
-      const body = article?.querySelector(".message-body");
-      const text = body?.innerText || body?.textContent;
+      const text = copyTargetText(button);
       if (!text) return;
 
       const original = button.textContent;
@@ -3223,6 +3256,7 @@
       ensureNotificationWorker().catch(() => {});
       if (document.body.dataset.browserAccessEnabled === "true" && !browserAccessPollTimer) pollBrowserAccessRequests();
       if (liveOutput) {
+        enhanceMarkdownCodeBlocks(conversationScroll);
         resetEventCursor();
         const initialComposerState = liveOutput.dataset.composerState;
         const initialComposerStateSince = Number(liveOutput.dataset.composerStateSince || 0);

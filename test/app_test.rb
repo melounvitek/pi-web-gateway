@@ -3609,6 +3609,10 @@ class AppTest < Minitest::Test
       assert_includes response.body, "session-running-indicator"
       refute_includes response.body, ">active</span>"
       assert_includes response.body, "copy-button"
+      assert_includes response.body, "code-block-copy-button"
+      assert_includes response.body, "data-copy-target"
+      assert_includes response.body, "enhanceMarkdownCodeBlocks(body)"
+      assert_includes response.body, 'button.dataset.copyTarget === "code-block"'
       assert_includes response.body, "navigator.clipboard.writeText"
       assert_includes response.body, "window.isSecureContext"
       assert_includes response.body, "document.execCommand(\"copy\")"
