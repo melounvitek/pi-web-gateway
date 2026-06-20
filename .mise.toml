@@ -6,8 +6,8 @@ description = "Install dependencies and create local gateway config"
 run = "bin/setup"
 
 [tasks.start]
-description = "Run the web gateway on port 4567"
-run = "RACK_ENV=production bundle exec rackup -o 0.0.0.0 -p 4567"
+description = "Run the web gateway in production mode"
+run = "bin/start"
 
 [tasks.dev]
 description = "Run the web gateway in development mode on port 4567"

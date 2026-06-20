@@ -25,6 +25,19 @@ mise run start
 
 The gateway listens on <http://localhost:4567>.
 
+By default, the gateway binds to `0.0.0.0`. To bind it only to a specific address, such as your Tailscale IP, pass the host as an argument:
+
+```sh
+mise run start 100.x.y.z
+```
+
+You can also configure the host or port with environment variables:
+
+```sh
+PI_GATEWAY_HOST=100.x.y.z mise run start
+PI_GATEWAY_PORT=4568 mise run start
+```
+
 ## Development server
 
 ```sh
