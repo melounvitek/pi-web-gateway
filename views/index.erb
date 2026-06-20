@@ -374,6 +374,8 @@
     let liveStatusThinking = null;
     let pendingImages = [];
     let restorePromptFocusAfterSending = false;
+    let escapeStopConfirmationExpiresAt = 0;
+    const ESCAPE_STOP_CONFIRMATION_WINDOW_MS = 2000;
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
     let sidebarUpdateGeneration = 0;
@@ -883,6 +885,10 @@
 
     function updateWaitingForOutputStatus() {
       if (!composerState || composerState.dataset.state !== "running" || !waitingForOutputSince) return;
+      if (Date.now() <= escapeStopConfirmationExpiresAt) {
+        composerState.textContent = "Press ESC again to stop current task";
+        return;
+      }
 
       const elapsed = Date.now() - waitingForOutputSince;
       composerState.textContent = `Pi is running… ${formatWaitDuration(elapsed)}`;
@@ -903,6 +909,7 @@
 
     function setComposerState(state, label, since = null) {
       if (state === "running" && (since || !waitingForOutputSince)) startWaitingForOutput(since || Date.now());
+      if (state !== "running") escapeStopConfirmationExpiresAt = 0;
       if (!["running", "sending"].includes(state)) stopWaitingForOutput();
       if (composerState) {
         composerState.dataset.state = state;
@@ -2246,6 +2253,27 @@
       }
     }
 
+    function confirmOrStopRunningTask(event) {
+      if (composerState?.dataset.state !== "running") return false;
+
+      event.preventDefault();
+      if (event.repeat) return true;
+
+      const now = Date.now();
+      if (now <= escapeStopConfirmationExpiresAt) {
+        escapeStopConfirmationExpiresAt = 0;
+        if (composerState) composerState.textContent = "Stopping current task…";
+        showStatus("Stopping current task…", true);
+        abortForm.requestSubmit();
+        return true;
+      }
+
+      escapeStopConfirmationExpiresAt = now + ESCAPE_STOP_CONFIRMATION_WINDOW_MS;
+      updateWaitingForOutputStatus();
+      showStatus("Press ESC again to stop current task", true);
+      return true;
+    }
+
     function visibleCommands() {
       return [...(commandList?.querySelectorAll(".command") || [])].filter((command) => !command.hidden);
     }
@@ -3121,6 +3149,8 @@
       }
 
       if (modalIsOpen()) return;
+
+      if (event.key === "Escape" && confirmOrStopRunningTask(event)) return;
 
       if (event.key === "Control") {
         enterSessionShortcutMode();

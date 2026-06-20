@@ -3527,6 +3527,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "let liveAssistantSeen = false;"
       assert_includes response.body, "let liveUserMessages = new Map();"
       assert_includes response.body, "let restorePromptFocusAfterSending = false;"
+      assert_includes response.body, "let escapeStopConfirmationExpiresAt = 0;"
+      assert_includes response.body, "const ESCAPE_STOP_CONFIRMATION_WINDOW_MS = 2000;"
       assert_includes response.body, "function optimisticUserMessage(text)"
       assert_includes response.body, "function upsertLiveUserSegment(event, segment, fallbackIndex, shouldScroll, timestamp)"
       assert_includes response.body, 'if (live && roleName === "user" && !options.optimistic && optimisticUserMessageAlreadyRendered(text)) return null;'
@@ -3585,6 +3587,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "const query = promptTextarea.value.startsWith(\"/\") ? promptTextarea.value.slice(1).trim().toLowerCase() : \"\";"
       assert_includes response.body, "function selectHighlightedCommand()"
       assert_includes response.body, "setComposerState(\"running\", \"Pi is running…\");"
+      assert_includes response.body, "composerState.textContent = \"Press ESC again to stop current task\";"
       assert_includes response.body, "composerStopButton = document.querySelector(\".session-header .composer-stop-button\") || null;"
       assert_includes response.body, "if (!steering) resetLiveAssistantTracking();"
       assert_includes response.body, "const agentBusy = [\"running\", \"sending\"].includes(state);"
@@ -3594,6 +3597,13 @@ class AppTest < Minitest::Test
       assert_includes response.body, "composerStopButton.hidden = !agentBusy;"
       assert_includes response.body, "if (steering) formData.set(\"streaming_behavior\", \"steer\");"
       assert_includes response.body, "if (!addImageFiles(files) && composerState?.dataset.state === \"running\") showStatus(\"Steering messages cannot include images\", true);"
+      assert_includes response.body, "function confirmOrStopRunningTask(event)"
+      assert_includes response.body, "if (composerState?.dataset.state !== \"running\") return false;"
+      assert_includes response.body, "if (event.repeat) return true;"
+      assert_includes response.body, "showStatus(\"Press ESC again to stop current task\", true);"
+      assert_includes response.body, "if (composerState) composerState.textContent = \"Stopping current task…\";"
+      assert_includes response.body, "abortForm.requestSubmit();"
+      assert_includes response.body, "if (event.key === \"Escape\" && confirmOrStopRunningTask(event)) return;"
       assert_includes response.body, "Send to queue…"
     end
   end
