@@ -49,12 +49,12 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 
 ### 3. Extract uploaded image handling
 
-- [ ] Add `Prompts::UploadedImages` or equivalent.
-- [ ] Move Rack upload normalization, validation, size/type checks, and base64 conversion there.
-- [ ] Keep error messages and statuses unchanged.
-- [ ] Run prompt upload tests.
-- [ ] Refactor the extracted upload handling code for readability, simplicity, and obviousness.
-- [ ] Run full suite.
+- [x] Add `Prompts::UploadedImages` or equivalent.
+- [x] Move Rack upload normalization, validation, size/type checks, and base64 conversion there.
+- [x] Keep error messages and statuses unchanged.
+- [x] Run prompt upload tests.
+- [x] Refactor the extracted upload handling code for readability, simplicity, and obviousness.
+- [x] Run full suite.
 
 ### 4. Extract pending RPC session lifecycle
 
