@@ -2108,7 +2108,10 @@
       const cloneCommand = steering ? null : sessionCloneSlashCommand(message);
       const newCommand = steering ? null : sessionNewSlashCommand(message);
       if (!renameCommand && !compactCommand && !forkCommand && !treeCommand && !cloneCommand && !newCommand) {
-        if (!steering) resetLiveAssistantTracking();
+        if (!steering) {
+          resetLiveAssistantTracking();
+          document.querySelectorAll(".tree-position-banner").forEach((banner) => banner.remove());
+        }
         resetEventPollBackoff();
         scheduleNextEventPoll(0);
         appendMessage("user", [message, pendingImages.length > 0 ? `[${imageAttachmentLabel(pendingImages.length)}]` : ""].filter(Boolean).join("\n"), true, true, new Date(), { optimistic: true, optimisticText: message });
