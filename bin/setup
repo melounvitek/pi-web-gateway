@@ -13,7 +13,7 @@ chmod 600 "$env_file"
 if grep -q '^PI_GATEWAY_ADMIN_PASSWORD=' "$env_file"; then
   echo "PI_GATEWAY_ADMIN_PASSWORD is already configured in $env_file"
 else
-  password="$(ruby -rsecurerandom -e 'puts SecureRandom.hex(24)')"
+  password="$(ruby -rsecurerandom -e 'puts SecureRandom.hex(4)')"
   if [ -s "$env_file" ] && [ "$(tail -c 1 "$env_file")" != "" ]; then
     printf '\n' >> "$env_file"
   fi
