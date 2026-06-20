@@ -16,12 +16,14 @@ require_relative "lib/pi_session_store"
 require_relative "lib/pi_attachment_store"
 require_relative "lib/gateway_read_state_store"
 require_relative "lib/web/browser_access"
+require_relative "lib/web/pwa_routes"
 require_relative "lib/pi_rpc_client"
 require_relative "lib/pi_rpc_client_registry"
 require_relative "lib/time_formatter"
 
 class PiWebGateway < Sinatra::Base
   register Web::BrowserAccess
+  register Web::PwaRoutes
 
   set :root, File.dirname(__FILE__)
   set :sessions_root, ENV.fetch("PI_SESSIONS_ROOT", File.expand_path("~/.pi/agent/sessions"))
@@ -396,82 +398,6 @@ class PiWebGateway < Sinatra::Base
     cleanup_idle_rpc_clients
   end
 
-  get "/manifest.webmanifest" do
-    content_type "application/manifest+json"
-    JSON.generate(
-      name: "Pi Web Gateway",
-      short_name: "Pi Gateway",
-      start_url: "/",
-      scope: "/",
-      display: "standalone",
-      background_color: "#18181e",
-      theme_color: "#18181e",
-      icons: [
-        { src: "/app-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }
-      ]
-    )
-  end
-
-  get "/app-icon.svg" do
-    content_type "image/svg+xml"
-    <<~SVG
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-        <rect width="512" height="512" rx="112" fill="#18181e"/>
-        <circle cx="256" cy="256" r="168" fill="#282832" stroke="#8abeb7" stroke-width="24"/>
-        <text x="256" y="296" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="148" font-weight="800" fill="#8abeb7">π</text>
-      </svg>
-    SVG
-  end
-
-  get "/service-worker.js" do
-    content_type "application/javascript"
-    headers "Cache-Control" => "no-cache"
-    <<~JS
-      self.addEventListener("install", (event) => {
-        self.skipWaiting();
-      });
-
-      self.addEventListener("activate", (event) => {
-        event.waitUntil(self.clients.claim());
-      });
-
-      self.addEventListener("message", (event) => {
-        const data = event.data || {};
-        if (!["pi-notification", "pi-notification-test"].includes(data.type)) return;
-
-        const defaultUrl = data.type === "pi-notification-test" ? "/notification-test" : "/";
-        const defaultTag = data.type === "pi-notification-test" ? "pi-notification-test" : "pi-notification";
-        event.waitUntil(self.registration.showNotification(data.title || "Pi Web Gateway", {
-          body: data.body || "Notifications are working.",
-          tag: data.tag || defaultTag,
-          renotify: true,
-          icon: "/app-icon.svg",
-          badge: "/app-icon.svg",
-          data: { url: data.url || defaultUrl }
-        }));
-      });
-
-      self.addEventListener("notificationclick", (event) => {
-        event.notification.close();
-        const url = event.notification.data?.url || "/";
-        event.waitUntil((async () => {
-          const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-          for (const client of clientList) {
-            if ("focus" in client) {
-              await client.focus();
-              if ("navigate" in client) await client.navigate(url);
-              return;
-            }
-          }
-          if (self.clients.openWindow) await self.clients.openWindow(url);
-        })());
-      });
-    JS
-  end
-
-  get "/notification-test" do
-    erb :notification_test
-  end
 
   get "/" do
     prepare_session_view(include_conversation: true)
