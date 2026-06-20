@@ -24,11 +24,27 @@
           <% end %>
           <div class="recent-sessions-header">
             <h2>Sessions</h2>
+            <button type="button" class="sidebar-icon-button sidebar-search-toggle<%= sidebar_session_search? ? " is-active" : "" %>" title="Search sessions" aria-label="Search sessions" aria-expanded="<%= sidebar_session_search? ? "true" : "false" %>" aria-controls="sidebar-session-search" data-sidebar-search-toggle>⌕</button>
             <button type="button" class="sidebar-icon-button" title="New session" aria-label="New session" data-modal-open="new-session-modal">New session +</button>
           </div>
+          <form id="sidebar-session-search" class="sidebar-session-search<%= sidebar_session_search? ? " is-open" : "" %>" method="get" action="/" role="search">
+            <% if @selected_session %>
+              <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+            <% end %>
+            <% if selected_project_cwd %>
+              <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
+            <% end %>
+            <input type="search" name="session_search" value="<%= h sidebar_session_search_query %>" placeholder="Search sessions" aria-label="Search sessions">
+            <% if sidebar_session_search? %>
+              <a class="sidebar-search-clear" href="<%= h sidebar_search_clear_url %>">Clear</a>
+            <% end %>
+          </form>
           <form class="sidebar-project-filter-form" method="get" action="/">
             <% if @selected_session %>
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+            <% end %>
+            <% if sidebar_session_search? %>
+              <input type="hidden" name="session_search" value="<%= h sidebar_session_search_query %>">
             <% end %>
             <% if show_all_sidebar_sessions? %>
               <input type="hidden" name="show_all_sessions" value="1">
@@ -47,6 +63,9 @@
             <% shortcut_index += 1 %>
             <% shortcut = shortcut_index <= 9 ? shortcut_index : nil %>
             <%= erb :_sidebar_session, layout: false, locals: { session: session, shortcut: shortcut } %>
+          <% end %>
+          <% if sidebar_session_search? && unread_sidebar_sessions.empty? && regular_sidebar_sessions.empty? && (!sidebar_current_session || !session_matches_sidebar_search?(sidebar_current_session)) %>
+            <p class="empty sidebar-search-empty">No sessions match this search.</p>
           <% end %>
           <% if sidebar_sessions_overflow? %>
             <a class="sidebar-load-more" href="<%= h sidebar_sessions_load_more_url %>" data-sidebar-load-more>

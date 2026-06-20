@@ -85,6 +85,9 @@
               <% if selected_project_cwd %>
                 <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
               <% end %>
+              <% if sidebar_session_search? %>
+                <input type="hidden" name="session_search" value="<%= h sidebar_session_search_query %>">
+              <% end %>
             </form>
 
             <div class="session-reconnect" role="status" aria-live="polite">
@@ -105,6 +108,9 @@
               <% end %>
               <% if selected_project_cwd %>
                 <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
+              <% end %>
+              <% if sidebar_session_search? %>
+                <input type="hidden" name="session_search" value="<%= h sidebar_session_search_query %>">
               <% end %>
               <span class="composer-state" data-state="idle" aria-live="polite"></span>
               <div class="attachment-tray" aria-live="polite"></div>

@@ -164,7 +164,7 @@ class PiWebGateway < Sinatra::Base
     end
 
     def unread_sidebar_sessions
-      @unread_sidebar_sessions ||= sorted_sidebar_sessions.reject { |session| selected?(session) }.select { |session| unread?(session) }
+      @unread_sidebar_sessions ||= sorted_sidebar_sessions.reject { |session| selected?(session) }.select { |session| unread?(session) && session_matches_sidebar_search?(session) }
     end
 
     def unread_sidebar_session_count
@@ -188,7 +188,8 @@ class PiWebGateway < Sinatra::Base
     def regular_sidebar_session_pool
       @regular_sidebar_session_pool ||= begin
         sessions = sorted_sidebar_sessions.reject { |session| selected?(session) || unread?(session) }
-        selected_project_cwd ? sessions.select { |session| session.cwd == selected_project_cwd } : sessions
+        sessions = sessions.select { |session| session.cwd == selected_project_cwd } if selected_project_cwd
+        sessions.select { |session| session_matches_sidebar_search?(session) }
       end
     end
 
@@ -230,6 +231,7 @@ class PiWebGateway < Sinatra::Base
       query = {}
       query["session"] = @selected_session.path if @selected_session
       query["project"] = selected_project_cwd if selected_project_cwd
+      query["session_search"] = sidebar_session_search_query if sidebar_session_search?
       query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
       query["sidebar_sessions_limit"] = sidebar_next_sessions_limit.to_s
       "/?#{Rack::Utils.build_nested_query(query)}"
@@ -262,9 +264,34 @@ class PiWebGateway < Sinatra::Base
       File.basename(session.cwd.to_s)
     end
 
+    def sidebar_session_search_query
+      params["session_search"].to_s.strip
+    end
+
+    def sidebar_session_search?
+      !sidebar_session_search_query.empty?
+    end
+
+    def session_matches_sidebar_search?(session)
+      query = sidebar_session_search_query.downcase
+      return true if query.empty?
+
+      [session.display_name, session.cwd, project_label(session), session.first_user_message].any? do |value|
+        value.to_s.downcase.include?(query)
+      end
+    end
+
+    def sidebar_search_clear_url
+      query = {}
+      query["session"] = @selected_session.path if @selected_session
+      query["project"] = selected_project_cwd if selected_project_cwd
+      "/?#{Rack::Utils.build_nested_query(query)}"
+    end
+
     def session_url(session_path)
       query = { "session" => session_path }
       query["project"] = selected_project_cwd if selected_project_cwd
+      query["session_search"] = sidebar_session_search_query if sidebar_session_search?
       "/?#{Rack::Utils.build_nested_query(query)}"
     end
 
@@ -975,6 +1002,7 @@ class PiWebGateway < Sinatra::Base
     query = {}
     query["session"] = @selected_session.path if @selected_session
     query["project"] = selected_project_cwd if selected_project_cwd
+    query["session_search"] = sidebar_session_search_query if sidebar_session_search?
     query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
     query["show_all_sessions"] = "1" if show_all_sidebar_sessions?
     query["sidebar_sessions_limit"] = sidebar_sessions_limit_param if sidebar_sessions_limit_param
@@ -1008,6 +1036,7 @@ class PiWebGateway < Sinatra::Base
   def session_redirect_path(session_path, expanded_cwds: [], show_all_sessions: false, sidebar_sessions_limit: nil)
     query = { "session" => session_path }
     query["project"] = selected_project_cwd if selected_project_cwd
+    query["session_search"] = sidebar_session_search_query if sidebar_session_search?
     query["expanded_cwd"] = expanded_cwds if expanded_cwds.any?
     query["show_all_sessions"] = "1" if show_all_sessions
     query["sidebar_sessions_limit"] = sidebar_sessions_limit if sidebar_sessions_limit

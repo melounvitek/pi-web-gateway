@@ -299,18 +299,20 @@ Make it quick to find an existing session without manually scanning cwd groups.
 
 ### Checklist
 
-- [ ] Inspect current session metadata and sidebar filtering/grouping.
-- [ ] Decide search scope: cwd, session title, first user message, and/or full message text.
-- [ ] Decide whether search should be client-side, server-side, or hybrid.
-- [ ] Design a compact search UI that does not clutter the sidebar.
-- [ ] Implement the approved search behavior.
-- [ ] Verify search with many sessions and long cwd paths.
-- [ ] Note whether a gateway restart is needed.
+- [x] Inspect current session metadata and sidebar filtering/grouping.
+- [x] Decide search scope: cwd, session title, first user message, and/or full message text.
+- [x] Decide whether search should be client-side, server-side, or hybrid.
+- [x] Design a compact search UI that does not clutter the sidebar.
+- [x] Implement the approved search behavior.
+- [x] Verify search with many sessions and long cwd paths.
+- [x] Note whether a gateway restart is needed.
 
 ### Notes
 
 - Prefer metadata-only search first unless full-text search is clearly needed.
 - Avoid adding a database just for search unless file scanning proves too slow.
+- Implemented as server-side metadata search over cwd/project label, session title, and first user message; full message text is intentionally deferred.
+- Gateway restart is needed for the deployed web UI to pick up these server-rendered sidebar changes.
 
 ---
 
