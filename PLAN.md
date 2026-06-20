@@ -15,6 +15,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 ## Refactor rules
 
 - Keep each step behavior-preserving.
+- After each extraction is tested, refactor the newly extracted code for readability before moving to the next step.
 - Run the full test suite after each step: `bundle exec ruby -Itest test/*_test.rb`.
 - Prefer durable business concepts over mechanical extraction.
 - Use service objects only for workflows/actions; service class names start with a verb and expose `.call`.
@@ -34,6 +35,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Move `SafeMarkdownRenderer` to `lib/rendering/markdown_renderer.rb` or equivalent.
 - [ ] Keep `/markdown` behavior unchanged.
 - [ ] Keep existing markdown sanitization/highlighting tests green.
+- [ ] Refactor the extracted markdown renderer for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 2. Extract prompt parsing concepts
@@ -42,6 +44,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Move `/name`, `/rename`, `/compact`, `/fork`, `/tree`, `/clone`, and `/new` parsing there.
 - [ ] Keep `/prompt` response payloads unchanged.
 - [ ] Run prompt/slash command tests.
+- [ ] Refactor the extracted prompt parsing code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 3. Extract uploaded image handling
@@ -50,6 +53,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Move Rack upload normalization, validation, size/type checks, and base64 conversion there.
 - [ ] Keep error messages and statuses unchanged.
 - [ ] Run prompt upload tests.
+- [ ] Refactor the extracted upload handling code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 4. Extract pending RPC session lifecycle
@@ -58,6 +62,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Move mutex/hash pending cwd behavior there.
 - [ ] Preserve pending-session path, cwd, and remapping behavior.
 - [ ] Run pending-session/remap tests.
+- [ ] Refactor the extracted pending-session code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 5. Extract new and branched session workflows
@@ -67,6 +72,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Preserve new/fork/clone redirects and JSON payloads.
 - [ ] Preserve pending real-session remapping behavior.
 - [ ] Run new/fork/clone/session remap tests.
+- [ ] Refactor the extracted session workflow code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 6. Extract command catalog
@@ -75,6 +81,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Move builtin command list and RPC command filtering there.
 - [ ] Preserve `/commands` behavior, including hiding internal `pi_web_tree` commands.
 - [ ] Run command tests.
+- [ ] Refactor the extracted command catalog code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 7. Extract session view preparation
@@ -84,6 +91,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Initially keep existing instance variable names for ERB compatibility.
 - [ ] Preserve page, sidebar, modal, and session fragment behavior.
 - [ ] Run page/sidebar/session fragment tests.
+- [ ] Refactor the extracted session view code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 8. Extract sidebar read model
@@ -92,6 +100,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Move sidebar sorting, unread grouping, search, project filtering, pagination, and load-more rules there.
 - [ ] Keep ERB output unchanged.
 - [ ] Run sidebar tests.
+- [ ] Refactor the extracted sidebar code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 9. Extract session family read model
@@ -99,6 +108,7 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Add `Sessions::SessionFamily` or equivalent.
 - [ ] Move parent/child/root indexing rules there.
 - [ ] Run relation/tree/sidebar tests.
+- [ ] Refactor the extracted session family code for readability, simplicity, and obviousness.
 - [ ] Run full suite.
 
 ### 10. Review remaining `app.rb` helpers and stop intentionally
@@ -108,15 +118,6 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 - [ ] Leave small Sinatra/view helpers in place when extracting them would create noise.
 - [ ] Run full suite.
 
-### 11. Refactor extracted backend files for clarity
-
-- [ ] After the extraction steps are complete and tested, review the new `lib/` files.
-- [ ] Simplify names, method shapes, and object boundaries where that makes the code easier to read.
-- [ ] Remove awkward extraction artifacts and unnecessary indirection.
-- [ ] Keep behavior unchanged unless a deliberate follow-up change is discussed.
-- [ ] Run focused tests for touched areas.
-- [ ] Run full suite.
-
-### 12. Finish the plan
+### 11. Finish the plan
 
 - [ ] Move completed `PLAN.md` into `plans/`.
