@@ -1,0 +1,14 @@
+[tools]
+ruby = "4.0.2"
+
+[tasks.setup]
+description = "Install Ruby dependencies"
+run = "bundle install"
+
+[tasks.dev]
+description = "Run the web gateway on port 4567"
+run = "bundle exec rackup -o 0.0.0.0 -p 4567"
+
+[tasks.test]
+description = "Run the test suite"
+run = "bundle exec ruby -Itest test/*_test.rb"
