@@ -83,6 +83,7 @@ class PiSessionStore
   end
 
   def tree_entries(path, current_leaf_id: nil)
+    persisted_latest_leaf_id = latest_leaf_id(path)
     entries = read_entries(path).select { |entry| tree_node_entry?(entry) }
     ids = entries.filter_map { |entry| entry["id"] }
     children_by_parent = Hash.new { |hash, key| hash[key] = [] }
@@ -98,8 +99,14 @@ class PiSessionStore
     end
 
     flattened = []
-    visit_tree_entries(roots, children_by_parent, flattened, 0, current_leaf_id)
+    visit_tree_entries(roots, children_by_parent, flattened, 0, current_leaf_id, persisted_latest_leaf_id)
     flattened
+  end
+
+  def latest_leaf_id(path)
+    read_entries(path).each_with_object({ leaf_id: nil }) do |entry, state|
+      state[:leaf_id] = leaf_id_after_entry(entry) if tree_node_entry?(entry)
+    end.fetch(:leaf_id)
   end
 
   def status(path)
@@ -161,7 +168,7 @@ class PiSessionStore
   end
 
   def tree_entry_visible?(entry, current_leaf_id)
-    return false if ["label", "custom", "model_change", "thinking_level_change", "session_info"].include?(entry["type"])
+    return false if ["label", "custom", "model_change", "thinking_level_change", "session_info", "leaf"].include?(entry["type"])
     return false if entry["id"] != current_leaf_id && assistant_tool_call_only_tree_entry?(entry)
 
     true
@@ -189,14 +196,14 @@ class PiSessionStore
     stop_reason && !["stop", "toolUse"].include?(stop_reason)
   end
 
-  def visit_tree_entries(entries, children_by_parent, flattened, depth, current_leaf_id)
+  def visit_tree_entries(entries, children_by_parent, flattened, depth, current_leaf_id, latest_leaf_id)
     entries.each do |entry|
-      flattened << tree_entry_payload(entry, depth) if tree_entry_visible?(entry, current_leaf_id)
-      visit_tree_entries(children_by_parent[entry["id"]], children_by_parent, flattened, depth + 1, current_leaf_id)
+      flattened << tree_entry_payload(entry, depth, current_leaf_id, latest_leaf_id) if tree_entry_visible?(entry, current_leaf_id)
+      visit_tree_entries(children_by_parent[entry["id"]], children_by_parent, flattened, depth + 1, current_leaf_id, latest_leaf_id)
     end
   end
 
-  def tree_entry_payload(entry, depth)
+  def tree_entry_payload(entry, depth, current_leaf_id, latest_leaf_id)
     text = tree_entry_text(entry)
     payload = {
       entryId: entry["id"],
@@ -205,10 +212,16 @@ class PiSessionStore
       type: entry["type"],
       role: tree_entry_role(entry),
       text: response_preview(text),
-      timestamp: entry["timestamp"]
+      timestamp: entry["timestamp"],
+      current: entry["id"] == current_leaf_id,
+      latest: entry["id"] == latest_leaf_id
     }
     payload[:editorText] = text if tree_entry_prefills_editor?(entry)
     payload
+  end
+
+  def leaf_id_after_entry(entry)
+    entry["type"] == "leaf" ? entry["targetId"] : entry["id"]
   end
 
   def tree_entry_prefills_editor?(entry)

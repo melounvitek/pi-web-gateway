@@ -1197,15 +1197,46 @@ class AppTest < Minitest::Test
       conversation_html = JSON.parse(fragment_response.body).fetch("conversation_html")
       assert_includes conversation_html, "First prompt"
       assert_includes conversation_html, "First answer"
+      assert_includes conversation_html, "Viewing earlier tree point"
+      assert_includes conversation_html, "data-tree-latest-entry-id=\"assistant-2\""
       refute_includes conversation_html, "Later prompt"
       refute_includes conversation_html, "Later answer"
       assert_equal 200, page_response.status
       page_conversation_text = Nokogiri::HTML(page_response.body).at_css(".conversation-panel").text
       assert_includes page_conversation_text, "First prompt"
       assert_includes page_conversation_text, "First answer"
+      assert_includes page_conversation_text, "Viewing earlier tree point"
       refute_includes page_conversation_text, "Later prompt"
       refute_includes page_conversation_text, "Later answer"
       assert_equal [[:start, path], [:navigate_tree, "assistant-1"], [:tree_leaf], [:tree_leaf]], calls
+    end
+  end
+
+  def test_tree_entries_mark_current_and_latest_positions
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "message", id: "user-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", message: { role: "user", content: [{ type: "text", text: "First prompt" }] } },
+        { type: "message", id: "assistant-1", parentId: "user-1", timestamp: "2026-06-13T10:01:00Z", message: { role: "assistant", content: [{ type: "text", text: "First answer" }] } },
+        { type: "message", id: "assistant-2", parentId: "assistant-1", timestamp: "2026-06-13T10:03:00Z", message: { role: "assistant", content: [{ type: "text", text: "Later answer" }] } }
+      ])
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls, [], "assistant-1")
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/sessions/tree_entries",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      entries = JSON.parse(response.body).fetch("entries")
+      assert_equal [false, true, false], entries.map { |entry| entry.fetch("current") }
+      assert_equal [false, false, true], entries.map { |entry| entry.fetch("latest") }
+      assert_equal [[:start, path], [:tree_leaf]], calls
     end
   end
 

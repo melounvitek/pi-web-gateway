@@ -866,7 +866,8 @@ class PiWebGateway < Sinatra::Base
   get "/sessions/tree_entries" do
     session_path = canonical_rpc_session_path(params.fetch("session"))
     current_leaf_id = with_rpc_client(session_path) { |client| client.tree_leaf }
-    entries = PiSessionStore.new(root: settings.sessions_root).tree_entries(session_path, current_leaf_id: current_leaf_id)
+    store = PiSessionStore.new(root: settings.sessions_root)
+    entries = store.tree_entries(session_path, current_leaf_id: current_leaf_id)
     content_type :json
     JSON.generate(entries: entries)
   end
@@ -1121,7 +1122,10 @@ class PiWebGateway < Sinatra::Base
     read_state_store.observe_sessions(all_sessions)
     @selected_session = find_selected_session(all_sessions)
     read_state_store.mark_read(@selected_session) if @selected_session && should_mark_selected_session_read?
-    current_leaf_id = include_conversation && @selected_session && File.exist?(@selected_session.path) ? active_session_tree_leaf(@selected_session.path) : nil
+    @current_tree_leaf_known = include_conversation && @selected_session && File.exist?(@selected_session.path) && rpc_clients.active?(@selected_session.path)
+    current_leaf_id = @current_tree_leaf_known ? active_session_tree_leaf(@selected_session.path) : nil
+    @latest_tree_leaf_id = include_conversation && @selected_session && File.exist?(@selected_session.path) ? @store.latest_leaf_id(@selected_session.path) : nil
+    @viewing_older_tree_leaf = @current_tree_leaf_known && current_leaf_id != @latest_tree_leaf_id
     @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path, current_leaf_id: current_leaf_id) : []
     @attachment_counts = include_conversation && @selected_session && File.exist?(@selected_session.path) ? attachment_store.counts_for_messages(@selected_session.path, @messages) : {}
     @session_status = include_conversation && @selected_session && File.exist?(@selected_session.path) ? @store.status(@selected_session.path) : nil
