@@ -77,22 +77,22 @@ Preserve current behavior exactly while extracting clear backend concepts from `
 
 ### 6. Extract command catalog
 
-- [ ] Add `Rpc::CommandCatalog` or equivalent.
-- [ ] Move builtin command list and RPC command filtering there.
-- [ ] Preserve `/commands` behavior, including hiding internal `pi_web_tree` commands.
-- [ ] Run command tests.
-- [ ] Refactor the extracted command catalog code for readability, simplicity, and obviousness.
-- [ ] Run full suite.
+- [x] Add `Rpc::CommandCatalog` or equivalent.
+- [x] Move builtin command list and RPC command filtering there.
+- [x] Preserve `/commands` behavior, including hiding internal `pi_web_tree` commands.
+- [x] Run command tests.
+- [x] Refactor the extracted command catalog code for readability, simplicity, and obviousness.
+- [x] Run full suite.
 
 ### 7. Extract session view preparation
 
-- [ ] Add `Sessions::SessionView` or equivalent read model/builder.
-- [ ] Move `prepare_session_view` data assembly there.
-- [ ] Initially keep existing instance variable names for ERB compatibility.
-- [ ] Preserve page, sidebar, modal, and session fragment behavior.
-- [ ] Run page/sidebar/session fragment tests.
-- [ ] Refactor the extracted session view code for readability, simplicity, and obviousness.
-- [ ] Run full suite.
+- [x] Add `Sessions::SessionView` or equivalent read model/builder.
+- [x] Move `prepare_session_view` data assembly there.
+- [x] Initially keep existing instance variable names for ERB compatibility.
+- [x] Preserve page, sidebar, modal, and session fragment behavior.
+- [x] Run page/sidebar/session fragment tests.
+- [x] Refactor the extracted session view code for readability, simplicity, and obviousness.
+- [x] Run full suite.
 
 ### 8. Extract sidebar read model
 

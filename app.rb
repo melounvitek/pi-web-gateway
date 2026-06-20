@@ -8,6 +8,7 @@ require_relative "lib/rpc/pending_session_registry"
 require_relative "lib/rpc/branch_session"
 require_relative "lib/rpc/start_new_session"
 require_relative "lib/rpc/command_catalog"
+require_relative "lib/sessions/session_view"
 require "securerandom"
 require "ipaddr"
 require_relative "lib/pi_session_store"
@@ -958,31 +959,18 @@ class PiWebGateway < Sinatra::Base
 
   def prepare_session_view(include_conversation: false)
     remap_selected_pending_session
-    @store = PiSessionStore.new(root: settings.sessions_root, delete_missing_cwds: true)
-    @groups = @store.grouped_sessions
-    append_pending_active_session(@groups)
-    all_sessions = @groups.values.flatten
-    read_state_store.observe_sessions(all_sessions)
-    @selected_session = find_selected_session(all_sessions)
-    read_state_store.mark_read(@selected_session) if @selected_session && should_mark_selected_session_read?
-    @current_tree_leaf_known = include_conversation && @selected_session && File.exist?(@selected_session.path) && rpc_clients.active?(@selected_session.path)
-    current_leaf_id = @current_tree_leaf_known ? active_session_tree_leaf(@selected_session.path) : nil
-    @latest_tree_leaf_id = include_conversation && @selected_session && File.exist?(@selected_session.path) ? @store.latest_leaf_id(@selected_session.path) : nil
-    @viewing_older_tree_leaf = @current_tree_leaf_known && current_leaf_id != @latest_tree_leaf_id
-    @messages = @selected_session && File.exist?(@selected_session.path) ? @store.messages(@selected_session.path, current_leaf_id: current_leaf_id) : []
-    @attachment_counts = include_conversation && @selected_session && File.exist?(@selected_session.path) ? attachment_store.counts_for_messages(@selected_session.path, @messages) : {}
-    @session_status = include_conversation && @selected_session && File.exist?(@selected_session.path) ? @store.status(@selected_session.path) : nil
-  end
-
-  def active_session_tree_leaf(session_path)
-    return unless rpc_clients.active?(session_path)
-
-    client = rpc_clients.begin_use(session_path)
-    return unless client&.respond_to?(:tree_leaf)
-
-    client.tree_leaf
-  ensure
-    rpc_clients.end_use(session_path) if client
+    Sessions::SessionView.build(
+      sessions_root: settings.sessions_root,
+      params: params,
+      include_conversation: include_conversation,
+      read_state_store: read_state_store,
+      attachment_store: attachment_store,
+      rpc_clients: rpc_clients,
+      mark_selected_read: should_mark_selected_session_read?,
+      pending_session_cwd: ->(path) { pending_rpc_cwd(path) }
+    ).to_instance_variables.each do |name, value|
+      instance_variable_set(name, value)
+    end
   end
 
   def should_mark_selected_session_read?
@@ -1016,32 +1004,6 @@ class PiWebGateway < Sinatra::Base
     Prompts::UploadedImages.parse(upload_param)
   rescue Prompts::UploadedImages::ValidationError => error
     halt 400, error.message
-  end
-
-  def find_selected_session(sessions)
-    selected_path = params["session"]
-    return sessions.first if selected_path.to_s.empty?
-
-    sessions.find { |session| session.path == selected_path } || sessions.first
-  end
-
-  def append_pending_active_session(groups)
-    pending_path = params["session"]
-    return if pending_path.to_s.empty? || File.exist?(pending_path)
-
-    cwd = pending_rpc_cwd(pending_path)
-    return unless cwd
-    groups[cwd] ||= []
-    groups[cwd].unshift(PiSessionStore::Session.new(
-      path: pending_path,
-      cwd: cwd,
-      id: File.basename(pending_path, ".jsonl"),
-      display_name: "New session (pending first assistant response)",
-      first_user_message: nil,
-      message_count: 0,
-      created_at: nil,
-      modified_at: Time.now
-    ))
   end
 
   def command_session_available?(session_path)
