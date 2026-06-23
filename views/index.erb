@@ -418,6 +418,7 @@
     let cwdValidationController = null;
     let notificationRegistration = null;
     const notifiedFinalReplyKeys = new Set();
+    let olderConversationLoadInFlight = false;
 
     function bindSessionDom() {
       sessionSidebar = document.querySelector(".session-sidebar");
@@ -628,6 +629,55 @@
       conversationScroll.scrollTop = conversationScroll.scrollHeight;
       lastConversationScrollTop = conversationScroll.scrollTop;
       updateScrollJumpButtons();
+    }
+
+    function olderConversationUrl(cursor) {
+      const url = new URL(conversationScroll.dataset.olderMessagesUrl, window.location.origin);
+      url.searchParams.set("cursor", cursor);
+      return url;
+    }
+
+    function prependOlderConversationHtml(html) {
+      if (!conversationScroll || !html) return;
+
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      enhanceMarkdownCodeBlocks(template.content);
+      const previousTop = conversationScroll.scrollTop;
+      const previousHeight = conversationScroll.scrollHeight;
+      const insertionPoint = conversationScroll.querySelector(".message") || liveOutput || conversationScroll.firstElementChild;
+      conversationScroll.insertBefore(template.content, insertionPoint);
+      conversationScroll.scrollTop = previousTop + (conversationScroll.scrollHeight - previousHeight);
+      lastConversationScrollTop = conversationScroll.scrollTop;
+      updateScrollJumpButtons();
+    }
+
+    async function loadOlderConversationHistory(generation = sessionViewGeneration) {
+      if (!conversationScroll || olderConversationLoadInFlight) return;
+      let cursor = Number(conversationScroll.dataset.olderMessageCursor || 0);
+      if (!cursor || conversationScroll.dataset.hasOlderMessages !== "true") return;
+
+      olderConversationLoadInFlight = true;
+      const scrollElement = conversationScroll;
+      const sessionPath = currentSessionPath();
+      try {
+        while (cursor > 0 && generation === sessionViewGeneration && scrollElement === conversationScroll && sessionPath === currentSessionPath()) {
+          const response = await fetch(olderConversationUrl(cursor), { headers: { "Accept": "application/json" } });
+          if (!response.ok || generation !== sessionViewGeneration || scrollElement !== conversationScroll || sessionPath !== currentSessionPath()) return;
+          const payload = await response.json();
+          if (generation !== sessionViewGeneration || scrollElement !== conversationScroll || sessionPath !== currentSessionPath()) return;
+
+          prependOlderConversationHtml(payload.html || "");
+          cursor = Number(payload.next_cursor || 0);
+          conversationScroll.dataset.olderMessageCursor = String(cursor);
+          conversationScroll.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
+          conversationScroll.dataset.olderMessageCount = String(payload.older_message_count || 0);
+          if (!payload.has_older_messages) break;
+        }
+      } catch (_error) {
+      } finally {
+        if (generation === sessionViewGeneration && scrollElement === conversationScroll) olderConversationLoadInFlight = false;
+      }
     }
 
     function applyAutoScroll(behavior = "auto") {
@@ -2495,6 +2545,7 @@
       autoScrollEnabled = true;
       forceBottomAutoScroll = false;
       hideReconnectBanner();
+      olderConversationLoadInFlight = false;
       clearAttachments();
     }
 
@@ -3435,6 +3486,7 @@
         if (initialComposerState === "running") setComposerState(initialComposerState, "Pi is running…", initialComposerStateSince);
         scheduleNextEventPoll(0);
         positionInitialConversationAtBottom();
+        loadOlderConversationHistory(sessionViewGeneration).catch(() => {});
         requestAnimationFrame(() => {
           updatePromptPlaceholder();
           resizePromptTextarea();

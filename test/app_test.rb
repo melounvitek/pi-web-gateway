@@ -3463,7 +3463,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function applyAutoScroll(behavior = \"auto\")"
       assert_includes response.body, "function positionInitialConversationAtBottom()"
       assert_includes response.body, "function positionInitialConversationAtBottom() {\n      if (!conversationScroll) return;\n\n      autoScrollEnabled = true;"
-      assert_includes response.body, "positionInitialConversationAtBottom();\n        requestAnimationFrame(() => {"
+      assert_includes response.body, "positionInitialConversationAtBottom();\n        loadOlderConversationHistory(sessionViewGeneration).catch(() => {});\n        requestAnimationFrame(() => {"
       assert_includes response.body, "requestAnimationFrame(() => requestAnimationFrame"
       assert_includes response.body, "function latestReadableAssistantMessage()"
       assert_includes response.body, "function latestMessageElement()"
@@ -4090,6 +4090,90 @@ class AppTest < Minitest::Test
       assert_includes response.body, "setComposerState(initialComposerState, \"Pi is running…\", initialComposerStateSince);"
       assert_includes response.body, "if (state === \"running\" && (since || !waitingForOutputSince)) startWaitingForOutput(since || Date.now());"
       assert_includes response.body, "payload.events.length > 0 && composerState?.dataset.state === \"running\" && !waitingForOutputSince"
+    end
+  end
+
+  def test_conversation_scroll_exposes_older_history_metadata
+    Dir.mktmpdir do |dir|
+      messages = (1..180).map { |index| { role: "user", text: "Message #{index}" } }
+      path = write_session_with_messages(dir, messages)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      scroll = document.at_css("#conversation-scroll")
+      assert_equal "true", scroll["data-has-older-messages"]
+      assert_equal "30", scroll["data-older-message-count"]
+      assert_equal "30", scroll["data-older-message-cursor"]
+      assert_includes scroll["data-older-messages-url"], "/conversation_older"
+      assert_includes response.body, "loadOlderConversationHistory"
+      assert_includes response.body, "previousHeight"
+      assert_includes response.body, "conversationScroll.scrollTop = previousTop + (conversationScroll.scrollHeight - previousHeight)"
+    end
+  end
+
+  def test_serves_older_conversation_window_as_json
+    Dir.mktmpdir do |dir|
+      messages = (1..180).map { |index| { role: "user", text: "Message #{index}" } }
+      path = write_session_with_messages(dir, messages)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/conversation_older",
+        params: { "session" => path, "cursor" => "30" }
+      )
+
+      assert_equal 200, response.status
+      assert_equal "application/json", response.media_type
+      payload = JSON.parse(response.body)
+      assert_equal 0, payload.fetch("next_cursor")
+      refute payload.fetch("has_older_messages")
+      assert_includes payload.fetch("html"), "Message 1"
+      assert_includes payload.fetch("html"), "Message 30"
+      refute_includes payload.fetch("html"), "Message 31"
+    end
+  end
+
+  def test_older_conversation_window_handles_missing_session_silently
+    Dir.mktmpdir do |dir|
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/conversation_older",
+        params: { "session" => File.join(dir, "missing.jsonl"), "cursor" => "30" }
+      )
+
+      assert_equal 200, response.status
+      payload = JSON.parse(response.body)
+      assert_equal "", payload.fetch("html")
+      assert_equal 0, payload.fetch("next_cursor")
+      refute payload.fetch("has_older_messages")
+      assert_equal 0, payload.fetch("older_message_count")
+    end
+  end
+
+  def test_older_conversation_window_rejects_session_outside_root
+    Dir.mktmpdir do |dir|
+      Dir.mktmpdir do |outside_dir|
+        outside_path = write_session_with_messages(outside_dir, [{ role: "user", text: "Outside message" }])
+        PiWebGateway.set :sessions_root, dir
+        PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+        response = Rack::MockRequest.new(PiWebGateway).get(
+          "/conversation_older",
+          params: { "session" => outside_path, "cursor" => "1" }
+        )
+
+        assert_equal 200, response.status
+        payload = JSON.parse(response.body)
+        assert_equal "", payload.fetch("html")
+        refute payload.fetch("has_older_messages")
+      end
     end
   end
 

@@ -19,7 +19,7 @@
           </div>
         </header>
 
-        <section class="conversation-scroll" id="conversation-scroll" tabindex="0" data-has-older-messages="<%= @conversation_has_older_messages ? "true" : "false" %>" data-older-message-count="<%= h @conversation_older_message_count.to_i %>">
+        <section class="conversation-scroll" id="conversation-scroll" tabindex="0" data-has-older-messages="<%= @conversation_has_older_messages ? "true" : "false" %>" data-older-message-count="<%= h @conversation_older_message_count.to_i %>" data-older-message-cursor="<%= h @conversation_start_index.to_i %>" data-older-messages-url="/conversation_older?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
           <div class="jump-controls jump-controls--top">
             <button type="button" class="jump-button jump-to-first" aria-label="Top">↑↑</button>
           </div>
@@ -28,41 +28,7 @@
           <% end %>
 
           <% @messages.each do |message| %>
-            <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>" data-message-fingerprint="<%= h message_fingerprint(message.role, message.text, message.timestamp) %>"<%= ' data-final-assistant-response="true"' if message.final_assistant_response %>>
-              <header class="message-header">
-                <div class="role"><%= h message_role_label(message.role) %></div>
-                <% if message_metadata(message) %>
-                  <div class="message-meta"><%= h message_metadata(message) %></div>
-                <% end %>
-                <% if message.role == "assistant" && !message.compact && !message.thinking %>
-                  <button type="button" class="copy-button" data-copy-target="message">Copy</button>
-                <% end %>
-              </header>
-              <% if message.thinking %>
-                <div class="message-body message-body--thinking"><%= render_message_body(message) %></div>
-              <% elsif message.compact %>
-                <details class="message-details"<%= " open" if message.expanded %>>
-                  <summary><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></summary>
-                  <pre class="message-body"><%= render_compact_message_body(message) %></pre>
-                  <% if message.raw_details.to_s != "" %>
-                    <details class="raw-details">
-                      <summary>Raw details</summary>
-                      <pre><%= h message.raw_details %></pre>
-                    </details>
-                  <% end %>
-                  <button type="button" class="details-collapse-button" data-collapse-details>▴ Collapse details</button>
-                </details>
-              <% else %>
-                <% if message.role == "assistant" %>
-                  <div class="message-body message-body--markdown"><%= render_message_body(message) %></div>
-                <% else %>
-                  <pre class="message-body"><%= render_message_body(message) %></pre>
-                <% end %>
-              <% end %>
-              <% if message.role == "user" && @attachment_counts[message.object_id].to_i.positive? %>
-                <div class="message-attachments"><%= h attachment_label(@attachment_counts[message.object_id]) %></div>
-              <% end %>
-            </article>
+            <%= erb :_message_article, layout: false, locals: { message: message, attachment_count: @attachment_counts[message.object_id] } %>
           <% end %>
 
           <% busy_since = rpc_clients.busy_since(@selected_session.path) %>

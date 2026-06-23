@@ -81,6 +81,25 @@ module Web
           fork_session_modal_html: erb(:_fork_session_modal, layout: false)
         )
       end
+
+      app.get "/conversation_older" do
+        result = Sessions::SessionView.older_window(
+          sessions_root: settings.sessions_root,
+          session_path: params["session"].to_s,
+          cursor: params["cursor"].to_i,
+          attachment_store: attachment_store,
+          rpc_clients: rpc_clients
+        )
+        content_type :json
+        JSON.generate(
+          html: result.fetch(:messages).map { |message|
+            erb(:_message_article, layout: false, locals: { message: message, attachment_count: result.fetch(:attachment_counts)[message.object_id] })
+          }.join,
+          next_cursor: result.fetch(:next_cursor),
+          has_older_messages: result.fetch(:has_older_messages),
+          older_message_count: result.fetch(:older_message_count)
+        )
+      end
     end
   end
 end

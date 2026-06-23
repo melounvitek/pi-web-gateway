@@ -64,6 +64,27 @@ class SessionsSessionViewTest < Minitest::Test
       assert_equal "Message 180", rendered_text.last
       assert assignments.fetch(:@conversation_has_older_messages)
       assert_equal 30, assignments.fetch(:@conversation_older_message_count)
+      assert_equal 30, assignments.fetch(:@conversation_start_index)
+    end
+  end
+
+  def test_builds_older_conversation_window_before_cursor
+    Dir.mktmpdir do |dir|
+      session_path = write_session_with_messages(dir, 220)
+
+      view = Sessions::SessionView.older_window(
+        sessions_root: dir,
+        session_path: session_path,
+        cursor: 70,
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
+        rpc_clients: inactive_rpc_clients
+      )
+
+      assert_equal (1..70).map { |index| "Message #{index}" }, view.fetch(:messages).map(&:text)
+      assert_equal 0, view.fetch(:next_cursor)
+      refute view.fetch(:has_older_messages)
+      assert_equal 0, view.fetch(:older_message_count)
+      assert_equal({}, view.fetch(:attachment_counts))
     end
   end
 

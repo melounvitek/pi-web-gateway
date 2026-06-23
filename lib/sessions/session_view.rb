@@ -19,6 +19,7 @@ module Sessions
       :latest_tree_leaf_id,
       :viewing_older_tree_leaf,
       :messages,
+      :conversation_start_index,
       :conversation_has_older_messages,
       :conversation_older_message_count,
       :attachment_counts,
@@ -26,6 +27,44 @@ module Sessions
 
     def self.build(**kwargs)
       new(**kwargs).build
+    end
+
+    def self.older_window(sessions_root:, session_path:, cursor:, attachment_store:, rpc_clients:)
+      return empty_older_window unless session_path_within_root?(session_path, sessions_root)
+
+      store = PiSessionStore.new(root: sessions_root, delete_missing_cwds: true)
+      current_leaf_id = active_session_tree_leaf(rpc_clients, session_path) if rpc_clients.active?(session_path)
+      all_messages = store.messages(session_path, current_leaf_id: current_leaf_id)
+      cursor = [[cursor.to_i, 0].max, all_messages.length].min
+      messages = conversation_window_before(all_messages, cursor)
+      next_cursor = cursor - messages.length
+      {
+        messages: messages,
+        next_cursor: next_cursor,
+        has_older_messages: next_cursor.positive?,
+        older_message_count: next_cursor,
+        attachment_counts: attachment_store.counts_for_messages(session_path, messages)
+      }
+    rescue SystemCallError
+      empty_older_window
+    end
+
+    def self.empty_older_window
+      {
+        messages: [],
+        next_cursor: 0,
+        has_older_messages: false,
+        older_message_count: 0,
+        attachment_counts: {}
+      }
+    end
+
+    def self.session_path_within_root?(session_path, sessions_root)
+      root = File.realpath(sessions_root)
+      path = File.realpath(session_path)
+      path.start_with?("#{root}#{File::SEPARATOR}") && File.file?(path)
+    rescue SystemCallError, TypeError
+      false
     end
 
     def initialize(
@@ -81,6 +120,7 @@ module Sessions
         :@latest_tree_leaf_id => @latest_tree_leaf_id,
         :@viewing_older_tree_leaf => @viewing_older_tree_leaf,
         :@messages => @messages,
+        :@conversation_start_index => @conversation_start_index,
         :@conversation_has_older_messages => @conversation_has_older_messages,
         :@conversation_older_message_count => @conversation_older_message_count,
         :@attachment_counts => @attachment_counts,
@@ -129,18 +169,23 @@ module Sessions
       @viewing_older_tree_leaf = @current_tree_leaf_known && current_leaf_id != @latest_tree_leaf_id
       all_messages = existing_session ? @store.messages(@selected_session.path, current_leaf_id: current_leaf_id) : []
       @messages = existing_conversation ? latest_conversation_window(all_messages) : all_messages
-      @conversation_older_message_count = all_messages.length - @messages.length
+      @conversation_start_index = all_messages.length - @messages.length
+      @conversation_older_message_count = @conversation_start_index
       @conversation_has_older_messages = @conversation_older_message_count.positive?
       @attachment_counts = existing_conversation ? @attachment_store.counts_for_messages(@selected_session.path, @messages) : {}
       @session_status = existing_conversation ? @store.status(@selected_session.path) : nil
     end
 
     def latest_conversation_window(messages)
-      return messages if messages.length <= CONVERSATION_WINDOW_MIN_MESSAGES
+      self.class.conversation_window_before(messages, messages.length)
+    end
+
+    def self.conversation_window_before(messages, cursor)
+      return messages.first(cursor) if cursor <= CONVERSATION_WINDOW_MIN_MESSAGES
 
       selected = []
       bytes = 0
-      messages.reverse_each do |message|
+      messages.first(cursor).reverse_each do |message|
         message_bytes = conversation_window_message_bytes(message)
         break if selected.length >= CONVERSATION_WINDOW_MAX_MESSAGES
         break if selected.length >= CONVERSATION_WINDOW_MIN_MESSAGES && bytes + message_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
@@ -151,7 +196,7 @@ module Sessions
       selected.reverse
     end
 
-    def conversation_window_message_bytes(message)
+    def self.conversation_window_message_bytes(message)
       [message.role, message.text, message.summary, message.raw_details].compact.sum { |value| value.to_s.bytesize }
     end
 
@@ -165,12 +210,16 @@ module Sessions
     end
 
     def active_session_tree_leaf(session_path)
-      client = @rpc_clients.begin_use(session_path)
+      self.class.active_session_tree_leaf(@rpc_clients, session_path)
+    end
+
+    def self.active_session_tree_leaf(rpc_clients, session_path)
+      client = rpc_clients.begin_use(session_path)
       return unless client&.respond_to?(:tree_leaf)
 
       client.tree_leaf
     ensure
-      @rpc_clients.end_use(session_path) if client
+      rpc_clients.end_use(session_path) if client
     end
   end
 end
