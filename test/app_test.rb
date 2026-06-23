@@ -4109,6 +4109,11 @@ class AppTest < Minitest::Test
       assert_equal "30", scroll["data-older-message-count"]
       assert_equal "30", scroll["data-older-message-cursor"]
       assert_includes scroll["data-older-messages-url"], "/conversation_older"
+      status = scroll.at_css("[data-conversation-history-status]")
+      assert_equal "Loading earlier messages…", status.text.strip
+      assert_includes response.body, ".conversation-history-status"
+      assert_includes response.body, "function finishConversationHistoryStatus()"
+      assert_includes response.body, "function failConversationHistoryStatus()"
       assert_includes response.body, "loadOlderConversationHistory"
       assert_includes response.body, "previousHeight"
       assert_includes response.body, "conversationScroll.scrollTop = previousTop + (conversationScroll.scrollHeight - previousHeight)"

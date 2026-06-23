@@ -23,6 +23,9 @@
           <div class="jump-controls jump-controls--top">
             <button type="button" class="jump-button jump-to-first" aria-label="Top">↑↑</button>
           </div>
+          <% if @conversation_has_older_messages %>
+            <div class="conversation-history-status" data-conversation-history-status>Loading earlier messages…</div>
+          <% end %>
           <% if @messages.empty? %>
             <p class="empty">No messages in this session.</p>
           <% end %>

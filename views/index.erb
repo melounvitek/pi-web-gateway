@@ -26,6 +26,7 @@
     .session-header-action { padding: 0.42rem 0.65rem; font-size: 0.82rem; }
     .conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 1.5rem; }
     .conversation-scroll:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(138, 190, 183, 0.22); }
+    .conversation-history-status { margin: 0 0 0.85rem; color: var(--muted); font-size: 0.84rem; text-align: center; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid var(--border); background: rgba(30, 30, 36, 0.97); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.16); }
     .composer-inner { display: grid; gap: 0.6rem; }
     .attachment-tray { display: none; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem; border: 1px dashed var(--border); border-radius: 0.55rem; background: var(--panel-soft); }
@@ -637,6 +638,22 @@
       return url;
     }
 
+    function conversationHistoryStatus() {
+      return conversationScroll?.querySelector("[data-conversation-history-status]");
+    }
+
+    function finishConversationHistoryStatus() {
+      const status = conversationHistoryStatus();
+      if (status) status.hidden = true;
+    }
+
+    function failConversationHistoryStatus() {
+      const status = conversationHistoryStatus();
+      if (!status) return;
+      status.hidden = false;
+      status.textContent = "Earlier messages could not load.";
+    }
+
     function prependOlderConversationHtml(html) {
       if (!conversationScroll || !html) return;
 
@@ -695,9 +712,13 @@
           conversationScroll.dataset.olderMessageCursor = String(cursor);
           conversationScroll.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
           conversationScroll.dataset.olderMessageCount = String(payload.older_message_count || 0);
-          if (!payload.has_older_messages) break;
+          if (!payload.has_older_messages) {
+            finishConversationHistoryStatus();
+            break;
+          }
         }
       } catch (_error) {
+        if (generation === sessionViewGeneration && scrollElement === conversationScroll) failConversationHistoryStatus();
       } finally {
         if (generation === sessionViewGeneration && scrollElement === conversationScroll) olderConversationLoadInFlight = false;
       }
