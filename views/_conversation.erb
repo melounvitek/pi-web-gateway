@@ -19,7 +19,7 @@
           </div>
         </header>
 
-        <section class="conversation-scroll" id="conversation-scroll" tabindex="0">
+        <section class="conversation-scroll" id="conversation-scroll" tabindex="0" data-has-older-messages="<%= @conversation_has_older_messages ? "true" : "false" %>" data-older-message-count="<%= h @conversation_older_message_count.to_i %>">
           <div class="jump-controls jump-controls--top">
             <button type="button" class="jump-button jump-to-first" aria-label="Top">↑↑</button>
           </div>

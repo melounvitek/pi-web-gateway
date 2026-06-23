@@ -2754,6 +2754,47 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_initial_session_render_exposes_latest_message_window
+    Dir.mktmpdir do |dir|
+      path = write_session_with_messages(dir, (1..180).map { |index| { role: "user", text: "Message #{index}" } })
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      conversation = document.at_css("#conversation-scroll")
+      assert_equal "true", conversation["data-has-older-messages"]
+      assert_equal "30", conversation["data-older-message-count"]
+      text = conversation.text
+      refute_includes text, "Message 30"
+      assert_includes text, "Message 31"
+      assert_includes text, "Message 180"
+    end
+  end
+
+  def test_session_fragment_exposes_latest_message_window
+    Dir.mktmpdir do |dir|
+      path = write_session_with_messages(dir, (1..180).map { |index| { role: "user", text: "Message #{index}" } })
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/session_fragment", params: { "session" => path })
+
+      assert_equal 200, response.status
+      html = JSON.parse(response.body).fetch("conversation_html")
+      document = Nokogiri::HTML(html)
+      conversation = document.at_css("#conversation-scroll")
+      assert_equal "true", conversation["data-has-older-messages"]
+      assert_equal "30", conversation["data-older-message-count"]
+      text = conversation.text
+      refute_includes text, "Message 30"
+      assert_includes text, "Message 31"
+      assert_includes text, "Message 180"
+    end
+  end
+
   def test_returns_session_fragment_for_selected_session
     Dir.mktmpdir do |dir|
       paths = write_sessions(dir, count: 7)
@@ -3430,7 +3471,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "autoScrollEnabled = nearConversationBottom();"
       assert_includes response.body, "if (autoScrollEnabled && body.closest(\".message\") === latestReadableAssistantMessage()) scheduleAutoScroll();"
       assert_includes response.body, "if (shouldScroll && autoScrollEnabled) scheduleAutoScroll();"
-      assert_includes response.body, "applyAutoScroll(\"auto\");"
+      assert_includes response.body, "forceBottomAutoScroll = true;\n          applyAutoScroll(\"auto\");\n          forceBottomAutoScroll = false;"
       assert_includes response.body, "scrollToTop"
       refute_includes response.body, "const turnButton = event.target.closest(\".message-turn-button\");"
       refute_includes response.body, "turnButton.dataset.direction === \"previous\""

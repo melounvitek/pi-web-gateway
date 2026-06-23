@@ -3439,7 +3439,9 @@
           updatePromptPlaceholder();
           resizePromptTextarea();
           if (focus && shouldAutofocusPrompt()) promptTextarea?.focus();
+          forceBottomAutoScroll = true;
           applyAutoScroll("auto");
+          forceBottomAutoScroll = false;
         });
       }
       scheduleSidebarRefresh();

@@ -5,6 +5,9 @@ require_relative "sidebar"
 module Sessions
   class SessionView
     PENDING_SESSION_DISPLAY_NAME = "New session (pending first assistant response)"
+    CONVERSATION_WINDOW_MIN_MESSAGES = 50
+    CONVERSATION_WINDOW_MAX_MESSAGES = 150
+    CONVERSATION_WINDOW_BYTE_BUDGET = 256 * 1024
 
     attr_reader :store,
       :groups,
@@ -16,6 +19,8 @@ module Sessions
       :latest_tree_leaf_id,
       :viewing_older_tree_leaf,
       :messages,
+      :conversation_has_older_messages,
+      :conversation_older_message_count,
       :attachment_counts,
       :session_status
 
@@ -76,6 +81,8 @@ module Sessions
         :@latest_tree_leaf_id => @latest_tree_leaf_id,
         :@viewing_older_tree_leaf => @viewing_older_tree_leaf,
         :@messages => @messages,
+        :@conversation_has_older_messages => @conversation_has_older_messages,
+        :@conversation_older_message_count => @conversation_older_message_count,
         :@attachment_counts => @attachment_counts,
         :@session_status => @session_status
       }
@@ -120,9 +127,32 @@ module Sessions
 
       @latest_tree_leaf_id = existing_conversation ? @store.latest_leaf_id(@selected_session.path) : nil
       @viewing_older_tree_leaf = @current_tree_leaf_known && current_leaf_id != @latest_tree_leaf_id
-      @messages = existing_session ? @store.messages(@selected_session.path, current_leaf_id: current_leaf_id) : []
+      all_messages = existing_session ? @store.messages(@selected_session.path, current_leaf_id: current_leaf_id) : []
+      @messages = existing_conversation ? latest_conversation_window(all_messages) : all_messages
+      @conversation_older_message_count = all_messages.length - @messages.length
+      @conversation_has_older_messages = @conversation_older_message_count.positive?
       @attachment_counts = existing_conversation ? @attachment_store.counts_for_messages(@selected_session.path, @messages) : {}
       @session_status = existing_conversation ? @store.status(@selected_session.path) : nil
+    end
+
+    def latest_conversation_window(messages)
+      return messages if messages.length <= CONVERSATION_WINDOW_MIN_MESSAGES
+
+      selected = []
+      bytes = 0
+      messages.reverse_each do |message|
+        message_bytes = conversation_window_message_bytes(message)
+        break if selected.length >= CONVERSATION_WINDOW_MAX_MESSAGES
+        break if selected.length >= CONVERSATION_WINDOW_MIN_MESSAGES && bytes + message_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
+
+        selected << message
+        bytes += message_bytes
+      end
+      selected.reverse
+    end
+
+    def conversation_window_message_bytes(message)
+      [message.role, message.text, message.summary, message.raw_details].compact.sum { |value| value.to_s.bytesize }
     end
 
     def current_leaf_id_for(existing_conversation)
