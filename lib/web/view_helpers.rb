@@ -1,10 +1,13 @@
 require "erb"
 require_relative "../rendering/markdown_renderer"
+require_relative "../sessions/session_view"
 require_relative "../sessions/sidebar"
 require_relative "../time_formatter"
 
 module Web
   module ViewHelpers
+    RAW_DETAILS_INLINE_BYTE_LIMIT = 8 * 1024
+
     def h(value)
       ERB::Util.html_escape(value)
     end
@@ -234,6 +237,19 @@ module Web
       message.text.to_s.lines(chomp: true).map do |line|
         %(<span class="tool-diff-line #{h(tool_diff_line_class(line))}">#{h(line)}</span>)
       end.join
+    end
+
+    def defer_raw_details?(message)
+      message.raw_details.to_s.bytesize > RAW_DETAILS_INLINE_BYTE_LIMIT
+    end
+
+    def raw_details_url(message_index, message)
+      query = {
+        "session" => @selected_session&.path || params["session"].to_s,
+        "message_index" => message_index,
+        "raw_details_token" => Sessions::SessionView.raw_details_token_for(message)
+      }
+      "/message_raw_details?#{Rack::Utils.build_nested_query(query)}"
     end
 
     def tool_diff_line_class(line)

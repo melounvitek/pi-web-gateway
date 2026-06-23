@@ -4138,6 +4138,115 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_defers_large_raw_details_in_initial_conversation_and_fetches_them
+    Dir.mktmpdir do |dir|
+      large_raw_details = "large raw detail token #{"x" * 9000}"
+      path = write_session_with_raw_messages(dir, [
+        { type: "compaction", timestamp: "2026-06-13T10:00:00Z", summary: "Compacted", large: large_raw_details }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      raw_details = document.at_css("details.raw-details[data-deferred-raw-details='true']")
+      assert raw_details
+      assert_equal "0", raw_details["data-message-index"]
+      assert_includes raw_details["data-raw-details-url"], "/message_raw_details"
+      refute_includes response.body, large_raw_details
+      assert_includes raw_details.text, "Raw details available"
+
+      raw_response = Rack::MockRequest.new(PiWebGateway).get(raw_details["data-raw-details-url"])
+
+      assert_equal 200, raw_response.status
+      assert_includes JSON.parse(raw_response.body).fetch("raw_details"), large_raw_details
+    end
+  end
+
+  def test_keeps_small_raw_details_inline
+    Dir.mktmpdir do |dir|
+      small_raw_details = "small raw detail token"
+      path = write_session_with_raw_messages(dir, [
+        { type: "compaction", timestamp: "2026-06-13T10:00:00Z", summary: "Compacted", small: small_raw_details }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      refute document.at_css("details.raw-details[data-deferred-raw-details='true']")
+      assert_includes response.body, small_raw_details
+    end
+  end
+
+  def test_older_conversation_window_renders_stable_message_indices_for_deferred_raw_details
+    Dir.mktmpdir do |dir|
+      large_raw_details = "older raw detail token #{"x" * 9000}"
+      raw_entries = Array.new(10) do |index|
+        { type: "message", timestamp: "2026-06-13T10:00:00Z", message: { role: "user", content: [{ type: "text", text: "Message #{index + 1}" }] } }
+      end
+      raw_entries << { type: "compaction", timestamp: "2026-06-13T10:10:00Z", summary: "Compacted", large: large_raw_details }
+      path = write_session_with_raw_messages(dir, raw_entries)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/conversation_older",
+        params: { "session" => path, "cursor" => "11" }
+      )
+
+      assert_equal 200, response.status
+      html = JSON.parse(response.body).fetch("html")
+      document = Nokogiri::HTML(html)
+      raw_details = document.at_css("details.raw-details[data-deferred-raw-details='true']")
+      assert raw_details
+      assert_equal "10", raw_details["data-message-index"]
+      refute_includes html, large_raw_details
+
+      raw_response = Rack::MockRequest.new(PiWebGateway).get(raw_details["data-raw-details-url"])
+      assert_includes JSON.parse(raw_response.body).fetch("raw_details"), large_raw_details
+    end
+  end
+
+  def test_raw_details_endpoint_rejects_missing_and_outside_root_sessions
+    Dir.mktmpdir do |dir|
+      Dir.mktmpdir do |outside_dir|
+        valid_path = write_session_with_raw_messages(dir, [
+          { type: "compaction", timestamp: "2026-06-13T10:00:00Z", summary: "Compacted", raw: "raw" }
+        ])
+        outside_path = write_session_with_messages(outside_dir, [{ role: "assistant", text: "Outside" }])
+        PiWebGateway.set :sessions_root, dir
+        PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+        missing_response = Rack::MockRequest.new(PiWebGateway).get(
+          "/message_raw_details",
+          params: { "session" => File.join(dir, "missing.jsonl"), "message_index" => "0" }
+        )
+        outside_response = Rack::MockRequest.new(PiWebGateway).get(
+          "/message_raw_details",
+          params: { "session" => outside_path, "message_index" => "0" }
+        )
+        invalid_index_response = Rack::MockRequest.new(PiWebGateway).get(
+          "/message_raw_details",
+          params: { "session" => valid_path, "message_index" => "not-a-number" }
+        )
+        missing_token_response = Rack::MockRequest.new(PiWebGateway).get(
+          "/message_raw_details",
+          params: { "session" => valid_path, "message_index" => "0" }
+        )
+
+        assert_equal 404, missing_response.status
+        assert_equal 404, outside_response.status
+        assert_equal 404, invalid_index_response.status
+        assert_equal 404, missing_token_response.status
+      end
+    end
+  end
+
   def test_older_conversation_window_handles_missing_session_silently
     Dir.mktmpdir do |dir|
       PiWebGateway.set :sessions_root, dir

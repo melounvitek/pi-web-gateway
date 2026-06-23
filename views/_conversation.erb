@@ -27,8 +27,8 @@
             <p class="empty">No messages in this session.</p>
           <% end %>
 
-          <% @messages.each do |message| %>
-            <%= erb :_message_article, layout: false, locals: { message: message, attachment_count: @attachment_counts[message.object_id] } %>
+          <% @messages.each.with_index(@conversation_start_index.to_i) do |message, message_index| %>
+            <%= erb :_message_article, layout: false, locals: { message: message, message_index: message_index, attachment_count: @attachment_counts[message.object_id] } %>
           <% end %>
 
           <% busy_since = rpc_clients.busy_since(@selected_session.path) %>

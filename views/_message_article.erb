@@ -1,4 +1,4 @@
-            <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>" data-message-fingerprint="<%= h message_fingerprint(message.role, message.text, message.timestamp) %>"<%= ' data-final-assistant-response="true"' if message.final_assistant_response %>>
+            <article class="<%= h message_article_class(message) %>" data-role="<%= h message.role %>" data-message-fingerprint="<%= h message_fingerprint(message.role, message.text, message.timestamp) %>"<%= " data-message-index=\"#{h message_index}\"" if defined?(message_index) && message_index %><%= ' data-final-assistant-response="true"' if message.final_assistant_response %>>
               <header class="message-header">
                 <div class="role"><%= h message_role_label(message.role) %></div>
                 <% if message_metadata(message) %>
@@ -15,10 +15,17 @@
                   <summary><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></summary>
                   <pre class="message-body"><%= render_compact_message_body(message) %></pre>
                   <% if message.raw_details.to_s != "" %>
-                    <details class="raw-details">
-                      <summary>Raw details</summary>
-                      <pre><%= h message.raw_details %></pre>
-                    </details>
+                    <% if defined?(message_index) && message_index && defer_raw_details?(message) %>
+                      <details class="raw-details" data-deferred-raw-details="true" data-message-index="<%= h message_index %>" data-raw-details-url="<%= h raw_details_url(message_index, message) %>">
+                        <summary>Raw details available</summary>
+                        <pre></pre>
+                      </details>
+                    <% else %>
+                      <details class="raw-details">
+                        <summary>Raw details</summary>
+                        <pre><%= h message.raw_details %></pre>
+                      </details>
+                    <% end %>
                   <% end %>
                   <button type="button" class="details-collapse-button" data-collapse-details>▴ Collapse details</button>
                 </details>
