@@ -1193,8 +1193,8 @@
       if (part.text) return part.text;
       if (part.type === "thinking" || part.thinking) return stripThinkingHeading(part.thinking);
       if (part.type === "toolCall") {
-        if (part.name === "bash") return "";
-        if (["read", "edit", "write"].includes(part.name)) return transcriptToolCallText(part.name, part.arguments || {});
+        if (["bash", "read"].includes(part.name)) return "";
+        if (["edit", "write"].includes(part.name)) return transcriptToolCallText(part.name, part.arguments || {});
         const args = part.arguments ? `\n${JSON.stringify(part.arguments, null, 2)}` : "";
         return `[tool: ${part.name || "tool"}]${args}`;
       }
@@ -1216,9 +1216,8 @@
     }
 
     function transcriptToolCallText(name, args = {}) {
-      const summary = toolSummaryPlain(name, args);
-      if (name === "write") return [summary, previewText("+", args.content)].filter(Boolean).join("\n");
-      if (name !== "edit") return summary;
+      if (name === "write") return previewText("+", args.content);
+      if (name !== "edit") return "";
 
       const edits = Array.isArray(args.edits) ? args.edits : [];
       const editPreview = edits.map((edit, index) => {
@@ -1230,7 +1229,7 @@
         ].filter(Boolean).join("\n");
       }).filter(Boolean).join("\n\n");
 
-      return [summary, editPreview].filter(Boolean).join("\n");
+      return editPreview;
     }
 
     function previewText(prefix, text) {

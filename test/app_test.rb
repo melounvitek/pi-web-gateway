@@ -3337,20 +3337,23 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       refute_includes response.body, '<details class="message-details"'
       assert_includes response.body, 'class="message message--assistant message--compact message--tool-transcript message--tool-error" data-role="assistant"'
+      document = Nokogiri::HTML(response.body)
+      page_text = document.text
+
       assert_includes response.body, 'Edit 1'
       assert_includes response.body, '- old item'
       assert_includes response.body, '+ new item'
       assert_includes response.body, 'oldText did not match'
-      assert_includes response.body, 'read missing.txt'
+      assert_includes page_text, 'read missing.txt'
       assert_includes response.body, 'No such file'
-      assert_includes response.body, 'write readonly.txt'
+      assert_includes page_text, 'write readonly.txt'
       assert_includes response.body, 'Permission denied'
       assert_includes response.body, '$ false'
       assert_includes response.body, 'Command exited with code 1'
     end
   end
 
-  def test_renders_pending_bash_tool_call_with_empty_body
+  def test_renders_pending_duplicate_only_tool_calls_with_empty_body
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
         {
@@ -3359,7 +3362,12 @@ class AppTest < Minitest::Test
           message: {
             role: "assistant",
             content: [
-              { type: "toolCall", id: "pending-bash", name: "bash", arguments: { command: "pwd" } }
+              { type: "toolCall", id: "pending-bash", name: "bash", arguments: { command: "pwd" } },
+              { type: "toolCall", id: "pending-read", name: "read", arguments: { path: "README.md" } },
+              { type: "toolCall", id: "pending-edit", name: "edit", arguments: { path: "TODO.md", edits: [] } },
+              { type: "toolCall", id: "pending-write", name: "write", arguments: { path: "empty.txt", content: "" } },
+              { type: "toolCall", id: "pending-edit-preview", name: "edit", arguments: { path: "PLAN.md", edits: [{ oldText: "old", newText: "new" }] } },
+              { type: "toolCall", id: "pending-write-preview", name: "write", arguments: { path: "notes.txt", content: "hello" } }
             ]
           }
         }
@@ -3374,12 +3382,16 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      bash_card = document.css(".message--compact").find do |card|
-        card.at_css(".compact-summary")&.text == "$ pwd"
+
+      ["$ pwd", "read README.md", "edit TODO.md", "write empty.txt"].each do |summary|
+        tool_card = compact_card_with_summary(document, summary)
+
+        assert tool_card, "Expected compact card for #{summary}"
+        assert_empty tool_card.at_css(".message-body").text
       end
 
-      assert bash_card
-      assert_empty bash_card.at_css(".message-body").text
+      assert_equal ["Edit 1", "- old", "+ new"], compact_card_with_summary(document, "edit PLAN.md").css(".tool-diff-line").map(&:text)
+      assert_equal ["+ hello"], compact_card_with_summary(document, "write notes.txt").css(".tool-diff-line").map(&:text)
     end
   end
 
@@ -3454,7 +3466,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "message--tool-transcript"
       assert_includes response.body, "toolSummaryParts(toolName, toolPart?.arguments || {})"
       assert_includes response.body, "function transcriptToolCallText(name, args = {})"
-      assert_includes response.body, 'if (part.name === "bash") return "";'
+      assert_includes response.body, 'if (["bash", "read"].includes(part.name)) return "";'
+      assert_includes response.body, 'if (["edit", "write"].includes(part.name)) return transcriptToolCallText(part.name, part.arguments || {});'
+      assert_includes response.body, 'return editPreview;'
       assert_includes response.body, '}).filter((segment) => segment.text || segment.compact);'
       assert_includes response.body, 'if (lines[lines.length - 1] === "") lines.pop();'
       assert_includes response.body, 'function renderToolTranscriptBody(body, text, toolName = "", options = {})'
@@ -4406,6 +4420,12 @@ class AppTest < Minitest::Test
   end
 
   private
+
+  def compact_card_with_summary(document, summary)
+    document.css(".message--compact").find do |card|
+      card.at_css(".compact-summary")&.text == summary
+    end
+  end
 
   class FakeRpcClient
     def initialize(calls, events_or_commands = [], session_file = nil)

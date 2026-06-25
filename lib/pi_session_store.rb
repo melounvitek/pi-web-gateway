@@ -461,7 +461,7 @@ class PiSessionStore
 
   def assistant_messages_from_entry(message, timestamp)
     content_groups(message["content"]).filter_map do |compact, parts|
-      text = content_text(parts)
+      text = content_text(parts).to_s
       next if text.empty? && !compact
 
       tool_call = parts.find { |part| part.is_a?(Hash) && part["type"] == "toolCall" }
@@ -642,10 +642,8 @@ class PiSessionStore
 
   def transcript_tool_call_text(part)
     arguments = part["arguments"].is_a?(Hash) ? part["arguments"] : {}
-    summary = [part["name"], arguments["path"]].compact.join(" ")
-    summary += ":#{read_range(arguments)}" if part["name"] == "read" && read_range(arguments)
-    return [summary, preview_text("+", arguments["content"])].reject(&:empty?).join("\n") if part["name"] == "write"
-    return summary unless part["name"] == "edit"
+    return preview_text("+", arguments["content"]).to_s if part["name"] == "write"
+    return "" unless part["name"] == "edit"
 
     edit_preview = Array(arguments["edits"]).each_with_index.map do |edit, index|
       next unless edit.is_a?(Hash)
@@ -657,7 +655,7 @@ class PiSessionStore
       ].compact.join("\n")
     end.compact.join("\n\n")
 
-    [summary, edit_preview].reject(&:empty?).join("\n")
+    edit_preview
   end
 
   def preview_text(prefix, text)
