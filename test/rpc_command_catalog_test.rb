@@ -8,6 +8,8 @@ module Rpc
         "data" => {
           "commands" => [
             { "name" => "review", "source" => "skill", "description" => "Review code" },
+            { "name" => "sessions", "source" => "extension", "description" => "Switch, rename, or delete project sessions" },
+            { "name" => "rename", "source" => "extension", "description" => "Rename the current session" },
             { "name" => "pi_web_tree", "source" => "extension", "description" => "Internal bridge" },
             { "name" => "pi_web_tree_leaf", "source" => "extension", "description" => "Internal bridge" }
           ]

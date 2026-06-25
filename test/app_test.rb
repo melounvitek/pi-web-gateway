@@ -1610,6 +1610,8 @@ class AppTest < Minitest::Test
         calls << [:start, session_path]
         FakeRpcClient.new(calls, [
           { "name" => "review", "source" => "skill", "description" => "Review code" },
+          { "name" => "sessions", "source" => "extension", "description" => "Switch, rename, or delete project sessions" },
+          { "name" => "rename", "source" => "extension", "description" => "Rename the current session" },
           { "name" => "pi_web_tree", "source" => "extension", "description" => "Internal bridge" },
           { "name" => "pi_web_tree_leaf", "source" => "extension", "description" => "Internal bridge" }
         ])
@@ -1626,6 +1628,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "/tree"
       assert_includes response.body, "/clone"
       assert_includes response.body, "/new"
+      refute_includes response.body, "/sessions"
+      refute_includes response.body, "/rename"
       refute_includes response.body, "pi_web_tree"
       refute_includes response.body, "pi_web_tree_leaf"
       refute_includes response.body, "command-filter"
