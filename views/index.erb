@@ -1193,7 +1193,7 @@
       if (part.text) return part.text;
       if (part.type === "thinking" || part.thinking) return stripThinkingHeading(part.thinking);
       if (part.type === "toolCall") {
-        if (part.name === "bash") return bashCommandLine(part);
+        if (part.name === "bash") return "";
         if (["read", "edit", "write"].includes(part.name)) return transcriptToolCallText(part.name, part.arguments || {});
         const args = part.arguments ? `\n${JSON.stringify(part.arguments, null, 2)}` : "";
         return `[tool: ${part.name || "tool"}]${args}`;
@@ -1303,7 +1303,7 @@
           toolPreview: toolPart?.type === "toolCall" && toolName === "edit",
           rawDetails
         };
-      }).filter((segment) => segment.text);
+      }).filter((segment) => segment.text || segment.compact);
     }
 
     function eventMessage(event) {

@@ -462,7 +462,7 @@ class PiSessionStore
   def assistant_messages_from_entry(message, timestamp)
     content_groups(message["content"]).filter_map do |compact, parts|
       text = content_text(parts)
-      next if text.empty?
+      next if text.empty? && !compact
 
       tool_call = parts.find { |part| part.is_a?(Hash) && part["type"] == "toolCall" }
       tool_name = tool_call && (tool_call["name"] || tool_call["toolName"])
@@ -629,7 +629,7 @@ class PiSessionStore
   def tool_text(part)
     case part["type"]
     when "toolCall"
-      return bash_command_line(part) if bash_tool_call?(part)
+      return "" if bash_tool_call?(part)
       return transcript_tool_call_text(part) if transcript_tool?(part["name"])
 
       name = part["name"] || "tool"

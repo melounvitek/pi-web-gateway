@@ -3350,6 +3350,39 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_pending_bash_tool_call_with_empty_body
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "toolCall", id: "pending-bash", name: "bash", arguments: { command: "pwd" } }
+            ]
+          }
+        }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/",
+        params: { "session" => path }
+      )
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      bash_card = document.css(".message--compact").find do |card|
+        card.at_css(".compact-summary")&.text == "$ pwd"
+      end
+
+      assert bash_card
+      assert_empty bash_card.at_css(".message-body").text
+    end
+  end
+
   def test_pairs_historical_bash_tool_call_with_matching_result
     Dir.mktmpdir do |dir|
       tool_call_id = "call_123"
@@ -3421,6 +3454,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "message--tool-transcript"
       assert_includes response.body, "toolSummaryParts(toolName, toolPart?.arguments || {})"
       assert_includes response.body, "function transcriptToolCallText(name, args = {})"
+      assert_includes response.body, 'if (part.name === "bash") return "";'
+      assert_includes response.body, '}).filter((segment) => segment.text || segment.compact);'
       assert_includes response.body, 'if (lines[lines.length - 1] === "") lines.pop();'
       assert_includes response.body, 'function renderToolTranscriptBody(body, text, toolName = "", options = {})'
       assert_includes response.body, 'body.dataset.rawText = text || "";'
