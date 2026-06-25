@@ -1931,7 +1931,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "updateConversationJumpControlsReveal();"
       assert_includes response.body, 'conversationScrollDirection === "up" && !autoScrollEnabled && !nearConversationTop()'
       assert_includes response.body, 'conversationScrollDirection === "down" && !nearConversationBottom()'
-      assert_includes response.body, ".message--tool .message-details summary, .message--tool-transcript .message-details summary { max-width: 100%; overflow-x: auto; white-space: nowrap; }"
+      assert_includes response.body, ".message--tool .message-details-summary, .message--tool-transcript .message-details-summary { max-width: 100%; overflow-x: auto; white-space: nowrap; }"
       assert_includes response.body, ".message--tool .message-body, .message--tool-transcript .message-body, .raw-details pre { max-width: 100%; overflow-x: auto; }"
       assert_includes response.body, ".message--tool-transcript .message-body { display: grid; grid-template-columns: minmax(100%, max-content); color: rgba(216, 222, 216, 0.68); line-height: 1.35; tab-size: 2; white-space: pre; overflow-wrap: normal; word-break: normal; }"
       assert_includes response.body, ".tool-diff-line { display: block; margin: 0 -0.25rem;"
@@ -2879,7 +2879,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, 'class="message message--status message--compact" data-role="status"'
-      assert_includes response.body, '<summary><span class="compact-summary">Conversation compacted</span></summary>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary">Conversation compacted</span></div>'
       assert_includes response.body, "Important summary"
     end
   end
@@ -3006,7 +3006,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'message--thinking'
       refute_includes response.body, 'Thinking:'
       assert_includes response.body, 'Private reasoning'
-      refute_includes response.body, '<summary><span class="compact-summary">thinking</span></summary>'
+      refute_includes response.body, '<div class="message-details-summary"><span class="compact-summary">thinking</span></div>'
       refute_includes response.body, "**Heading**"
       assert_includes response.body, "Private reasoning"
       assert_includes response.body, 'class="message-body message-body--markdown"'
@@ -3088,12 +3088,12 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--assistant message--thinking" data-role="assistant"'
       refute_includes response.body, 'Thinking:'
       assert_includes response.body, 'Thinking through the problem'
-      refute_includes response.body, '<summary><span class="compact-summary">thinking</span></summary>'
-      assert_includes response.body, '<summary><span class="compact-summary">$ ls</span></summary>'
+      refute_includes response.body, '<div class="message-details-summary"><span class="compact-summary">thinking</span></div>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary">$ ls</span></div>'
       assert_includes response.body, 'class="message message--tool message--compact" data-role="toolResult"'
-      assert_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary">bash</span></div>'
       assert_includes response.body, 'class="message message--tool message--compact message--tool-transcript message--tool-error" data-role="toolResult"'
-      refute_includes response.body, '<details class="message-details" open>'
+      refute_includes response.body, '<details class="message-details"'
       assert_includes response.body, "Thinking through the problem"
       assert_includes response.body, "file list"
     end
@@ -3168,11 +3168,11 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, 'message--tool-transcript'
-      assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">read</span> <span class="tool-path">test/app_test.rb</span><span class="tool-range">:545-654</span></span></summary>'
-      assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">edit</span> <span class="tool-path">test/pi_session_store_test.rb</span></span></summary>'
-      assert_includes response.body, '<summary><span class="compact-summary"><span class="tool-command">write</span> <span class="tool-path">notes/status.txt</span></span></summary>'
-      assert_includes response.body, '<button type="button" class="details-collapse-button" data-collapse-details>▴ Collapse details</button>'
-      refute_includes response.body, '<details class="message-details" open>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary"><span class="tool-command">read</span> <span class="tool-path">test/app_test.rb</span><span class="tool-range">:545-654</span></span></div>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary"><span class="tool-command">edit</span> <span class="tool-path">test/pi_session_store_test.rb</span></span></div>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary"><span class="tool-command">write</span> <span class="tool-path">notes/status.txt</span></span></div>'
+      refute_includes response.body, 'details-collapse-button'
+      refute_includes response.body, '<details class="message-details"'
       refute_includes response.body, 'message-body message-body--edit-preview'
       assert_includes response.body, '<span class="tool-diff-line tool-diff-line--add">+71 assert_equal [true, false], messages.map(&amp;:thinking)</span>'
       assert_includes response.body, '545 assert_equal 200, response.status'
@@ -3332,7 +3332,7 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
 
       assert_equal 200, response.status
-      refute_includes response.body, '<details class="message-details" open>'
+      refute_includes response.body, '<details class="message-details"'
       assert_includes response.body, 'class="message message--assistant message--compact message--tool-transcript message--tool-error" data-role="assistant"'
       assert_includes response.body, 'Edit 1'
       assert_includes response.body, '- old item'
@@ -3383,14 +3383,14 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_includes response.body, '<summary><span class="compact-summary">$ git status --short (timeout 30s)</span></summary>'
+      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary">$ git status --short (timeout 30s)</span></div>'
       assert_includes response.body, "$ git status --short (timeout 30s)"
       assert_includes response.body, " M app.rb"
       assert_includes response.body, "Raw details"
       assert_includes response.body, '&quot;type&quot;: &quot;toolCall&quot;'
       assert_includes response.body, '&quot;toolCallId&quot;: &quot;call_123&quot;'
       refute_includes response.body, "[thinking]"
-      refute_includes response.body, '<summary><span class="compact-summary">bash</span></summary>'
+      refute_includes response.body, '<div class="message-details-summary"><span class="compact-summary">bash</span></div>'
     end
   end
 
@@ -3424,11 +3424,11 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'bashCallEntry.body.classList.contains("message-body--edit-preview")'
       assert_includes response.body, 'segment.toolTranscript && segment.error !== true && segment.toolName !== "write" ? segment.text'
       assert_includes response.body, '[bashCallEntry.body.dataset.rawText, segment.text].filter(Boolean).join("\\n\\n")'
-      assert_includes response.body, 'details.open = options.open === true;'
-      assert_includes response.body, 'collapseButton.textContent = "▴ Collapse details";'
-      assert_includes response.body, 'event.target.closest("[data-collapse-details]")'
+      refute_includes response.body, 'details.open = options.open === true;'
+      refute_includes response.body, 'collapseButton.textContent = "▴ Collapse details";'
+      refute_includes response.body, 'event.target.closest("[data-collapse-details]")'
       assert_includes response.body, 'error: message.isError === true'
-      assert_includes response.body, 'open: segment.expanded'
+      refute_includes response.body, 'open: segment.expanded'
       assert_includes response.body, 'error: segment.error'
       assert_includes response.body, '["bash", "read", "edit", "write"].includes(segment.toolName)'
       assert_includes response.body, "part.type === \"toolCall\""
@@ -3477,8 +3477,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function subagentResultRunning(details, result, index, running)"
       assert_includes response.body, 'if (result.stopReason === "stop") return false;'
       assert_includes response.body, 'if (event.toolName === "subagent")'
-      assert_includes response.body, 'entry.details.open = subagentRunning(event);'
-      assert_includes response.body, 'open: event.toolName === "subagent" && subagentRunning(event)'
+      refute_includes response.body, 'entry.details.open = subagentRunning(event);'
+      refute_includes response.body, 'open: event.toolName === "subagent" && subagentRunning(event)'
       assert_includes response.body, 'if (event.toolName === "subagent") return subagentSummary(subagentDetailsFromEvent(event), subagentRunning(event));'
       assert_includes response.body, 'if (part.type === "toolCall") return items.push(`→ ${formatToolCallPlain(part.name, part.arguments || {})}`);'
     end

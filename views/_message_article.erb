@@ -11,8 +11,8 @@
               <% if message.thinking %>
                 <div class="message-body message-body--thinking"><%= render_message_body(message) %></div>
               <% elsif message.compact %>
-                <details class="message-details"<%= " open" if message.expanded %>>
-                  <summary><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></summary>
+                <div class="message-details message-details--always-open">
+                  <div class="message-details-summary"><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></div>
                   <pre class="message-body<%= ' message-body--edit-preview' if message.tool_preview %>"><%= render_compact_message_body(message) %></pre>
                   <% if message.raw_details.to_s != "" %>
                     <% if defined?(message_index) && message_index && defer_raw_details?(message) %>
@@ -27,8 +27,7 @@
                       </details>
                     <% end %>
                   <% end %>
-                  <button type="button" class="details-collapse-button" data-collapse-details>▴ Collapse details</button>
-                </details>
+                </div>
               <% else %>
                 <% if message.role == "assistant" %>
                   <div class="message-body message-body--markdown"><%= render_message_body(message) %></div>

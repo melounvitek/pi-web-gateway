@@ -111,7 +111,7 @@
     .message--status { background: rgba(24, 24, 30, 0.72); color: var(--muted); box-shadow: none; }
     .message--tool { background: #080d20; border-color: rgba(69, 133, 255, 0.32); border-style: dashed; color: var(--text); }
     .message--tool-transcript { background: #283228; border-color: rgba(181, 189, 104, 0.28); color: #d8ded8; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    .message--tool-transcript .message-details summary { color: #d8ded8; }
+    .message--tool-transcript .message-details-summary { color: #d8ded8; }
     .message--tool-transcript .message-body { display: grid; grid-template-columns: minmax(100%, max-content); color: rgba(216, 222, 216, 0.68); line-height: 1.35; tab-size: 2; white-space: pre; overflow-wrap: normal; word-break: normal; }
     .tool-diff-line { display: block; margin: 0 -0.25rem; padding: 0 0.25rem; border-left: 2px solid transparent; }
     .tool-diff-line--add { border-left-color: rgba(181, 189, 104, 0.75); background: rgba(181, 189, 104, 0.12); color: #d8f0a0; }
@@ -133,13 +133,9 @@
     .message--error .role { color: #ffb4b6; }
     .message-meta { font-size: 0.75rem; color: var(--muted-soft); }
     .message-details { min-width: 0; max-width: 100%; }
-    .message-details summary { cursor: pointer; font-weight: 700; color: var(--muted); }
-    .message--tool .message-details summary, .message--tool-transcript .message-details summary { max-width: 100%; overflow-x: auto; white-space: nowrap; }
+    .message-details-summary { margin-bottom: 0.5rem; font-weight: 700; color: var(--muted); }
+    .message--tool .message-details-summary, .message--tool-transcript .message-details-summary { max-width: 100%; overflow-x: auto; white-space: nowrap; }
     .message--tool .message-body, .message--tool-transcript .message-body, .raw-details pre { max-width: 100%; overflow-x: auto; }
-    .message-details summary:hover { color: var(--text); }
-    .message-details[open] summary { margin-bottom: 0.5rem; }
-    .details-collapse-button { margin-top: 0.75rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-weight: 700; padding: 0; }
-    .details-collapse-button:hover { color: var(--text); }
     .compact-summary { margin-left: 0.25rem; }
     .message-body--thinking { font-size: 0.95rem; font-style: italic; line-height: 1.45; color: var(--muted); }
     .message-body--markdown { line-height: 1.6; overflow-wrap: anywhere; }
@@ -164,7 +160,7 @@
     .code-block-copy-button { position: absolute; top: 0.45rem; right: 0.45rem; margin-left: 0; background: rgba(24, 24, 30, 0.88); }
     .message-body--markdown a { color: var(--link); }
     .message-attachments { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.6rem; padding: 0.25rem 0.45rem; border-radius: 0.45rem; background: rgba(138, 190, 183, 0.12); color: var(--muted); font-size: 0.82rem; font-weight: 700; }
-    .message--tool-error .message-details summary { color: #ffb4b6; }
+    .message--tool-error .message-details-summary { color: #ffb4b6; }
     .raw-details { margin-top: 0.75rem; }
     .raw-details summary { font-size: 0.8rem; font-weight: 600; color: var(--muted-soft); }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font-family: inherit; }
@@ -1520,10 +1516,10 @@
       header.append(role);
       if (meta.textContent) header.append(meta);
 
-      const details = document.createElement("details");
-      details.className = "message-details";
-      details.open = options.open === true;
-      const summaryElement = document.createElement("summary");
+      const details = document.createElement("div");
+      details.className = "message-details message-details--always-open";
+      const summaryElement = document.createElement("div");
+      summaryElement.className = "message-details-summary";
       const summaryText = document.createElement("span");
       summaryText.className = "compact-summary";
       renderToolSummary(summaryText, options.summaryParts, summary);
@@ -1531,11 +1527,6 @@
       const body = document.createElement("pre");
       body.className = "message-body";
       renderToolTranscriptBody(body, text, options.toolName, { preview: options.toolPreview === true });
-      const collapseButton = document.createElement("button");
-      collapseButton.type = "button";
-      collapseButton.className = "details-collapse-button";
-      collapseButton.dataset.collapseDetails = "";
-      collapseButton.textContent = "▴ Collapse details";
       details.append(summaryElement, body);
 
       let rawBody = null;
@@ -1549,7 +1540,6 @@
         rawDetailsElement.append(rawSummary, rawBody);
         details.append(rawDetailsElement);
       }
-      details.append(collapseButton);
 
       article.append(header, details);
       liveOutput.append(article);
@@ -1743,7 +1733,7 @@
       if (liveMessageAlreadyRendered(roleName, segment.text, messageTimestampKey(timestamp))) return null;
 
       const entry = segment.compact ?
-        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, open: segment.expanded, error: segment.error }) :
+        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, error: segment.error }) :
         appendMessage("assistant", segment.text, true, shouldScroll, timestamp, { thinking: segment.thinking, finalAssistantResponse });
       if (!entry) return null;
       if (finalAssistantResponse) entry.article.dataset.finalAssistantResponse = "true";
@@ -1880,7 +1870,6 @@
       renderToolSummary(entry.summaryText, null, toolExecutionSummary(event));
       entry.body.textContent = toolExecutionText(event);
       if (entry.rawBody) entry.rawBody.textContent = toolExecutionRawDetails(event);
-      if (event.toolName === "subagent") entry.details.open = subagentRunning(event);
       entry.article.classList.toggle("message--tool-error", event.isError === true);
       afterLiveOutputChange(shouldScroll);
       return entry;
@@ -1895,7 +1884,7 @@
         return;
       }
 
-      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), eventTimestamp(event), { error: event.isError === true, open: event.toolName === "subagent" && subagentRunning(event) });
+      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), eventTimestamp(event), { error: event.isError === true });
       if (entry) liveToolExecutions.set(event.toolCallId, entry);
     }
 
@@ -1905,7 +1894,7 @@
 
     function appendPendingCompactionMessage(timestamp = new Date()) {
       if (liveOutput?.querySelector('[data-pending-compaction="true"]')) return;
-      const entry = appendCompactMessage("status", "Compacting conversation…", "Pi is summarizing the conversation so the session can continue with less context.", true, true, true, "", timestamp, { open: true });
+      const entry = appendCompactMessage("status", "Compacting conversation…", "Pi is summarizing the conversation so the session can continue with less context.", true, true, true, "", timestamp);
       if (entry?.article) entry.article.dataset.pendingCompaction = "true";
     }
 
@@ -1954,7 +1943,7 @@
           } else if (roleName === "user" && !segment.compact) {
             upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);
           } else if (segment.compact) {
-            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, open: segment.expanded, error: segment.error });
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, error: segment.error });
           } else {
             appendMessage(roleName, segment.text, true, shouldScroll, timestamp);
           }
@@ -2518,12 +2507,6 @@
         else scrollToBottom("auto", { force: true });
       });
       reconnectButton?.addEventListener("click", reconnectSession);
-      conversationPanel?.addEventListener("click", (event) => {
-        if (!event.target.closest("[data-collapse-details]")) return;
-        const details = event.target.closest("details.message-details");
-        if (details) details.open = false;
-      });
-
       promptTextarea?.addEventListener("input", () => {
         resizePromptTextarea();
         if (!commandList) return;
