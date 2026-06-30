@@ -399,6 +399,7 @@
     let restorePromptFocusAfterSending = false;
     let escapeStopConfirmationExpiresAt = 0;
     const ESCAPE_STOP_CONFIRMATION_WINDOW_MS = 2000;
+    const HOME_DIR = <%= JSON.generate(Dir.home) %>;
     let eventPollTimer = null;
     let sidebarRefreshTimer = null;
     let sidebarUpdateGeneration = 0;
@@ -1178,7 +1179,16 @@
     function bashCommandLine(part) {
       const args = part?.arguments || {};
       const timeout = args.timeout ? ` (timeout ${args.timeout}s)` : "";
-      return `$ ${args.command || ""}${timeout}`;
+      return `$ ${displayHomePath(args.command || "")}${timeout}`;
+    }
+
+    function displayHomePath(text) {
+      if (!HOME_DIR) return String(text || "");
+      return String(text || "").replace(new RegExp(`(^|[^A-Za-z0-9_.~/-])${escapeRegExp(HOME_DIR)}(?=/|$|[^A-Za-z0-9_.~/-])`, "g"), "$1~");
+    }
+
+    function escapeRegExp(text) {
+      return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     function contentPartText(part) {
@@ -1197,7 +1207,7 @@
     }
 
     function toolSummaryPlain(name, args = {}) {
-      const path = args.path ? ` ${args.path}` : "";
+      const path = args.path ? ` ${displayHomePath(args.path)}` : "";
       const range = name === "read" && args.offset && args.limit ? `:${args.offset}-${Number(args.offset) + Number(args.limit) - 1}` : "";
       return `${name}${path}${range}`;
     }
@@ -1239,7 +1249,7 @@
       if (!["read", "edit", "write"].includes(name)) return null;
       return {
         name,
-        path: args.path || "",
+        path: displayHomePath(args.path || ""),
         range: name === "read" && args.offset && args.limit ? `${args.offset}-${Number(args.offset) + Number(args.limit) - 1}` : ""
       };
     }
@@ -1607,7 +1617,7 @@
           const span = document.createElement("span");
           span.className = `tool-diff-line ${toolDiffLineClass(line, preview)}`;
           if (index < desktopOnlyCount) span.classList.add("tool-output-tail-desktop-extra");
-          span.textContent = line;
+          span.textContent = preview ? line : displayHomePath(line);
           return span;
         });
       }
@@ -1615,7 +1625,7 @@
       return lines.map((line, index) => {
         const span = document.createElement("span");
         span.className = `tool-output-line${index < desktopOnlyCount ? " tool-output-tail-desktop-extra" : ""}`;
-        span.textContent = line;
+        span.textContent = displayHomePath(line);
         return span;
       });
     }

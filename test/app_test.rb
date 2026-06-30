@@ -3169,6 +3169,65 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_open_session_shortens_home_paths_in_tool_transcript_display
+    Dir.mktmpdir do |dir|
+      home_path = File.join(Dir.home, "Work", ".worktrees", "demo", "feature_branch")
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "cd #{home_path} && cd #{Dir.home} && rg shipped app", timeout: 30 } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "bash-1",
+            toolName: "bash",
+            content: [{ type: "text", text: "path=#{home_path}/app/models/order.rb \"#{home_path}/app/services/check.rb\": shipped home=#{Dir.home}:" }],
+            isError: false
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:01:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: File.join(home_path, "app/models/order.rb"), offset: 1, limit: 2 } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:02:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "edit-1",
+            toolName: "edit",
+            content: [{ type: "text", text: "Updated" }],
+            details: { diff: "+ path=#{home_path}/config/routes.rb" },
+            isError: false
+          }
+        }
+      ])
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_includes response.body, "$ cd ~/Work/.worktrees/demo/feature_branch &amp;&amp; cd ~ &amp;&amp; rg shipped app (timeout 30s)"
+      assert_includes response.body, "path=~/Work/.worktrees/demo/feature_branch/app/models/order.rb"
+      assert_includes response.body, "&quot;~/Work/.worktrees/demo/feature_branch/app/services/check.rb&quot;: shipped home=~:"
+      assert_includes response.body, '<span class="tool-path">~/Work/.worktrees/demo/feature_branch/app/models/order.rb</span>'
+      assert_includes response.body, "+ path=~/Work/.worktrees/demo/feature_branch/config/routes.rb"
+      refute_includes response.body, home_path
+    end
+  end
+
   def test_collapses_long_tool_outputs_to_latest_lines
     Dir.mktmpdir do |dir|
       long_output = (1..25).map { |index| "line #{index}" }.join("\n")

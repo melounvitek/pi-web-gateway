@@ -526,7 +526,7 @@ class PiSessionStore
 
   def h_tool_summary(name, path, range)
     html = %(<span class="tool-command">#{escape_html(name)}</span>)
-    html += %( <span class="tool-path">#{escape_html(path)}</span>) unless path.to_s.empty?
+    html += %( <span class="tool-path">#{escape_html(display_home_path(path))}</span>) unless path.to_s.empty?
     html += %(<span class="tool-range">:#{escape_html(range)}</span>) unless range.to_s.empty?
     html
   end
@@ -687,10 +687,15 @@ class PiSessionStore
 
   def bash_command_line(part)
     arguments = part["arguments"].is_a?(Hash) ? part["arguments"] : {}
-    command = arguments["command"].to_s
+    command = display_home_path(arguments["command"])
     timeout = arguments["timeout"]
     suffix = timeout ? " (timeout #{timeout}s)" : ""
     "$ #{command}#{suffix}"
+  end
+
+  def display_home_path(text)
+    home = Dir.home
+    text.to_s.gsub(/(?<![A-Za-z0-9_.~\/-])#{Regexp.escape(home)}(?=\/|\z|[^A-Za-z0-9_.~\/-])/, "~")
   end
 
   def parse_time(value)

@@ -272,6 +272,17 @@ module Web
       message.text.to_s.lines(chomp: true)
     end
 
+    def display_tool_output_line(message, line)
+      return line if message.tool_preview
+
+      display_home_path(line)
+    end
+
+    def display_home_path(text)
+      home = Dir.home
+      text.to_s.gsub(/(?<![A-Za-z0-9_.~\/-])#{Regexp.escape(home)}(?=\/|\z|[^A-Za-z0-9_.~\/-])/, "~")
+    end
+
     def tool_output_hidden_line_count(message, tail_lines)
       [tool_output_lines(message).length - tail_lines, 0].max
     end
@@ -287,14 +298,14 @@ module Web
         return lines.map.with_index do |line, index|
           classes = ["tool-diff-line", tool_diff_line_class(line, message.tool_preview)]
           classes << "tool-output-tail-desktop-extra" if index < desktop_only_count
-          %(<span class="#{h(classes.join(" "))}">#{h(line)}</span>)
+          %(<span class="#{h(classes.join(" "))}">#{h(display_tool_output_line(message, line))}</span>)
         end.join
       end
 
       lines.map.with_index do |line, index|
         classes = ["tool-output-line"]
         classes << "tool-output-tail-desktop-extra" if index < desktop_only_count
-        %(<span class="#{h(classes.join(" "))}">#{h(line)}</span>)
+        %(<span class="#{h(classes.join(" "))}">#{h(display_tool_output_line(message, line))}</span>)
       end.join
     end
 
