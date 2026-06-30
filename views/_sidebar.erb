@@ -50,8 +50,9 @@
                   <option value="<%= h cwd %>"<%= cwd == selected_project_cwd ? " selected" : "" %>><%= h File.basename(cwd) %></option>
                 <% end %>
               </select>
+              <span class="sidebar-filter-spinner" aria-hidden="true"></span>
               <% if sidebar_filters? %>
-                <a class="sidebar-filters-clear" href="<%= h sidebar_filters_clear_url %>">Clear filters</a>
+                <a class="sidebar-filters-clear" href="<%= h sidebar_filters_clear_url %>" data-sidebar-filters-clear>Clear filters</a>
               <% end %>
             </div>
           </form>

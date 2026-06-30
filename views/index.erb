@@ -46,10 +46,13 @@
     .sidebar-session-search.is-open { display: flex; }
     .sidebar-session-search input { flex: 1 1 auto; min-width: 0; padding: 0.5rem 0.65rem; color: var(--text); font-size: 0.84rem; background: rgba(40, 40, 50, 0.72); }
     .sidebar-search-toggle { min-width: 1.65rem; padding: 0.2rem 0.45rem; font-size: 1rem; }
-    .sidebar-search-toggle.is-active { color: var(--accent); border: 1px solid rgba(138, 190, 183, 0.35); }
+    .sidebar-search-toggle.is-active { border: 1px solid rgba(138, 190, 183, 0.72); background: rgba(138, 190, 183, 0.18); color: var(--accent-hover); box-shadow: 0 0 0 2px rgba(138, 190, 183, 0.12); }
     .sidebar-project-filter-form { margin: 0 0 0.65rem; }
     .sidebar-filter-row { display: flex; align-items: center; gap: 0.45rem; }
     .sidebar-project-filter { flex: 1 1 auto; min-width: 0; padding: 0.5rem 0.65rem; color: var(--muted); font-size: 0.84rem; font-weight: 700; background: rgba(40, 40, 50, 0.72); }
+    .sidebar-filter-spinner { display: none; flex: 0 0 auto; width: 0.9rem; height: 0.9rem; border: 2px solid rgba(138, 190, 183, 0.24); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
+    .session-sidebar.is-filtering .sidebar-filter-spinner { display: inline-block; }
+    .session-sidebar.is-filtering .sidebar-project-filter, .session-sidebar.is-filtering .sidebar-filters-clear { opacity: 0.72; pointer-events: none; }
     .sidebar-filters-clear { flex: 0 0 auto; color: var(--muted); font-size: 0.76rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
     .sidebar-filters-clear:hover { color: var(--text); text-decoration: underline; }
     .recent-sessions { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(80, 80, 80, 0.7); }
@@ -2731,6 +2734,10 @@
       return sidebarProjectFilterActive() || sidebarSearchActive();
     }
 
+    function setSidebarFiltering(filtering) {
+      sessionSidebar?.classList.toggle("is-filtering", filtering);
+    }
+
     function syncMobileSessionsUnreadBadges() {
       const count = Number(sessionSidebar?.dataset.unreadSessionCount || 0);
       const label = `${count} unread ${count === 1 ? "session" : "sessions"}`;
@@ -2807,6 +2814,7 @@
     async function changeSidebarProjectFilter(select) {
       if (!select) return;
 
+      setSidebarFiltering(true);
       const targetUrl = new URL(window.location.href);
       if (select.value) {
         targetUrl.searchParams.set("project", select.value);
@@ -3426,6 +3434,18 @@
       if (!select) return;
 
       await changeSidebarProjectFilter(select).catch(() => select.form?.submit());
+    });
+
+    document.addEventListener("submit", (event) => {
+      if (!event.target.closest(".sidebar-session-search")) return;
+
+      setSidebarFiltering(true);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-sidebar-filters-clear]")) return;
+
+      setSidebarFiltering(true);
     });
 
     document.addEventListener("click", (event) => {

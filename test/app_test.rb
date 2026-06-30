@@ -2188,9 +2188,11 @@ class AppTest < Minitest::Test
       document = Nokogiri::HTML(response.body)
       toggle = document.at_css("[data-sidebar-search-toggle]")
       clear = document.at_css(".sidebar-filters-clear")
+      assert document.at_css(".sidebar-filter-spinner")
       assert_includes toggle["class"], "is-active"
       assert_equal "true", toggle["aria-expanded"]
       assert_equal "Clear filters", clear.text
+      assert_equal "", clear["data-sidebar-filters-clear"]
       assert_includes clear["href"], "session=#{Rack::Utils.escape(current_path)}"
       refute_includes clear["href"], "project="
       refute_includes clear["href"], "session_search="
