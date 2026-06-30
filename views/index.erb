@@ -1570,6 +1570,15 @@
         return;
       }
 
+      const hasText = rawText !== "";
+      collapse.hidden = !hasText;
+      if (!hasText) {
+        const control = collapse.querySelector("[data-tool-output-collapse-control]");
+        if (control) control.hidden = true;
+        body.replaceChildren();
+        return;
+      }
+
       const expanded = collapse.dataset.expanded === "true";
       const shouldCollapse = collapse.dataset.toolOutputCollapsible === "true" && lines.length > TOOL_OUTPUT_DESKTOP_TAIL_LINES;
       const fullTemplate = collapse.querySelector("[data-tool-output-full]");
