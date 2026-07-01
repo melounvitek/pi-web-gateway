@@ -3033,7 +3033,7 @@
     }
 
     function firstNewSessionProjectOption(select) {
-      return Array.from(select?.options || []).find((option) => option.value && !option.dataset.newSessionNewPathOption);
+      return Array.from(select?.options || []).find((option) => option.value && !option.hasAttribute("data-new-session-new-path-option"));
     }
 
     function setNewSessionProjectMode(form) {
@@ -3055,7 +3055,7 @@
       cwdValidationController?.abort();
       projectFields.hidden = false;
       pathFields.hidden = true;
-      if (!select.value || select.selectedOptions[0]?.dataset.newSessionNewPathOption) select.value = option.value;
+      if (!select.value || select.selectedOptions[0]?.hasAttribute("data-new-session-new-path-option")) select.value = option.value;
       hiddenCwd.value = select.value;
       submit.disabled = !hiddenCwd.value;
       if (status) status.hidden = true;
@@ -3372,7 +3372,7 @@
       const select = event.target.closest("[data-new-session-known-cwd]");
       if (!select) return;
       const form = select.closest("form");
-      if (select.selectedOptions[0]?.dataset.newSessionNewPathOption) {
+      if (select.selectedOptions[0]?.hasAttribute("data-new-session-new-path-option")) {
         setNewSessionPathMode(form);
       } else {
         setNewSessionProjectMode(form);

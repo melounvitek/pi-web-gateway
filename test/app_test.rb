@@ -2604,6 +2604,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function setNewSessionProjectMode(form)"
       assert_includes response.body, "function setNewSessionPathMode(form,"
       assert_includes response.body, "data-new-session-new-path-option"
+      assert_includes response.body, "hasAttribute(\"data-new-session-new-path-option\")"
       assert_includes response.body, "form.dataset.submitting === \"true\""
       assert_includes response.body, "function addSessionViewFormParams(formData)"
       assert_includes response.body, "form.action, { method: \"POST\", body: formData, headers: { \"Accept\": \"application/json\" } }"
