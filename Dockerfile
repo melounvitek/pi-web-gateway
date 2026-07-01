@@ -1,0 +1,59 @@
+ARG RUBY_VERSION=4.0.2
+FROM ruby:${RUBY_VERSION}-bookworm
+
+ARG NODE_MAJOR=24
+ARG PI_VERSION=latest
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+ENV APP_HOME=/app \
+    HOME=/home/piuser \
+    BUNDLE_PATH=/usr/local/bundle \
+    GEM_HOME=/usr/local/bundle \
+    PATH=/usr/local/bundle/bin:/home/piuser/.local/bin:$PATH
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    fd-find \
+    git \
+    gnupg \
+    jq \
+    less \
+    openssh-client \
+    procps \
+    python3 \
+    python3-pip \
+    ripgrep \
+    sudo \
+    tini \
+    unzip \
+    xz-utils \
+    build-essential \
+  && install -d -m 0755 /etc/apt/keyrings \
+  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends nodejs \
+  && npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION} \
+  && if getent group "$GROUP_ID" >/dev/null; then group_name="$(getent group "$GROUP_ID" | cut -d: -f1)"; else groupadd --gid "$GROUP_ID" piuser && group_name=piuser; fi \
+  && if getent passwd "$USER_ID" >/dev/null; then echo "USER_ID $USER_ID already exists in the base image" >&2; exit 1; fi \
+  && useradd --uid "$USER_ID" --gid "$group_name" --create-home --shell /bin/bash piuser \
+  && mkdir -p /app /work /home/piuser/.pi /home/piuser/.config/pi-web-gateway \
+  && chown -R piuser:"$group_name" /app /work /home/piuser \
+  && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY Gemfile Gemfile.lock ./
+RUN bundle install
+
+COPY . .
+RUN chown -R piuser:"$(id -gn piuser)" /app \
+  && chmod +x bin/start bin/setup bin/docker-entrypoint
+
+USER piuser
+ENTRYPOINT ["tini", "--", "/app/bin/docker-entrypoint"]
+CMD ["/app/bin/start"]

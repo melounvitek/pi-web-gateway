@@ -1,0 +1,12 @@
+.git
+.pi
+.env
+.env.*
+!.env.example
+workspace
+log
+tmp
+coverage
+node_modules
+vendor/bundle
+.DS_Store

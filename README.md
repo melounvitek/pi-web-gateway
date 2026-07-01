@@ -44,6 +44,51 @@ PI_GATEWAY_PORT=4568 mise run start
 mise run dev
 ```
 
+## Dockerized runtime
+
+The repository includes a portable Docker setup that runs both the gateway and the Pi CLI inside the container. The only host directory exposed to Pi is the workspace you mount at `/work`; Pi config, sessions, OAuth/API-key credentials, and gateway config persist in Docker volumes by default.
+
+```sh
+cp .env.example .env
+mkdir -p workspace
+# edit .env, especially PI_WORKSPACE if your code lives elsewhere
+```
+
+`.env` may contain secrets such as provider API keys and `PI_GATEWAY_ADMIN_PASSWORD`; do not commit it. You can also leave provider keys blank and authorize Pi interactively:
+
+```sh
+docker compose build
+docker compose run --rm pi pi
+# inside Pi, run /login and choose your provider
+```
+
+Start the browser gateway:
+
+```sh
+docker compose up gateway
+```
+
+The gateway listens on <http://localhost:4567> by default and binds to `127.0.0.1`. Set `PI_GATEWAY_BIND=0.0.0.0` only when you want remote access. If `PI_GATEWAY_ADMIN_PASSWORD` is blank, the container generates one and stores it in the `gateway_config` volume. To set your own password, put it in `.env` before starting the gateway.
+
+To expose existing codebases, set `PI_WORKSPACE` in `.env`:
+
+```sh
+PI_WORKSPACE=/home/alice/code
+```
+
+That host directory appears as `/work` inside the container. For direct Pi use in the current repository without Compose, build the image and mount the current directory:
+
+```sh
+docker build -t pi-web-gateway:local .
+docker run --rm -it \
+  -v "$PWD:/work" \
+  -v pi_web_gateway_pi_data:/home/piuser/.pi \
+  -w /work \
+  pi-web-gateway:local pi
+```
+
+Advanced users can replace the named volumes with host mounts for `~/.pi` or gateway config, but doing so reduces isolation.
+
 ## Tests
 
 ```sh
