@@ -2254,6 +2254,34 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_new_session_redirect_uses_selected_cwd_as_project_filter
+    Dir.mktmpdir do |dir|
+      production_cwd = File.join(dir, "mixit-production-tool")
+      wholesale_cwd = File.join(dir, "mixit-wholesale")
+      FileUtils.mkdir_p(production_cwd)
+      FileUtils.mkdir_p(wholesale_cwd)
+      new_path = File.join(dir, "new-session.jsonl")
+      calls = []
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :new_rpc_client_factory, [->(started_cwd) {
+        calls << [:start_new, started_cwd]
+        FakeRpcClient.new(calls, [], new_path)
+      }]
+
+      response = Rack::MockRequest.new(PiWebGateway).post(
+        "/sessions/new_at_cwd",
+        params: { "cwd" => wholesale_cwd, "project" => production_cwd },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      redirect = JSON.parse(response.body).fetch("redirect")
+      assert_includes redirect, "project=#{Rack::Utils.escape(File.realpath(wholesale_cwd))}"
+      refute_includes redirect, "project=#{Rack::Utils.escape(production_cwd)}"
+      assert_equal [[:start_new, File.realpath(wholesale_cwd)], [:get_state]], calls
+    end
+  end
+
   def test_sidebar_project_filter_lists_projects_by_recent_session_activity
     Dir.mktmpdir do |dir|
       older_cwd = File.join(dir, "older-project")
@@ -2603,6 +2631,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "fetch(validationUrl"
       assert_includes response.body, "function setNewSessionProjectMode(form)"
       assert_includes response.body, "function setNewSessionPathMode(form,"
+      assert_includes response.body, "function syncNewSessionSelectedCwd(form)"
       assert_includes response.body, "data-new-session-new-path-option"
       assert_includes response.body, "hasAttribute(\"data-new-session-new-path-option\")"
       assert_includes response.body, "form.dataset.submitting === \"true\""

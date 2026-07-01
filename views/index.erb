@@ -3075,6 +3075,13 @@
       if (focus) input.focus();
     }
 
+    function syncNewSessionSelectedCwd(form) {
+      const select = form?.querySelector("[data-new-session-known-cwd]");
+      const hiddenCwd = form?.querySelector("[data-new-session-cwd-value]");
+      const option = select?.selectedOptions[0];
+      if (option && !option.hasAttribute("data-new-session-new-path-option") && hiddenCwd) hiddenCwd.value = option.value;
+    }
+
     function validateNewSessionCwd(form, { delay = 250 } = {}) {
       const input = form?.querySelector("[data-new-session-cwd-input]");
       const hiddenCwd = form?.querySelector("[data-new-session-cwd-value]");
@@ -3427,6 +3434,7 @@
       const submit = form.querySelector("[data-new-session-submit]");
       if (submit?.disabled || form.dataset.submitting === "true") return;
 
+      syncNewSessionSelectedCwd(form);
       const formData = new FormData(form);
       addSessionViewFormParams(formData);
       const modal = form.closest("[data-modal]");

@@ -196,6 +196,7 @@ module Web
           halt 422, result.fetch(:error)
         end
 
+        params["project"] = result.fetch(:cwd)
         redirect_to_new_session(start_new_session(result.fetch(:cwd)))
       end
 
