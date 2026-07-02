@@ -4962,6 +4962,36 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_repeated_workspace_requests_are_bound_to_each_requesting_browser
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      PiWebGateway.set :multi_user_mode, true
+      approver_cookie = workspace_cookie_for("Correct Horse 42")
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("approver", label: "test")
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("first", label: "test")
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("second", label: "test")
+      store = WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path)
+      workspace_id = workspace_id_for("Different Horse 42")
+      first_request = store.request_access(workspace_id, browser_token: "first")
+      second_request = store.request_access(workspace_id, browser_token: "second")
+      request = Rack::MockRequest.new(PiWebGateway)
+      request.post(
+        "/workspace-access/approve",
+        params: { "code" => second_request.fetch("code") },
+        "HTTP_COOKIE" => "pi_gateway_browser=approver; #{approver_cookie}"
+      )
+
+      first_status = request.get("/workspace-access/status", params: { "code" => first_request.fetch("code") }, "HTTP_COOKIE" => "pi_gateway_browser=first")
+      second_status = request.get("/workspace-access/status", params: { "code" => second_request.fetch("code") }, "HTTP_COOKIE" => "pi_gateway_browser=second")
+
+      refute_equal first_request.fetch("code"), second_request.fetch("code")
+      assert_includes Array(first_status["Set-Cookie"]).join("\n"), "pi_gateway_workspace="
+      assert_includes Array(second_status["Set-Cookie"]).join("\n"), "pi_gateway_workspace="
+    end
+  end
+
   def test_workspace_approval_requires_current_approved_workspace
     Dir.mktmpdir do |dir|
       write_session(dir)

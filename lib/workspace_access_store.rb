@@ -40,7 +40,9 @@ class WorkspaceAccessStore
 
     now = Time.now.utc.iso8601
     update do |state|
-      request = state.fetch("pending_requests").find { |item| item["workspace_id"] == workspace_id }
+      request = state.fetch("pending_requests").find do |item|
+        item["workspace_id"] == workspace_id && item["browser_token"] == browser_token.to_s
+      end
       unless request
         request = {
           "code" => unique_code(state),
