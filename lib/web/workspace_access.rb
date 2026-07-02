@@ -179,7 +179,7 @@ module Web
 
         request = workspace_access_store.request_for_code(params["code"].to_s)
         status_value = if request && workspace_access_store.approved?(request["workspace_id"])
-          set_workspace_cookie(request.fetch("workspace_id"))
+          set_workspace_cookie(request.fetch("workspace_id")) if request["browser_token"] == browser_token
           "approved"
         elsif request && request["denied_at"]
           "denied"
@@ -197,8 +197,15 @@ module Web
         halt 404 unless multi_user_mode?
         halt 403 unless workspace_approval_allowed?
 
+        requests = workspace_access_store.pending_requests.map do |request|
+          {
+            "code" => request["code"],
+            "created_at" => request["created_at"],
+            "requested_at" => request["requested_at"]
+          }
+        end
         content_type :json
-        JSON.generate(requests: workspace_access_store.pending_requests)
+        JSON.generate(requests: requests)
       end
 
       app.post "/workspace-access/approve" do

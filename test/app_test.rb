@@ -4917,7 +4917,10 @@ class AppTest < Minitest::Test
 
       pending_response = request.get("/workspace-access/pending", "HTTP_COOKIE" => "pi_gateway_browser=approver; #{approver_cookie}")
       assert_equal 200, pending_response.status
-      assert_equal pending.fetch("code"), JSON.parse(pending_response.body).fetch("requests").first.fetch("code")
+      pending_payload = JSON.parse(pending_response.body).fetch("requests").first
+      assert_equal pending.fetch("code"), pending_payload.fetch("code")
+      refute_includes pending_payload.keys, "workspace_id"
+      refute_includes pending_payload.keys, "browser_token"
 
       approve_response = request.post(
         "/workspace-access/approve",
@@ -4926,6 +4929,36 @@ class AppTest < Minitest::Test
       )
       assert_equal 200, approve_response.status
       assert store.approved?(workspace_id_for("Different Horse 42"))
+    end
+  end
+
+  def test_approved_workspace_status_cookie_is_only_set_for_requesting_browser
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      PiWebGateway.set :multi_user_mode, true
+      approver_cookie = workspace_cookie_for("Correct Horse 42")
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("approver", label: "test")
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("requester", label: "test")
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("other", label: "test")
+      store = WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path)
+      pending = store.request_access(workspace_id_for("Different Horse 42"), browser_token: "requester")
+      request = Rack::MockRequest.new(PiWebGateway)
+      request.post(
+        "/workspace-access/approve",
+        params: { "code" => pending.fetch("code") },
+        "HTTP_COOKIE" => "pi_gateway_browser=approver; #{approver_cookie}"
+      )
+
+      other_status = request.get("/workspace-access/status", params: { "code" => pending.fetch("code") }, "HTTP_COOKIE" => "pi_gateway_browser=other")
+      requester_status = request.get("/workspace-access/status", params: { "code" => pending.fetch("code") }, "HTTP_COOKIE" => "pi_gateway_browser=requester")
+
+      assert_equal 200, other_status.status
+      assert_equal "approved", JSON.parse(other_status.body).fetch("status")
+      refute_includes Array(other_status["Set-Cookie"]).join("\n"), "pi_gateway_workspace="
+      assert_equal 200, requester_status.status
+      assert_includes Array(requester_status["Set-Cookie"]).join("\n"), "pi_gateway_workspace="
     end
   end
 
