@@ -3,6 +3,7 @@ FROM ruby:${RUBY_VERSION}-bookworm
 
 ARG NODE_MAJOR=24
 ARG PI_VERSION=latest
+ARG SESSION_NAMING_VERSION=0.2.1
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 
@@ -49,6 +50,11 @@ RUN apt-get update \
   && chown -R piuser:"$group_name" /app /work /home/piuser \
   && ln -s /usr/bin/fdfind /usr/local/bin/fd \
   && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /home/piuser/.pi/agent/npm \
+  && printf '{\n  "packages": [\n    "npm:@furbyhaxx/pi-session-naming@%s"\n  ]\n}\n' "$SESSION_NAMING_VERSION" > /home/piuser/.pi/agent/settings.json \
+  && npm install --prefix /home/piuser/.pi/agent/npm --omit=dev @furbyhaxx/pi-session-naming@${SESSION_NAMING_VERSION} \
+  && chown -R piuser:"$(id -gn piuser)" /home/piuser/.pi
 
 WORKDIR /app
 COPY Gemfile Gemfile.lock ./

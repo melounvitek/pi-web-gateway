@@ -46,7 +46,7 @@ mise run dev
 
 ## Dockerized runtime
 
-The repository includes a portable Docker setup that runs both the gateway and the Pi CLI inside the container. The image includes Ruby, Node.js, Pi, mise, and common development tools. The only host directory exposed to Pi is the workspace you mount; Pi config, sessions, OAuth/API-key credentials, gateway config, and mise-installed runtimes persist in Docker volumes by default.
+The repository includes a portable Docker setup that runs both the gateway and the Pi CLI inside the container. The image includes Ruby, Node.js, Pi, mise, the `@furbyhaxx/pi-session-naming` Pi package, and common development tools. The only host directory exposed to Pi is the workspace you mount; Pi config, sessions, OAuth/API-key credentials, gateway config, and mise-installed runtimes persist in Docker volumes by default.
 
 ```sh
 cp .env.example .env
@@ -87,6 +87,12 @@ docker compose run --rm pi mise exec -- <command>
 ```
 
 Mise data, config, and cache are stored in Docker volumes, so installed runtimes survive container recreation without touching the host's mise installation.
+
+Fresh `pi_data` volumes include the session naming package by default, which enables automatic titles plus `/rename` and `/sessions`. If you already created `pi_data` before this package was added, install it once inside Docker:
+
+```sh
+docker compose run --rm pi pi install npm:@furbyhaxx/pi-session-naming@0.2.1
+```
 
 For direct Pi use in the current repository without Compose, build the image and mount the current directory:
 
