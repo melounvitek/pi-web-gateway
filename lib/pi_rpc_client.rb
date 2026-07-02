@@ -7,14 +7,27 @@ class PiRpcClient
   DEFAULT_EVENT_BUFFER_LIMIT = 5_000
   GATEWAY_EXTENSION_PATH = File.expand_path("../pi_extensions/pi-web-gateway-tree.ts", __dir__)
 
-  def self.start(session_path, popen: Open3.method(:popen3))
-    stdin, stdout, stderr, wait_thread = popen.call("pi", "--mode", "rpc", "--extension", GATEWAY_EXTENSION_PATH, "--session", session_path)
+  def self.start(session_path, command_prefix: ["pi"], popen: Open3.method(:popen3))
+    stdin, stdout, stderr, wait_thread = popen.call(*command_prefix, "--mode", "rpc", "--extension", GATEWAY_EXTENSION_PATH, "--session", session_path)
     new(stdin: stdin, stdout: stdout, stderr: stderr, wait_thread: wait_thread)
   end
 
-  def self.start_in_cwd(cwd, popen: Open3.method(:popen3))
-    stdin, stdout, stderr, wait_thread = popen.call("pi", "--mode", "rpc", "--extension", GATEWAY_EXTENSION_PATH, chdir: cwd)
+  def self.start_in_cwd(cwd, command_prefix: ["pi"], popen: Open3.method(:popen3))
+    stdin, stdout, stderr, wait_thread = popen.call(*command_prefix, "--mode", "rpc", "--extension", GATEWAY_EXTENSION_PATH, chdir: cwd)
     new(stdin: stdin, stdout: stdout, stderr: stderr, wait_thread: wait_thread)
+  end
+
+  def self.command_prefix(node_path:, pi_path:)
+    node_path = node_path.to_s.strip
+    pi_path = pi_path.to_s.strip
+
+    return ["pi"] if node_path.empty? && pi_path.empty?
+
+    if node_path.empty? || pi_path.empty?
+      raise ArgumentError, "PI_GATEWAY_NODE and PI_GATEWAY_PI must be set together to pin Pi to a specific Node runtime. Set both, or unset both to run pi from PATH."
+    end
+
+    [node_path, pi_path]
   end
 
   def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, clock: -> { Time.now })

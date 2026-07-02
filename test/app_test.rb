@@ -55,6 +55,34 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_app_boot_configures_pi_rpc_command_from_node_and_pi_paths
+    env = ENV.to_h.merge(
+      "PI_GATEWAY_ADMIN_PASSWORD" => "secret",
+      "PI_GATEWAY_ENV_PATH" => File.join(Dir.tmpdir, "missing-pi-web-gateway-env"),
+      "PI_GATEWAY_NODE" => "/opt/node",
+      "PI_GATEWAY_PI" => "/opt/pi"
+    )
+
+    stdout, stderr, status = Open3.capture3(env, RbConfig.ruby, "-I.", "-e", "require './app'; puts PiWebGateway.settings.pi_rpc_command_prefix.join(' ')")
+
+    assert status.success?, stderr
+    assert_equal "/opt/node /opt/pi", stdout.strip
+  end
+
+  def test_app_boot_rejects_partial_pi_rpc_command_config
+    env = ENV.to_h.merge(
+      "PI_GATEWAY_ADMIN_PASSWORD" => "secret",
+      "PI_GATEWAY_ENV_PATH" => File.join(Dir.tmpdir, "missing-pi-web-gateway-env"),
+      "PI_GATEWAY_NODE" => "/opt/node",
+      "PI_GATEWAY_PI" => nil
+    )
+
+    _stdout, stderr, status = Open3.capture3(env, RbConfig.ruby, "-I.", "-e", "require './app'")
+
+    refute status.success?
+    assert_includes stderr, "PI_GATEWAY_NODE and PI_GATEWAY_PI must be set together"
+  end
+
   def test_app_boot_prefers_process_env_over_user_config
     Dir.mktmpdir do |home|
       env_path = File.join(home, "gateway-env")

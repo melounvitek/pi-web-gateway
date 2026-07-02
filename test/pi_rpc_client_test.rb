@@ -20,6 +20,21 @@ class PiRpcClientTest < Minitest::Test
     assert_equal [["pi", "--mode", "rpc", "--extension", PiRpcClient::GATEWAY_EXTENSION_PATH, "--session", "/tmp/session.jsonl"]], calls
   end
 
+  def test_starts_pi_rpc_process_with_configured_node_and_pi_paths
+    calls = []
+    input = StringIO.new
+    output = StringIO.new
+    popen = ->(*args) do
+      calls << args
+      [input, output, StringIO.new, Object.new]
+    end
+
+    client = PiRpcClient.start("/tmp/session.jsonl", command_prefix: ["/opt/node", "/opt/pi"], popen: popen)
+
+    assert_instance_of PiRpcClient, client
+    assert_equal [["/opt/node", "/opt/pi", "--mode", "rpc", "--extension", PiRpcClient::GATEWAY_EXTENSION_PATH, "--session", "/tmp/session.jsonl"]], calls
+  end
+
   def test_starts_new_pi_rpc_process_in_cwd
     calls = []
     input = StringIO.new
@@ -33,6 +48,37 @@ class PiRpcClientTest < Minitest::Test
 
     assert_instance_of PiRpcClient, client
     assert_equal [["pi", "--mode", "rpc", "--extension", PiRpcClient::GATEWAY_EXTENSION_PATH, { chdir: "/tmp/project" }]], calls
+  end
+
+  def test_starts_new_pi_rpc_process_with_configured_node_and_pi_paths
+    calls = []
+    input = StringIO.new
+    output = StringIO.new
+    popen = ->(*args) do
+      calls << args
+      [input, output, StringIO.new, Object.new]
+    end
+
+    client = PiRpcClient.start_in_cwd("/tmp/project", command_prefix: ["/opt/node", "/opt/pi"], popen: popen)
+
+    assert_instance_of PiRpcClient, client
+    assert_equal [["/opt/node", "/opt/pi", "--mode", "rpc", "--extension", PiRpcClient::GATEWAY_EXTENSION_PATH, { chdir: "/tmp/project" }]], calls
+  end
+
+  def test_command_prefix_defaults_to_pi
+    assert_equal ["pi"], PiRpcClient.command_prefix(node_path: nil, pi_path: nil)
+  end
+
+  def test_command_prefix_uses_configured_node_and_pi_paths
+    assert_equal ["/opt/node", "/opt/pi"], PiRpcClient.command_prefix(node_path: " /opt/node ", pi_path: " /opt/pi ")
+  end
+
+  def test_command_prefix_requires_node_and_pi_paths_together
+    error = assert_raises(ArgumentError) do
+      PiRpcClient.command_prefix(node_path: "/opt/node", pi_path: nil)
+    end
+
+    assert_includes error.message, "PI_GATEWAY_NODE and PI_GATEWAY_PI must be set together"
   end
 
   def test_sends_jsonl_command_and_returns_matching_response

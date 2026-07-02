@@ -76,8 +76,10 @@ class PiWebGateway < Sinatra::Base
   set :read_state_path, ENV.fetch("PI_READ_STATE_PATH", File.expand_path("~/.pi/web-gateway/read-state.json"))
   set :browser_access_path, ENV.fetch("PI_BROWSER_ACCESS_PATH", File.expand_path("~/.pi/web-gateway/browser-access.json"))
   set :gateway_admin_password, gateway_admin_password
-  set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
-  set :new_rpc_client_factory, [->(cwd) { PiRpcClient.start_in_cwd(cwd) }]
+  pi_rpc_command_prefix = PiRpcClient.command_prefix(node_path: ENV["PI_GATEWAY_NODE"], pi_path: ENV["PI_GATEWAY_PI"])
+  set :pi_rpc_command_prefix, pi_rpc_command_prefix
+  set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path, command_prefix: pi_rpc_command_prefix) }]
+  set :new_rpc_client_factory, [->(cwd) { PiRpcClient.start_in_cwd(cwd, command_prefix: pi_rpc_command_prefix) }]
   set :rpc_client_registry, nil
   set :pending_session_registry, Rpc::PendingSessionRegistry.new
   set :rpc_idle_timeout_seconds, ENV.fetch("PI_RPC_IDLE_TIMEOUT_SECONDS", "1800").to_i

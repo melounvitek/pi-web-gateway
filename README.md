@@ -38,6 +38,15 @@ PI_GATEWAY_HOST=100.x.y.z mise run start
 PI_GATEWAY_PORT=4568 mise run start
 ```
 
+If Pi must run with a different Node runtime than the project-local one selected by mise, set both paths in `~/.config/pi-web-gateway/env`:
+
+```sh
+PI_GATEWAY_NODE=/path/to/node
+PI_GATEWAY_PI=/path/to/pi
+```
+
+When these are set, the gateway starts Pi as `$PI_GATEWAY_NODE $PI_GATEWAY_PI`. Set both variables together, or leave both unset to run `pi` from `PATH`.
+
 ## Development server
 
 ```sh
