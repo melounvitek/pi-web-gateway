@@ -15,6 +15,12 @@ class WorkspaceAccessStore
     data.fetch("approved_workspaces", []).any? { |workspace| workspace["workspace_id"] == workspace_id }
   end
 
+  def request_for_code(code)
+    return if code.to_s.empty?
+
+    data.fetch("pending_requests", []).find { |request| request["code"] == code }
+  end
+
   def any_approved?
     !data.fetch("approved_workspaces", []).empty?
   end
@@ -52,7 +58,7 @@ class WorkspaceAccessStore
   end
 
   def pending_requests
-    data.fetch("pending_requests", []).select { |request| !request["denied_at"] }
+    data.fetch("pending_requests", []).select { |request| !request["denied_at"] && !request["approved_at"] }
   end
 
   def approve_code(code)
@@ -60,7 +66,7 @@ class WorkspaceAccessStore
       request = state.fetch("pending_requests").find { |item| item["code"] == code }
       if request
         add_approved_workspace(state, request.fetch("workspace_id"))
-        state.fetch("pending_requests").delete(request)
+        request["approved_at"] = Time.now.utc.iso8601
       end
       request
     end
@@ -78,6 +84,7 @@ class WorkspaceAccessStore
     return "approved" if approved?(workspace_id)
 
     request = data.fetch("pending_requests", []).find { |item| item["workspace_id"] == workspace_id }
+    return "approved" if request && request["approved_at"]
     return "denied" if request && request["denied_at"]
     request ? "pending" : "unknown"
   end

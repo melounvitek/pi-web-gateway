@@ -21,6 +21,7 @@ class AppTest < Minitest::Test
     PiWebGateway.set :browser_access_path, File.join(@browser_access_root, "browser-access.json")
     PiWebGateway.set :multi_user_mode, false
     PiWebGateway.set :workspace_secret_path, File.join(@workspace_root, "workspace-secret")
+    PiWebGateway.set :workspace_access_path, File.join(@workspace_root, "workspace-access.json")
     PiWebGateway.set :workspace_ownership_path, File.join(@workspace_root, "session-owners.json")
     PiWebGateway.set :gateway_admin_password, nil
     PiWebGateway.set :rpc_client_registry, nil
@@ -4838,7 +4839,7 @@ class AppTest < Minitest::Test
     assert_equal ["workspace-b"], stored.fetch("pending_requests").map { |pending| pending.fetch("workspace_id") }
   end
 
-  def test_multi_user_flow_requires_session_key_after_browser_approval
+  def test_multi_user_flow_requires_workspace_password_after_browser_approval
     Dir.mktmpdir do |dir|
       write_session(dir)
       PiWebGateway.set :sessions_root, dir
@@ -4851,19 +4852,54 @@ class AppTest < Minitest::Test
       login = request.post("/browser-access/admin-login", params: { "password" => "secret" }, "HTTP_COOKIE" => browser_cookie)
       assert_equal 303, login.status
 
-      needs_key = request.get("/", "HTTP_COOKIE" => browser_cookie)
-      assert_equal 403, needs_key.status
-      assert_includes needs_key.body, "Personal session key"
+      needs_password = request.get("/", "HTTP_COOKIE" => browser_cookie)
+      assert_equal 403, needs_password.status
+      assert_includes needs_password.body, "Workspace password"
+      assert_includes needs_password.body, "Admin password"
 
-      weak_key = request.post("/workspace-key", params: { "workspace_key" => "short" }, "HTTP_COOKIE" => browser_cookie)
-      assert_equal 403, weak_key.status
-      assert_includes weak_key.body, "Use at least 12 characters"
+      weak_password = request.post("/workspace-key", params: { "workspace_key" => "short" }, "HTTP_COOKIE" => browser_cookie)
+      assert_equal 403, weak_password.status
+      assert_includes weak_password.body, "Use at least 12 characters"
 
-      key_response = request.post("/workspace-key", params: { "workspace_key" => "Correct Horse 42" }, "HTTP_COOKIE" => browser_cookie)
+      wrong_admin_password = request.post(
+        "/workspace-key",
+        params: { "workspace_key" => "Correct Horse 42", "admin_password" => "wrong" },
+        "HTTP_COOKIE" => browser_cookie
+      )
+      assert_equal 403, wrong_admin_password.status
+      assert_includes wrong_admin_password.body, "Admin password did not match"
+
+      key_response = request.post(
+        "/workspace-key",
+        params: { "workspace_key" => "Correct Horse 42", "admin_password" => "secret" },
+        "HTTP_COOKIE" => browser_cookie
+      )
       workspace_cookie = Array(key_response["Set-Cookie"]).first.split(";", 2).first
       assert_equal 303, key_response.status
       assert_includes workspace_cookie, "pi_gateway_workspace="
+      assert WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path).approved?(workspace_id_from_cookie(workspace_cookie))
       assert File.exist?(PiWebGateway.settings.workspace_secret_path)
+    end
+  end
+
+  def test_multi_user_unknown_workspace_password_waits_for_approval
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      PiWebGateway.set :multi_user_mode, true
+      approved_workspace_id = workspace_id_for("Correct Horse 42")
+      WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path).approve_workspace(approved_workspace_id)
+      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("approved", label: "test")
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      response = request.post("/workspace-key", params: { "workspace_key" => "Different Horse 42" }, "HTTP_COOKIE" => "pi_gateway_browser=approved")
+
+      assert_equal 403, response.status
+      assert_includes response.body, "Waiting for workspace approval"
+      refute_includes Array(response["Set-Cookie"]).join("\n"), "pi_gateway_workspace="
+      store = WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path)
+      assert_equal "pending", store.pending_status(workspace_id_for("Different Horse 42"))
     end
   end
 
@@ -5143,6 +5179,7 @@ class AppTest < Minitest::Test
 
   def workspace_cookie_for(key)
     workspace_id = workspace_id_for(key)
+    WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path).approve_workspace(workspace_id)
     "pi_gateway_workspace=#{workspace_id}"
   end
 

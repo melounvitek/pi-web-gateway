@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pi Web Gateway Session Key</title>
+  <title>Pi Web Gateway Workspace</title>
   <style>
     :root { color-scheme: dark; --bg: #18181e; --panel: #1e1e24; --panel-soft: #282832; --border: #505050; --text: #d4d4d4; --muted: #808080; --accent: #8abeb7; --danger: #cc6666; --button-text: #18181e; }
     *, *::before, *::after { box-sizing: border-box; }
@@ -14,22 +14,52 @@
     form { display: grid; gap: 0.6rem; margin: 0; }
     input { width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.55rem; color: var(--text); background: var(--panel-soft); font: inherit; }
     button { justify-self: start; padding: 0.55rem 0.9rem; border: 0; border-radius: 0.55rem; background: var(--accent); color: var(--button-text); font-weight: 800; cursor: pointer; }
+    .code { display: inline-flex; justify-content: center; padding: 0.8rem 1rem; border: 1px solid rgba(138, 190, 183, 0.5); border-radius: 0.75rem; background: rgba(138, 190, 183, 0.12); color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 1.6rem; font-weight: 800; letter-spacing: 0.08em; }
     .error { padding: 0.7rem; border: 1px solid rgba(204, 102, 102, 0.5); border-radius: 0.65rem; color: #ffb4b6; background: rgba(204, 102, 102, 0.14); }
     .muted { font-size: 0.9rem; }
   </style>
 </head>
+<% if @workspace_pending_request %>
+<body data-workspace-status-url="/workspace-access/status?code=<%= h Rack::Utils.escape(@workspace_pending_request.fetch("code")) %>">
+  <main>
+    <h1>Waiting for workspace approval</h1>
+    <p>An approved workspace user needs to approve this workspace before it can show sessions.</p>
+    <div class="code"><%= h @workspace_pending_request.fetch("code") %></div>
+    <p class="muted" data-workspace-status-message>Keep this page open. It will continue automatically after approval.</p>
+    <form method="get" action="/">
+      <button type="submit">Try again</button>
+    </form>
+  </main>
+  <script>
+    async function pollWorkspaceStatus() {
+      try {
+        const response = await fetch(document.body.dataset.workspaceStatusUrl, { headers: { "Accept": "application/json" } });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (payload.status === "approved") window.location = <%= JSON.generate(@workspace_return_to || "/") %>;
+        if (payload.status === "denied") document.querySelector("[data-workspace-status-message]").textContent = "Workspace request denied. Try again with a different password.";
+      } catch (_error) {}
+      setTimeout(pollWorkspaceStatus, 2000);
+    }
+    pollWorkspaceStatus();
+  </script>
+</body>
+<% else %>
 <body>
   <main>
-    <h1>Personal session key</h1>
-    <p>Enter your personal session key. Use the same key on another approved browser to see the same Pi sessions.</p>
-    <p class="muted">This is not an account login. Any key opens its own session list.</p>
+    <h1>Workspace password</h1>
+    <p>Enter your workspace password. Use the same password on another approved browser to see the same Pi sessions.</p>
+    <p class="muted">New workspaces need approval before they can open a session list.</p>
+    <% if @workspace_bootstrap_required %><p class="muted">Create the first workspace with the admin password.</p><% end %>
     <% if @workspace_key_error %><div class="error"><%= h @workspace_key_error %></div><% end %>
 
     <form method="post" action="/workspace-key">
       <input type="hidden" name="return_to" value="<%= h(@workspace_return_to || request.fullpath) %>">
-      <input type="password" name="workspace_key" placeholder="Personal session key" autocomplete="current-password" autofocus>
-      <button type="submit">Open sessions</button>
+      <input type="password" name="workspace_key" placeholder="Workspace password" autocomplete="current-password" autofocus>
+      <% if @workspace_bootstrap_required %><input type="password" name="admin_password" placeholder="Admin password" autocomplete="current-password"><% end %>
+      <button type="submit">Open workspace</button>
     </form>
   </main>
 </body>
+<% end %>
 </html>
