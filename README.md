@@ -47,9 +47,9 @@ PI_GATEWAY_PI=/path/to/pi
 
 When these are set, the gateway starts Pi as `$PI_GATEWAY_NODE $PI_GATEWAY_PI`. Set both variables together, or leave both unset to run `pi` from `PATH`.
 
-## Always-present new session folders
+## Pinned session directories
 
-Add directories to `~/.config/pi-web-gateway/session-cwds.txt` to keep them available in the New session dialog even before they have sessions:
+Add directories to `~/.config/pi-web-gateway/pinned-dirs` to keep them available in the New Session dialog, even when they do not currently have sessions:
 
 ```txt
 /home/vitek/Work/pi-web-gateway

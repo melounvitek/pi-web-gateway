@@ -1,4 +1,15 @@
 class ConfiguredSessionCwds
+  DEFAULT_PATH = "~/.config/pi-web-gateway/pinned-dirs"
+  LEGACY_DEFAULT_PATH = "~/.config/pi-web-gateway/session-cwds.txt"
+
+  def self.default_path
+    default_path = File.expand_path(DEFAULT_PATH)
+    legacy_default_path = File.expand_path(LEGACY_DEFAULT_PATH)
+    return legacy_default_path if !File.exist?(default_path) && File.exist?(legacy_default_path)
+
+    default_path
+  end
+
   def self.read(path)
     new(path).read
   end

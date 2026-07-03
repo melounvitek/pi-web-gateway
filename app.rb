@@ -60,7 +60,7 @@ class PiWebGateway < Sinatra::Base
   end
 
   load_gateway_env_file
-  set :session_cwds_path, ENV.fetch("PI_SESSION_CWDS_PATH", File.expand_path("~/.config/pi-web-gateway/session-cwds.txt"))
+  set :session_cwds_path, ENV.fetch("PI_SESSION_CWDS_PATH", ConfiguredSessionCwds.default_path)
   set :host_authorization, lambda {
     configured_hosts = permitted_hosts_from_env
     if development?

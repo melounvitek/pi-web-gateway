@@ -65,7 +65,7 @@ class AppTest < Minitest::Test
   def test_app_boot_loads_session_cwds_path_from_user_config
     Dir.mktmpdir do |home|
       env_path = File.join(home, "gateway-env")
-      session_cwds_path = File.join(home, "session-cwds.txt")
+      session_cwds_path = File.join(home, "pinned-dirs")
       File.write(env_path, "PI_GATEWAY_ADMIN_PASSWORD='from-file'\nPI_SESSION_CWDS_PATH=#{session_cwds_path}\n")
       env = ENV.to_h.merge("PI_GATEWAY_ENV_PATH" => env_path, "PI_GATEWAY_ADMIN_PASSWORD" => nil, "PI_SESSION_CWDS_PATH" => nil)
 
@@ -2522,7 +2522,7 @@ class AppTest < Minitest::Test
       configured_cwd = File.join(dir, "configured-project")
       missing_cwd = File.join(dir, "missing-project")
       FileUtils.mkdir_p(configured_cwd)
-      config_path = File.join(dir, "session-cwds.txt")
+      config_path = File.join(dir, "pinned-dirs")
       File.write(config_path, "#{configured_cwd}\n#{missing_cwd}\n")
       sessions_root = File.join(dir, "sessions")
       FileUtils.mkdir_p(sessions_root)
@@ -2549,7 +2549,7 @@ class AppTest < Minitest::Test
       cwd = project_cwd(dir)
       configured_cwd = File.join(dir, "configured-project")
       FileUtils.mkdir_p(configured_cwd)
-      config_path = File.join(dir, "session-cwds.txt")
+      config_path = File.join(dir, "pinned-dirs")
       File.write(config_path, "#{cwd}\n#{configured_cwd}\n")
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :session_cwds_path, config_path
