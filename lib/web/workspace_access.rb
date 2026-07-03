@@ -1,5 +1,6 @@
 require "json"
 require "openssl"
+require "securerandom"
 require_relative "../workspace_secret_store"
 require_relative "../workspace_access_store"
 require_relative "../workspace_session_ownership_store"
@@ -8,6 +9,7 @@ module Web
   module WorkspaceAccess
     WORKSPACE_ENDPOINTS = %w[
       /workspace-key
+      /workspace-token/generate
       /workspace-access/status
       /workspace-access/pending
       /workspace-access/approve
@@ -33,7 +35,6 @@ module Web
       def enforce_workspace_access
         return unless multi_user_mode?
         return if WorkspaceAccess::WORKSPACE_ENDPOINTS.include?(request.path_info)
-        return unless approved_browser? || !browser_access_enabled?
         return if approved_current_workspace?
 
         @workspace_key_error = nil
@@ -71,6 +72,7 @@ module Web
 
       def valid_workspace_key?(key)
         normalized = normalize_workspace_key(key)
+        return true if normalized.match?(/\Apiu_[A-Za-z0-9_-]{16,}\z/)
         return false if normalized.length < 12
 
         classes = 0
@@ -79,6 +81,10 @@ module Web
         classes += 1 if normalized.match?(/[0-9]/)
         classes += 1 if normalized.match?(/[^a-zA-Z0-9]/)
         classes >= 3
+      end
+
+      def generate_workspace_token
+        "piu_#{SecureRandom.urlsafe_base64(32)}"
       end
 
       def approved_current_workspace?
@@ -90,7 +96,7 @@ module Web
       end
 
       def workspace_approval_allowed?
-        (approved_browser? || !browser_access_enabled?) && approved_current_workspace?
+        approved_current_workspace?
       end
 
       def set_workspace_cookie(workspace_id)
@@ -136,13 +142,22 @@ module Web
     def self.registered(app)
       app.helpers Helpers
 
+      app.post "/workspace-token/generate" do
+        halt 404 unless multi_user_mode?
+
+        @generated_workspace_token = generate_workspace_token
+        @workspace_key_error = nil
+        @workspace_return_to = safe_return_to
+        @workspace_bootstrap_required = workspace_bootstrap_required?
+        erb :workspace_key
+      end
+
       app.post "/workspace-key" do
         halt 404 unless multi_user_mode?
-        halt 403 unless approved_browser? || !browser_access_enabled?
 
         key = params["workspace_key"].to_s
         unless valid_workspace_key?(key)
-          @workspace_key_error = "Use at least 12 characters and include at least 3 of: lowercase letters, uppercase letters, numbers, symbols."
+          @workspace_key_error = "Enter a valid user token. Generate a new token if you do not have one yet."
           @workspace_return_to = safe_return_to
           @workspace_bootstrap_required = workspace_bootstrap_required?
           status 403
@@ -161,6 +176,7 @@ module Web
               @workspace_key_error = "Admin password did not match."
               @workspace_return_to = safe_return_to
               @workspace_bootstrap_required = true
+              @workspace_bootstrap_pending_request = workspace_access_store.request_access(workspace_id, browser_token: browser_token)
               status 403
               erb :workspace_key
             end
@@ -175,7 +191,6 @@ module Web
 
       app.get "/workspace-access/status" do
         halt 404 unless multi_user_mode?
-        halt 403 unless approved_browser? || !browser_access_enabled?
 
         request = workspace_access_store.request_for_code(params["code"].to_s)
         status_value = if request && workspace_access_store.approved?(request["workspace_id"])

@@ -46,6 +46,7 @@ module Web
 
       def enforce_browser_access
         return unless browser_access_enabled?
+        return if multi_user_mode?
         return if BrowserAccess::ACCESS_ENDPOINTS.include?(request.path_info)
         return if approved_browser?
 

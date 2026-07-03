@@ -4901,7 +4901,7 @@ class AppTest < Minitest::Test
     assert_equal ["workspace-b"], stored.fetch("pending_requests").map { |pending| pending.fetch("workspace_id") }
   end
 
-  def test_multi_user_flow_requires_workspace_password_after_browser_approval
+  def test_multi_user_flow_uses_user_token_without_browser_approval
     Dir.mktmpdir do |dir|
       write_session(dir)
       PiWebGateway.set :sessions_root, dir
@@ -4910,31 +4910,30 @@ class AppTest < Minitest::Test
       request = Rack::MockRequest.new(PiWebGateway)
 
       blocked = request.get("/")
-      browser_cookie = Array(blocked["Set-Cookie"]).first.split(";", 2).first
-      login = request.post("/browser-access/admin-login", params: { "password" => "secret" }, "HTTP_COOKIE" => browser_cookie)
-      assert_equal 303, login.status
+      assert_equal 403, blocked.status
+      assert_includes blocked.body, "User token"
+      refute_includes blocked.body, "Browser access required"
+      assert_includes blocked.body, "First time here? Generate your token"
+      assert_includes blocked.body, "Admin password"
 
-      needs_password = request.get("/", "HTTP_COOKIE" => browser_cookie)
-      assert_equal 403, needs_password.status
-      assert_includes needs_password.body, "Workspace password"
-      assert_includes needs_password.body, "Admin password"
-
-      weak_password = request.post("/workspace-key", params: { "workspace_key" => "short" }, "HTTP_COOKIE" => browser_cookie)
-      assert_equal 403, weak_password.status
-      assert_includes weak_password.body, "Use at least 12 characters"
+      weak_token = request.post("/workspace-key", params: { "workspace_key" => "short" })
+      assert_equal 403, weak_token.status
+      assert_includes weak_token.body, "Enter a valid user token"
 
       wrong_admin_password = request.post(
         "/workspace-key",
-        params: { "workspace_key" => "Correct Horse 42", "admin_password" => "wrong" },
-        "HTTP_COOKIE" => browser_cookie
+        params: { "workspace_key" => "piu_correct_horse_42", "admin_password" => "wrong" }
       )
       assert_equal 403, wrong_admin_password.status
       assert_includes wrong_admin_password.body, "Admin password did not match"
+      assert_includes wrong_admin_password.body, PiWebGateway.settings.workspace_access_path
+      assert_includes wrong_admin_password.body, "pending request"
+      store = WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path)
+      assert_equal "pending", store.pending_status(workspace_id_for("piu_correct_horse_42"))
 
       key_response = request.post(
         "/workspace-key",
-        params: { "workspace_key" => "Correct Horse 42", "admin_password" => "secret" },
-        "HTTP_COOKIE" => browser_cookie
+        params: { "workspace_key" => "piu_correct_horse_42", "admin_password" => "secret" }
       )
       workspace_cookie = Array(key_response["Set-Cookie"]).first.split(";", 2).first
       assert_equal 303, key_response.status
@@ -4944,25 +4943,56 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_multi_user_unknown_workspace_password_waits_for_approval
+  def test_multi_user_approved_user_token_opens_immediately_without_browser_approval
     Dir.mktmpdir do |dir|
       write_session(dir)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :gateway_admin_password, "secret"
       PiWebGateway.set :multi_user_mode, true
-      approved_workspace_id = workspace_id_for("Correct Horse 42")
+      approved_workspace_id = workspace_id_for("piu_correct_horse_42")
       WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path).approve_workspace(approved_workspace_id)
-      BrowserAccessStore.new(path: PiWebGateway.settings.browser_access_path).approve_current_browser("approved", label: "test")
       request = Rack::MockRequest.new(PiWebGateway)
 
-      response = request.post("/workspace-key", params: { "workspace_key" => "Different Horse 42" }, "HTTP_COOKIE" => "pi_gateway_browser=approved")
+      response = request.post("/workspace-key", params: { "workspace_key" => "piu_correct_horse_42" })
+
+      workspace_cookie = Array(response["Set-Cookie"]).first.split(";", 2).first
+      assert_equal 303, response.status
+      assert_includes workspace_cookie, "pi_gateway_workspace=#{approved_workspace_id}"
+    end
+  end
+
+  def test_multi_user_unknown_user_token_waits_for_approval_without_browser_approval
+    Dir.mktmpdir do |dir|
+      write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :gateway_admin_password, "secret"
+      PiWebGateway.set :multi_user_mode, true
+      approved_workspace_id = workspace_id_for("piu_correct_horse_42")
+      WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path).approve_workspace(approved_workspace_id)
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      response = request.post("/workspace-key", params: { "workspace_key" => "piu_different_horse_42" })
 
       assert_equal 403, response.status
       assert_includes response.body, "Waiting for workspace approval"
+      refute_includes response.body, "Admin password"
       refute_includes Array(response["Set-Cookie"]).join("\n"), "pi_gateway_workspace="
       store = WorkspaceAccessStore.new(path: PiWebGateway.settings.workspace_access_path)
-      assert_equal "pending", store.pending_status(workspace_id_for("Different Horse 42"))
+      assert_equal "pending", store.pending_status(workspace_id_for("piu_different_horse_42"))
     end
+  end
+
+  def test_multi_user_generates_user_token_once_for_copying
+    PiWebGateway.set :gateway_admin_password, "secret"
+    PiWebGateway.set :multi_user_mode, true
+
+    response = Rack::MockRequest.new(PiWebGateway).post("/workspace-token/generate")
+
+    assert_equal 200, response.status
+    assert_match(/piu_[A-Za-z0-9_-]{43}/, response.body)
+    assert_includes response.body, "Copy token"
+    assert_includes response.body, "recovered"
+    assert_includes response.body, "sensitive and private"
   end
 
   def test_approved_workspace_can_approve_pending_workspace_request
