@@ -21,8 +21,6 @@ Pi Web Gateway runs Pi locally through a browser UI. Use it only on your own mac
 
 Do not expose it directly to the public internet. Approved browsers can view sessions and start Pi processes with the same local filesystem, repository, and credential access as the gateway process.
 
-For trusted private URLs, set `PI_BROWSER_AUTH_DISABLED=1` to skip browser approval.
-
 ## Requirements
 
 - [mise](https://mise.jdx.dev/)
@@ -78,7 +76,7 @@ On mobile, install Pi Web Gateway from the browser:
 - iPhone/iPad: use Safari and “Add to Home Screen”
 - Android: use Chrome and install/add to home screen
 
-## Optional configuration
+## Configuration
 
 Edit `~/.config/pi-web-gateway/env` for local settings.
 
@@ -91,6 +89,10 @@ PI_BROWSER_AUTH_DISABLED=1
 PI_MULTI_USER_MODE=1
 ```
 
+`PI_BROWSER_AUTH_DISABLED=1` skips browser approval for trusted private URLs.
+
+`PI_MULTI_USER_MODE=1` asks users for a personal session key before showing sessions. The same key on another browser shows the same sessions. This separates gateway session visibility for trusted users, but it is not OS-level process, filesystem, or credential isolation.
+
 If Pi needs a different Node runtime than the one selected by mise, set both:
 
 ```sh
@@ -98,9 +100,7 @@ PI_GATEWAY_NODE=/path/to/node
 PI_GATEWAY_PI=/path/to/pi
 ```
 
-## Pinned session directories
-
-Add directories to `~/.config/pi-web-gateway/pinned-dirs` to keep them available in the New Session dialog:
+Add pinned session directories to `~/.config/pi-web-gateway/pinned-dirs` to keep them available in the New Session dialog:
 
 ```txt
 /home/alice/projects/pi-web-gateway
@@ -116,12 +116,6 @@ Pi Web Gateway uses native Pi session names when available. If you do not alread
 ```sh
 pi install npm:@furbyhaxx/pi-session-naming
 ```
-
-## Shared gateway session keys
-
-Set `PI_MULTI_USER_MODE=1` to ask users for a personal session key before showing sessions. The key selects a private session list: the same key on another browser shows the same sessions.
-
-This separates gateway session visibility for trusted users. It is not OS-level process, filesystem, or credential isolation.
 
 ## Note
 
