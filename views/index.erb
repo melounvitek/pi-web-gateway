@@ -2133,6 +2133,7 @@
       }
 
       if (["tool_execution_start", "tool_execution_update", "tool_execution_end"].includes(event.type)) {
+        clearLiveAssistantStreaming();
         renderToolExecutionEvent(event);
         return;
       }
