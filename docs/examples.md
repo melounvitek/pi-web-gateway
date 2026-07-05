@@ -50,9 +50,13 @@ Run another gateway on the VPS Tailscale address:
 PI_GATEWAY_HOST=100.x.y.z mise run start
 ```
 
-Then connect to whichever gateway you want to use:
+Then choose the gateway you want to use.
+
+You can open either server directly in the browser:
 
 - Local: <http://localhost:4567>
 - VPS: `http://100.x.y.z:4567`
+
+Or add both servers to the desktop app and switch between them from the app menu.
 
 Each server runs Pi where that server is installed, with that server's filesystem, repositories, and credentials.
