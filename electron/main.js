@@ -116,6 +116,7 @@ function installAppMenu() {
         isMac ? { role: "close" } : { role: "quit" }
       ]
     },
+    { role: "editMenu" },
     { role: "viewMenu" },
     { role: "windowMenu" }
   ];

@@ -5,6 +5,15 @@ let config = null;
 let setupDraft = null;
 const webviews = new Map();
 const offlineGateways = new Map();
+const loadingGateways = new Map();
+
+window.addEventListener("error", (event) => {
+  showFatalError(event.error?.message || event.message || "Unexpected desktop shell error.");
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  showFatalError(event.reason?.message || "Unexpected desktop shell error.");
+});
 
 window.piGatewayDesktop.onAddGatewayRequested(() => {
   setupDraft = { name: "", url: "http://localhost:4567/" };
@@ -73,6 +82,10 @@ function renderContent() {
   }
 
   webviews.get(gateway.id).hidden = false;
+
+  if (loadingGateways.has(gateway.id)) {
+    content.append(messagePanel("Opening gateway", `Loading ${gateway.url}…`));
+  }
 }
 
 function ensureWebviews() {
@@ -93,19 +106,33 @@ function ensureWebviews() {
     }
 
     const webview = document.createElement("webview");
+    loadingGateways.set(gateway.id, true);
     webview.partition = `persist:pi-gateway-${gateway.id}`;
     webview.src = gateway.url;
+    webview.addEventListener("did-attach", () => {
+      loadingGateways.delete(gateway.id);
+      render();
+    });
     webview.addEventListener("did-finish-load", () => {
+      loadingGateways.delete(gateway.id);
       offlineGateways.delete(gateway.id);
       render();
     });
     webview.addEventListener("did-fail-load", (event) => {
       if (event.isMainFrame === false || event.errorCode === -3) return;
+      loadingGateways.delete(gateway.id);
       offlineGateways.set(gateway.id, event.errorDescription || `Could not load ${gateway.url}`);
       render();
     });
     webviews.set(gateway.id, webview);
     content.append(webview);
+
+    window.setTimeout(() => {
+      if (!loadingGateways.has(gateway.id)) return;
+      loadingGateways.delete(gateway.id);
+      offlineGateways.set(gateway.id, "The embedded gateway view did not attach. Try rebuilding the app or opening the gateway in a browser.");
+      render();
+    }, 5000);
   }
 }
 
@@ -119,6 +146,24 @@ function removePanels() {
 
 function activeGateway() {
   return config.gateways.find((gateway) => gateway.id === config.activeGatewayId) || config.gateways[0];
+}
+
+function messagePanel(title, message) {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  const card = document.createElement("div");
+  card.className = "card";
+  const heading = document.createElement("h1");
+  heading.textContent = title;
+  const body = document.createElement("p");
+  body.textContent = message;
+  card.append(heading, body);
+  panel.append(card);
+  return panel;
+}
+
+function showFatalError(message) {
+  content.replaceChildren(messagePanel("Desktop shell error", message));
 }
 
 function setupPanel(draft) {
