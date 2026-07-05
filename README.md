@@ -86,6 +86,28 @@ Pi Web Gateway works well as an installed web app:
 - On iPhone or iPad, add it to your Home Screen and open it as a web app: <https://support.apple.com/guide/iphone/open-as-web-app-iphea86e5236/ios>
 - On Mac or Linux, install it as a Chrome web app: <https://support.google.com/chrome/answer/9658361?hl=en&co=GENIE.Platform%3DDesktop>
 
+### Electron desktop shell
+
+This repository also includes a thin Electron shell. It does not start or bundle the gateway server; start the server separately first:
+
+```sh
+mise run start
+```
+
+Then, in another terminal, run the desktop shell:
+
+```sh
+npm install
+mise run desktop
+```
+
+The shell opens <http://localhost:4567/> by default. Point it at a different gateway URL with either option:
+
+```sh
+PI_GATEWAY_DESKTOP_URL=https://pi-gateway.example.internal mise run desktop
+npm run desktop -- --gateway-url=http://100.x.y.z:4567
+```
+
 ## Pinned session directories
 
 Add directories to `~/.config/pi-web-gateway/pinned-dirs` to keep them available in the New Session dialog, even when they do not currently have sessions:

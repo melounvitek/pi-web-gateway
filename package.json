@@ -1,0 +1,17 @@
+{
+  "name": "pi-web-gateway-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin Electron shell for Pi Web Gateway.",
+  "main": "electron/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "desktop": "electron .",
+    "desktop:check": "node --test electron/*.test.js && node --check electron/main.js"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0"
+  }
+}

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pi Web Gateway is not running</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #18181e;
+        color: #f1f1f4;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      main {
+        width: min(680px, calc(100vw - 48px));
+        padding: 32px;
+        border: 1px solid #3a3a46;
+        border-radius: 18px;
+        background: #22222b;
+        box-shadow: 0 24px 80px rgb(0 0 0 / 35%);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.6rem;
+      }
+
+      p {
+        color: #c8c8d0;
+        line-height: 1.5;
+      }
+
+      code {
+        display: block;
+        margin: 16px 0;
+        padding: 14px 16px;
+        border-radius: 10px;
+        background: #111116;
+        color: #8abeb7;
+        overflow-x: auto;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 10px 18px;
+        background: #8abeb7;
+        color: #111116;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .muted {
+        color: #9999a6;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Pi Web Gateway is not running</h1>
+      <p>Start the gateway in a terminal, then retry this desktop window.</p>
+      <code>mise run start</code>
+      <button type="button" id="retry">Retry</button>
+      <p class="muted" id="details"></p>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const target = params.get("target") || "http://localhost:4567";
+      const reason = params.get("reason");
+
+      document.getElementById("retry").addEventListener("click", () => {
+        window.location.href = target;
+      });
+
+      document.getElementById("details").textContent = reason ? `${target} — ${reason}` : target;
+    </script>
+  </body>
+</html>
