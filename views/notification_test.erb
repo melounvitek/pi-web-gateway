@@ -25,7 +25,7 @@
 <body>
   <main>
     <h1>Notification test</h1>
-    <p>This page checks whether the installed iPhone Home Screen app can register a service worker, request notification permission, and display a local test notification.</p>
+    <p>This page checks whether this browser app can register a service worker, request notification permission, and display a local test notification.</p>
     <div class="actions">
       <button type="button" data-enable>Enable notifications</button>
       <button type="button" data-send disabled>Send test notification</button>
@@ -50,7 +50,7 @@
 
     async function registerServiceWorker() {
       registration ||= await navigator.serviceWorker.register("/service-worker.js");
-      await navigator.serviceWorker.ready;
+      registration = await navigator.serviceWorker.ready;
       return registration;
     }
 
@@ -58,7 +58,7 @@
       if (!notificationAvailable()) {
         enableButton.disabled = true;
         sendButton.disabled = true;
-        setStatus("This browser context does not expose Notification + serviceWorker APIs. On iPhone, open this from the Home Screen app on iOS 16.4+.", true);
+        setStatus("This browser context does not expose Notification + serviceWorker APIs. Open this from an installed browser app or a browser that supports web notifications.", true);
         return;
       }
 
@@ -69,7 +69,7 @@
       } else if (Notification.permission === "denied") {
         enableButton.disabled = true;
         sendButton.disabled = true;
-        setStatus("Notification permission is denied for this app/site. Re-enable it in iOS Settings if available, or remove and re-add the Home Screen app after this test page is installed.", true);
+        setStatus("Notification permission is denied for this app/site. Re-enable it in your browser or system notification settings, then try again.", true);
       } else {
         sendButton.disabled = true;
         setStatus("Permission has not been requested yet. Tap Enable notifications.");
@@ -100,15 +100,26 @@
           await refreshState();
           return;
         }
-        await worker.showNotification("Pi Web Gateway test", {
+        const payload = {
+          type: "pi-notification-test",
+          title: "Pi Web Gateway test",
           body: "If you can see this, local web notifications work here.",
           tag: "pi-notification-test",
-          renotify: true,
-          icon: "/app-icon.svg",
-          badge: "/app-icon.svg",
-          data: { url: "/notification-test" }
-        });
-        setStatus("Test notification requested. If nothing appeared, check iOS notification settings/focus mode for this Home Screen app.");
+          url: "/notification-test"
+        };
+        if (worker.active) {
+          worker.active.postMessage(payload);
+        } else {
+          await worker.showNotification(payload.title, {
+            body: payload.body,
+            tag: payload.tag,
+            renotify: true,
+            icon: "/app-icon.svg",
+            badge: "/app-icon.svg",
+            data: { url: payload.url }
+          });
+        }
+        setStatus("Test notification requested. If nothing appeared, check this app/site in your browser or system notification settings and focus/do-not-disturb mode.");
       } catch (error) {
         setStatus(`Send failed: ${error.message || error}`, true);
       }
