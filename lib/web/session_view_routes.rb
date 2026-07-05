@@ -40,6 +40,7 @@ module Web
         query["session"] = @selected_session.path if @selected_session
         query["project"] = selected_project_cwd if selected_project_cwd
         query["session_search"] = sidebar_session_search_query if sidebar_session_search?
+        query["session_only"] = "1" if params["session_only"].to_s == "1"
         "/?#{Rack::Utils.build_nested_query(query)}"
       end
 
@@ -47,6 +48,7 @@ module Web
         query = { "session" => session_path }
         query["project"] = selected_project_cwd if selected_project_cwd
         query["session_search"] = sidebar_session_search_query if sidebar_session_search?
+        query["session_only"] = "1" if params["session_only"].to_s == "1"
         "/?#{Rack::Utils.build_nested_query(query)}"
       end
     end

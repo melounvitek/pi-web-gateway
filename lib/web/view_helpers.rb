@@ -151,7 +151,17 @@ module Web
     end
 
     def session_url(session_path)
+      return session_only_url(session_path) if session_only?
+
       @sidebar.session_url(session_path)
+    end
+
+    def session_only?
+      params["session_only"].to_s == "1"
+    end
+
+    def session_only_url(session_path)
+      "/?#{Rack::Utils.build_nested_query("session" => session_path, "session_only" => "1")}"
     end
 
     def session_parent(session)

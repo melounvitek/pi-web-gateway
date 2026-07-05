@@ -2106,6 +2106,68 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_selected_session_header_opens_session_only_view_in_new_window
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path })
+      document = Nokogiri::HTML(response.body)
+      link = document.at_css('.session-header-actions a[aria-label="Open session in new window"]')
+
+      assert_equal 200, response.status
+      assert link
+      assert_equal "_blank", link["target"]
+      assert_equal "noopener", link["rel"]
+      assert_equal "↗", link.text.strip
+      href = URI.parse(link["href"])
+      query = Rack::Utils.parse_nested_query(href.query)
+      assert_equal "/", href.path
+      assert_equal path, query["session"]
+      assert_equal "1", query["session_only"]
+    end
+  end
+
+  def test_session_only_view_renders_conversation_without_sidebar
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path, "session_only" => "1" })
+      document = Nokogiri::HTML(response.body)
+
+      assert_equal 200, response.status
+      assert document.at_css('body.session-only')
+      assert document.at_css(".conversation-panel")
+      assert document.at_css(".prompt-form")
+      assert document.at_css('.prompt-form input[name="session_only"][value="1"]')
+      assert document.at_css('.abort-form input[name="session_only"][value="1"]')
+      assert document.at_css('#live-output[data-events-url]')
+      refute document.at_css(".session-sidebar")
+      refute document.at_css(".mobile-sidebar-backdrop")
+      assert_includes response.body, 'if (new URLSearchParams(window.location.search).get("session_only") === "1") formData.set("session_only", "1");'
+      refute document.at_css('.session-header-actions a[aria-label="Open session in new window"]')
+    end
+  end
+
+  def test_session_only_fragment_preserves_session_only_url
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/session_fragment", params: { "session" => path, "session_only" => "1" })
+      payload = JSON.parse(response.body)
+      query = Rack::Utils.parse_nested_query(URI.parse(payload.fetch("url")).query)
+
+      assert_equal 200, response.status
+      assert_equal path, query["session"]
+      assert_equal "1", query["session_only"]
+    end
+  end
+
   def test_renders_recent_sessions_with_project_labels
     Dir.mktmpdir do |dir|
       project_a = File.join(dir, "project-a")

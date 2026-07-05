@@ -14,6 +14,7 @@
     *, *::before, *::after { box-sizing: border-box; }
     body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); overflow: hidden; }
     .app-shell { display: grid; grid-template-columns: 22rem minmax(0, 1fr); height: 100vh; min-height: 0; }
+    body.session-only .app-shell { grid-template-columns: minmax(0, 1fr); }
     .session-sidebar { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); padding: 1rem; overflow: hidden; background: var(--sidebar); }
     .session-sidebar-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
     .conversation-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: var(--panel); }
@@ -24,6 +25,8 @@
     .session-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 0.45rem; }
     .session-header-actions form { margin: 0; }
     .session-header-action { padding: 0.42rem 0.65rem; font-size: 0.82rem; }
+    .session-header-window-action { display: inline-flex; align-items: center; justify-content: center; min-width: 2.1rem; min-height: 2.1rem; border-radius: 0.55rem; background: var(--panel-softer); color: var(--text); font-weight: 800; line-height: 1; text-decoration: none; }
+    .session-header-window-action:hover { background: var(--border); }
     .conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 1.5rem; }
     .conversation-scroll:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(138, 190, 183, 0.22); }
     .conversation-history-status { margin: 0 0 0.85rem; color: var(--muted); font-size: 0.84rem; text-align: center; }
@@ -351,11 +354,13 @@
     }
   </style>
 </head>
-<body data-browser-access-enabled="<%= browser_access_enabled? ? "true" : "false" %>" data-workspace-access-enabled="<%= multi_user_mode? ? "true" : "false" %>">
+<body class="<%= session_only? ? "session-only" : "" %>" data-browser-access-enabled="<%= browser_access_enabled? ? "true" : "false" %>" data-workspace-access-enabled="<%= multi_user_mode? ? "true" : "false" %>">
   <div class="app-shell">
-    <input type="checkbox" class="mobile-session-toggle" id="mobile-session-toggle">
-    <%= erb :_sidebar, layout: false %>
-    <label for="mobile-session-toggle" class="mobile-sidebar-backdrop" aria-label="Hide sessions"></label>
+    <% unless session_only? %>
+      <input type="checkbox" class="mobile-session-toggle" id="mobile-session-toggle">
+      <%= erb :_sidebar, layout: false %>
+      <label for="mobile-session-toggle" class="mobile-sidebar-backdrop" aria-label="Hide sessions"></label>
+    <% end %>
 
     <%= erb :_conversation, layout: false %>
   </div>
@@ -3126,7 +3131,7 @@
         const payload = await response.json();
         if (switchGeneration !== sessionSwitchGeneration) return false;
         resetSessionViewState();
-        sessionSidebar.outerHTML = payload.sidebar_html;
+        if (sessionSidebar) sessionSidebar.outerHTML = payload.sidebar_html;
         conversationPanel.outerHTML = payload.conversation_html;
         replaceNewSessionModalHtml(payload.new_session_modal_html);
         replaceForkSessionModalHtml(payload.fork_session_modal_html);
@@ -3432,6 +3437,7 @@
       if (project) formData.set("project", project);
       const sessionSearch = activeSidebarSessionSearch();
       if (sessionSearch) formData.set("session_search", sessionSearch);
+      if (new URLSearchParams(window.location.search).get("session_only") === "1") formData.set("session_only", "1");
     }
 
     async function switchToBranchedSession(payload, { promptText = null } = {}) {

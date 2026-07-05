@@ -1,7 +1,9 @@
     <main class="conversation-panel">
       <% if @selected_session %>
         <header class="session-header">
-          <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span><% if unread_sidebar_session_count.positive? %><span class="mobile-sessions-unread-badge" aria-label="<%= h unread_sidebar_session_aria_label %>" title="<%= h unread_sidebar_session_aria_label %>"><%= h unread_sidebar_session_count_label %></span><% end %></label>
+          <% unless session_only? %>
+            <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span><% if unread_sidebar_session_count.positive? %><span class="mobile-sessions-unread-badge" aria-label="<%= h unread_sidebar_session_aria_label %>" title="<%= h unread_sidebar_session_aria_label %>"><%= h unread_sidebar_session_count_label %></span><% end %></label>
+          <% end %>
           <div class="session-header-title" title="<%= h @selected_session.display_name %> · <%= h project_label(@selected_session) %>">
             <h1 class="session-header-name" title="<%= h @selected_session.display_name %>"><%= h @selected_session.display_name %></h1>
             <div class="session-header-project" title="<%= h project_label(@selected_session) %>"><%= h project_label(@selected_session) %></div>
@@ -15,6 +17,9 @@
             <% end %>
           </div>
           <div class="session-header-actions">
+            <% unless session_only? %>
+              <a class="session-header-action session-header-window-action" href="<%= h session_only_url(@selected_session.path) %>" target="_blank" rel="noopener" title="Open session in new window" aria-label="Open session in new window">↗</a>
+            <% end %>
             <button type="submit" class="danger abort-button session-abort-button composer-stop-button" form="abort-form" hidden disabled title="Abort running Pi" aria-label="Abort running Pi"><span aria-hidden="true">⏹</span></button>
           </div>
         </header>
@@ -50,6 +55,9 @@
 
             <form method="post" action="/abort" class="abort-form" id="abort-form">
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <% if session_only? %>
+                <input type="hidden" name="session_only" value="1">
+              <% end %>
               <% if selected_project_cwd %>
                 <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
               <% end %>
@@ -74,6 +82,9 @@
                 </div>
               <% end %>
               <input type="hidden" name="session" value="<%= h @selected_session.path %>">
+              <% if session_only? %>
+                <input type="hidden" name="session_only" value="1">
+              <% end %>
               <% if selected_project_cwd %>
                 <input type="hidden" name="project" value="<%= h selected_project_cwd %>">
               <% end %>
@@ -100,7 +111,9 @@
         </div>
       <% else %>
         <header class="session-header">
-          <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span><% if unread_sidebar_session_count.positive? %><span class="mobile-sessions-unread-badge" aria-label="<%= h unread_sidebar_session_aria_label %>" title="<%= h unread_sidebar_session_aria_label %>"><%= h unread_sidebar_session_count_label %></span><% end %></label>
+          <% unless session_only? %>
+            <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span><% if unread_sidebar_session_count.positive? %><span class="mobile-sessions-unread-badge" aria-label="<%= h unread_sidebar_session_aria_label %>" title="<%= h unread_sidebar_session_aria_label %>"><%= h unread_sidebar_session_count_label %></span><% end %></label>
+          <% end %>
           <h1>Welcome to Pi</h1>
         </header>
         <section class="conversation-scroll" id="conversation-scroll" tabindex="0">
