@@ -1,5 +1,11 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("piGatewayDesktop", {
-  saveGatewayUrl: (url) => ipcRenderer.invoke("gateway-url:save", url)
+  activateGateway: (id) => ipcRenderer.invoke("gateway-config:activate", id),
+  addGateway: (gateway) => ipcRenderer.invoke("gateway-config:add-gateway", gateway),
+  getGatewayConfig: () => ipcRenderer.invoke("gateway-config:get"),
+  onAddGatewayRequested: (callback) => {
+    ipcRenderer.on("gateway:add-requested", callback);
+  },
+  saveGateway: (gateway) => ipcRenderer.invoke("gateway-config:save-gateway", gateway)
 });

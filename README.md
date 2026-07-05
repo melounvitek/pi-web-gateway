@@ -101,9 +101,11 @@ npm install
 mise run desktop
 ```
 
-The shell opens <http://localhost:4567/> by default. If that URL is unavailable, the offline page lets you save another gateway URL, such as a Tailscale/private-network address. The saved URL is used the next time the desktop shell starts.
+The shell opens <http://localhost:4567/> by default. If that URL is unavailable, the desktop shell lets you save another gateway URL, such as a Tailscale/private-network address. Saved gateways open as tabs with isolated Electron sessions, so browser approval, cookies, storage, and service workers are separate for each gateway.
 
-You can also point it at a different gateway URL for one launch with either option:
+Use **File → Add Gateway…** to add another gateway. The tab bar stays hidden while only one gateway is configured.
+
+You can also point the active gateway at a different URL for one launch with either option:
 
 ```sh
 PI_GATEWAY_DESKTOP_URL=https://pi-gateway.example.internal mise run desktop

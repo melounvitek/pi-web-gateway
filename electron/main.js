@@ -1,16 +1,26 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell } = require("electron");
 const path = require("node:path");
-const { fileURLToPath, pathToFileURL } = require("node:url");
-const { readGatewayUrl, writeGatewayUrl } = require("./gateway_config");
+const { pathToFileURL } = require("node:url");
+const {
+  addGateway,
+  readOrCreateGatewayConfig,
+  saveGateway,
+  writeGatewayConfig
+} = require("./gateway_config");
 const { gatewayUrl } = require("./gateway_url");
 
-const OFFLINE_PAGE_PATH = path.join(__dirname, "offline.html");
 const PRELOAD_PATH = path.join(__dirname, "preload.js");
+const SHELL_PAGE_PATH = path.join(__dirname, "shell.html");
+
+let config = null;
+let mainWindow = null;
+let pendingWebviewOrigins = [];
 
 function createWindow() {
-  const configPath = gatewayConfigPath();
-  let targetUrl = gatewayUrl(process.env, process.argv, readGatewayUrl(configPath));
-  const win = new BrowserWindow({
+  config = readOrCreateGatewayConfig(gatewayConfigPath());
+  config = applyLaunchUrlOverride(config);
+
+  mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
@@ -20,51 +30,118 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       preload: PRELOAD_PATH,
-      sandbox: true
+      sandbox: true,
+      webviewTag: true
     }
   });
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url);
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    const allowedOrigin = safeExternalOrigin(params.src);
+    if (!allowedOrigin) {
+      event.preventDefault();
+      return;
+    }
+
+    delete webPreferences.preload;
+    webPreferences.contextIsolation = true;
+    webPreferences.nodeIntegration = false;
+    webPreferences.sandbox = true;
+    pendingWebviewOrigins.push(allowedOrigin);
+  });
+  mainWindow.webContents.on("did-attach-webview", (_event, guestContents) => {
+    const allowedOrigin = pendingWebviewOrigins.shift();
+    if (allowedOrigin) installGatewayNavigationGuard(guestContents, allowedOrigin);
+  });
+
+  mainWindow.loadURL(pathToFileURL(SHELL_PAGE_PATH).toString());
+}
+
+function applyLaunchUrlOverride(currentConfig) {
+  const activeGateway = activeGatewayFrom(currentConfig);
+  const effectiveUrl = gatewayUrl(process.env, process.argv, activeGateway.url);
+  if (effectiveUrl === activeGateway.url) return currentConfig;
+
+  return saveGateway(currentConfig, { ...activeGateway, url: effectiveUrl });
+}
+
+function activeGatewayFrom(currentConfig) {
+  return currentConfig.gateways.find((gateway) => gateway.id === currentConfig.activeGatewayId) || currentConfig.gateways[0];
+}
+
+function gatewayConfigPath() {
+  return path.join(app.getPath("userData"), "config.json");
+}
+
+function registerGatewayConfigIpc() {
+  ipcMain.handle("gateway-config:get", () => config);
+
+  ipcMain.handle("gateway-config:activate", (_event, id) => {
+    const gateway = config.gateways.find((existingGateway) => existingGateway.id === id);
+    if (!gateway) return config;
+
+    config = writeGatewayConfig(gatewayConfigPath(), { ...config, activeGatewayId: gateway.id });
+    return config;
+  });
+
+  ipcMain.handle("gateway-config:add-gateway", (_event, gateway) => {
+    config = writeGatewayConfig(gatewayConfigPath(), addGateway(config, gateway));
+    return config;
+  });
+
+  ipcMain.handle("gateway-config:save-gateway", (_event, gateway) => {
+    config = writeGatewayConfig(gatewayConfigPath(), saveGateway(config, gateway));
+    return config;
+  });
+}
+
+function installAppMenu() {
+  const isMac = process.platform === "darwin";
+  const template = [
+    ...(isMac ? [{ role: "appMenu" }] : []),
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Add Gateway…",
+          accelerator: "CmdOrCtrl+N",
+          click: () => {
+            if (mainWindow) mainWindow.webContents.send("gateway:add-requested");
+          }
+        },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit" }
+      ]
+    },
+    { role: "viewMenu" },
+    { role: "windowMenu" }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function installGatewayNavigationGuard(guestContents, allowedOrigin) {
+  guestContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
     return { action: "deny" };
   });
 
-  win.webContents.on("will-navigate", (event, url) => {
-    if (sameOrigin(url, targetUrl) || isOfflinePage(url)) return;
-
-    if (isOfflinePage(win.webContents.getURL()) && safeExternalUrl(url)) {
-      targetUrl = new URL(url).toString();
-      return;
-    }
+  guestContents.on("will-navigate", (event, url) => {
+    if (sameOrigin(url, allowedOrigin)) return;
 
     event.preventDefault();
     openExternalUrl(url);
   });
 
-  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-    if (!isMainFrame || errorCode === -3) return;
-    if (!sameOrigin(validatedUrl, targetUrl)) return;
+  guestContents.on("will-redirect", (event, url) => {
+    if (sameOrigin(url, allowedOrigin)) return;
 
-    showOfflinePage(win, targetUrl, errorDescription || `Could not load ${validatedUrl}`);
+    event.preventDefault();
+    openExternalUrl(url);
   });
-
-  win.loadURL(targetUrl);
-}
-
-function sameOrigin(candidateUrl, targetUrl) {
-  try {
-    return new URL(candidateUrl).origin === new URL(targetUrl).origin;
-  } catch (_error) {
-    return false;
-  }
-}
-
-function isOfflinePage(candidateUrl) {
-  try {
-    return fileURLToPath(candidateUrl) === OFFLINE_PAGE_PATH;
-  } catch (_error) {
-    return false;
-  }
 }
 
 function openExternalUrl(url) {
@@ -72,34 +149,31 @@ function openExternalUrl(url) {
   shell.openExternal(url);
 }
 
-function safeExternalUrl(candidateUrl) {
+function sameOrigin(candidateUrl, allowedOrigin) {
   try {
-    return ["http:", "https:"].includes(new URL(candidateUrl).protocol);
+    return new URL(candidateUrl).origin === allowedOrigin;
   } catch (_error) {
     return false;
   }
 }
 
-function showOfflinePage(win, targetUrl, reason) {
-  const offlineUrl = pathToFileURL(OFFLINE_PAGE_PATH);
-  offlineUrl.searchParams.set("target", targetUrl);
-  offlineUrl.searchParams.set("reason", reason);
-  win.loadURL(offlineUrl.toString());
+function safeExternalOrigin(candidateUrl) {
+  try {
+    const url = new URL(candidateUrl);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return url.origin;
+  } catch (_error) {
+    return null;
+  }
 }
 
-function gatewayConfigPath() {
-  return path.join(app.getPath("userData"), "config.json");
-}
-
-function registerGatewayUrlIpc() {
-  ipcMain.handle("gateway-url:save", (event, url) => {
-    if (!isOfflinePage(event.senderFrame.url)) throw new Error("Gateway URL can only be saved from the offline page.");
-    return writeGatewayUrl(gatewayConfigPath(), url);
-  });
+function safeExternalUrl(candidateUrl) {
+  return Boolean(safeExternalOrigin(candidateUrl));
 }
 
 app.whenReady().then(() => {
-  registerGatewayUrlIpc();
+  registerGatewayConfigIpc();
+  installAppMenu();
   createWindow();
 });
 

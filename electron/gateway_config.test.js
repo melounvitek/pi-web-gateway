@@ -3,50 +3,125 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { readGatewayUrl, writeGatewayUrl } = require("./gateway_config");
+const {
+  DEFAULT_GATEWAY_URL,
+  addGateway,
+  readGatewayConfig,
+  readOrCreateGatewayConfig,
+  saveGateway,
+  writeGatewayConfig
+} = require("./gateway_config");
 
 function withTempConfig(callback) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-gateway-desktop-"));
   const file = path.join(dir, "config.json");
+  let nextId = 1;
+  const idGenerator = () => `id-${nextId++}`;
+
   try {
-    callback(file);
+    callback(file, idGenerator);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
-test("returns null when no config file exists", () => {
-  withTempConfig((file) => {
-    assert.equal(readGatewayUrl(file), null);
+test("creates a default localhost gateway when no config exists", () => {
+  withTempConfig((file, idGenerator) => {
+    assert.deepEqual(readGatewayConfig(file, idGenerator), {
+      gateways: [{ id: "id-1", name: "Local", url: DEFAULT_GATEWAY_URL }],
+      activeGatewayId: "id-1"
+    });
   });
 });
 
-test("reads a configured gateway URL", () => {
-  withTempConfig((file) => {
+test("migrates the previous single gatewayUrl config", () => {
+  withTempConfig((file, idGenerator) => {
     fs.writeFileSync(file, JSON.stringify({ gatewayUrl: "https://pi.example.test" }));
 
-    assert.equal(readGatewayUrl(file), "https://pi.example.test/");
+    assert.deepEqual(readGatewayConfig(file, idGenerator), {
+      gateways: [{ id: "id-1", name: "Pi Gateway", url: "https://pi.example.test/" }],
+      activeGatewayId: "id-1"
+    });
   });
 });
 
-test("ignores invalid configured gateway URLs", () => {
-  withTempConfig((file) => {
-    fs.writeFileSync(file, JSON.stringify({ gatewayUrl: "file:///tmp/gateway.html" }));
+test("persists generated ids when creating a default config", () => {
+  withTempConfig((file, idGenerator) => {
+    const config = readOrCreateGatewayConfig(file, idGenerator);
 
-    assert.equal(readGatewayUrl(file), null);
+    assert.equal(config.activeGatewayId, "id-1");
+    assert.deepEqual(readGatewayConfig(file, idGenerator), config);
   });
 });
 
-test("writes a normalized gateway URL", () => {
-  withTempConfig((file) => {
-    assert.equal(writeGatewayUrl(file, "http://100.64.0.10:4567"), "http://100.64.0.10:4567/");
-    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { gatewayUrl: "http://100.64.0.10:4567/" });
+test("persists generated ids when migrating old gatewayUrl config", () => {
+  withTempConfig((file, idGenerator) => {
+    fs.writeFileSync(file, JSON.stringify({ gatewayUrl: "https://pi.example.test" }));
+    const config = readOrCreateGatewayConfig(file, idGenerator);
+
+    assert.equal(config.activeGatewayId, "id-1");
+    assert.deepEqual(readGatewayConfig(file, idGenerator), config);
   });
 });
 
-test("refuses to write invalid gateway URLs", () => {
+test("reads valid gateway lists and drops invalid entries", () => {
+  withTempConfig((file, idGenerator) => {
+    fs.writeFileSync(file, JSON.stringify({
+      gateways: [
+        { id: "good", name: "Good", url: "http://100.64.0.10:4567" },
+        { id: "bad", name: "Bad", url: "file:///tmp/gateway.html" }
+      ],
+      activeGatewayId: "bad"
+    }));
+
+    assert.deepEqual(readGatewayConfig(file, idGenerator), {
+      gateways: [{ id: "good", name: "Good", url: "http://100.64.0.10:4567/" }],
+      activeGatewayId: "good"
+    });
+  });
+});
+
+test("writes normalized gateway config", () => {
   withTempConfig((file) => {
-    assert.throws(() => writeGatewayUrl(file, "not a url"), /Enter an http or https URL/);
-    assert.equal(fs.existsSync(file), false);
+    writeGatewayConfig(file, {
+      gateways: [{ id: "local", name: "Local", url: "http://localhost:4567" }],
+      activeGatewayId: "local"
+    });
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {
+      gateways: [{ id: "local", name: "Local", url: "http://localhost:4567/" }],
+      activeGatewayId: "local"
+    });
+  });
+});
+
+test("adds a named gateway and makes it active", () => {
+  withTempConfig((file, idGenerator) => {
+    const config = readGatewayConfig(file, idGenerator);
+    const nextConfig = addGateway(config, { name: "Mini", url: "http://100.64.0.10:4567" }, idGenerator);
+
+    assert.deepEqual(nextConfig.gateways[1], { id: "id-2", name: "Mini", url: "http://100.64.0.10:4567/" });
+    assert.equal(nextConfig.activeGatewayId, "id-2");
+  });
+});
+
+test("updates an existing gateway and makes it active", () => {
+  withTempConfig((file, idGenerator) => {
+    const config = readGatewayConfig(file, idGenerator);
+    const nextConfig = saveGateway(config, { id: "id-1", name: "Renamed", url: "https://pi.example.test" });
+
+    assert.deepEqual(nextConfig, {
+      gateways: [{ id: "id-1", name: "Renamed", url: "https://pi.example.test/" }],
+      activeGatewayId: "id-1"
+    });
+  });
+});
+
+test("refuses invalid gateway URLs", () => {
+  withTempConfig((file, idGenerator) => {
+    const config = readGatewayConfig(file, idGenerator);
+
+    assert.throws(() => addGateway(config, { name: "Bad", url: "not a url" }, idGenerator), /Enter an http or https URL/);
+    assert.throws(() => saveGateway(config, { id: "id-1", name: "Bad", url: "file:\/\/\/tmp" }), /Enter an http or https URL/);
   });
 });
