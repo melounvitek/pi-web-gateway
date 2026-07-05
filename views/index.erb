@@ -144,7 +144,7 @@
     .message--assistant.message--streaming .message-body--markdown > ul:last-child > li:last-child::after,
     .message--assistant.message--streaming .message-body--markdown > ol:last-child > li:last-child::after,
     .message--assistant.message--streaming .message-body--markdown > blockquote:last-child > :last-child::after,
-    .message--assistant.message--streaming .message-body--thinking::after { content: "▍"; display: inline-block; margin-left: 0.12rem; color: var(--accent-hover); animation: streaming-caret-blink 1000ms steps(1) infinite; }
+    .message--assistant.message--streaming .message-body--thinking::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 0.12rem; background: var(--accent-hover); vertical-align: -0.12em; animation: streaming-caret-blink 1000ms steps(1) infinite; }
     .message-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
     .message--user .message-header { margin-bottom: 0.75rem; }
     .role { font-size: 0.74rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
