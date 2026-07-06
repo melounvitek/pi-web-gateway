@@ -176,6 +176,13 @@ function installGatewayNavigationGuard(guestContents, allowedOrigin, partition) 
   guestContents.once("destroyed", () => gatewayWebContents.delete(guestContents.id));
   installGatewayPermissionHandlers(partition, allowedOrigin);
 
+  guestContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || input.shift || input.alt || input.meta || input.key !== "Tab") return;
+
+    event.preventDefault();
+    if (mainWindow) mainWindow.webContents.send("gateway:activate-next-requested");
+  });
+
   guestContents.setWindowOpenHandler(({ url }) => {
     if (sameOrigin(url, allowedOrigin)) return openSameOriginPopupWindow(url, allowedOrigin, partition);
 

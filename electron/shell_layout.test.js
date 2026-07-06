@@ -125,6 +125,7 @@ test("desktop shortcuts separate new sessions from server management", () => {
   assert.match(main, /label: "Add Server…"/);
   assert.match(main, /accelerator: "CmdOrCtrl\+Shift\+N"/);
   assert.match(main, /accelerator: "Ctrl\+Tab"/);
+  assert.match(main, /guestContents\.on\("before-input-event", \(event, input\) => \{\n    if \(input\.type !== "keyDown" \|\| !input\.control \|\| input\.shift \|\| input\.alt \|\| input\.meta \|\| input\.key !== "Tab"\) return;\n\n    event\.preventDefault\(\);\n    if \(mainWindow\) mainWindow\.webContents\.send\("gateway:activate-next-requested"\);\n  \}\);/);
   assert.match(main, /gateway:activate-next-requested/);
   assert.match(preload, /onNewSessionRequested/);
   assert.match(preload, /onNextGatewayRequested/);
