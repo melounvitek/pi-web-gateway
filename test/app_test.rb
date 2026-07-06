@@ -4594,6 +4594,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "function updateHeaderFromSelectedSidebarSession()"
       assert_includes response.body, "const selectedTitle = sessionSidebar?.querySelector(\"a.session.selected .session-title\")?.textContent.trim();"
       assert_includes response.body, "updateHeaderFromSelectedSidebarSession();"
+      assert_includes response.body, "updateNotificationToggle();"
       assert_includes response.body, "const renameCommand = followUp ? null : sessionNameSlashCommand(message);"
       assert_includes response.body, "const compactCommand = followUp ? null : sessionCompactSlashCommand(message);"
       assert_includes response.body, "const forkCommand = followUp ? null : sessionForkSlashCommand(message);"

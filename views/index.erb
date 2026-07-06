@@ -3114,6 +3114,7 @@
       const refreshedScrollContainer = sidebarScrollContainer();
       if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = scrollTop;
       updateHeaderFromSelectedSidebarSession();
+      updateNotificationToggle();
       bindSidebarScrollTracking();
       syncMobileSessionsUnreadBadges();
     }
