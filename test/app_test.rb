@@ -4492,7 +4492,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "abortEventPoll();"
       assert_includes response.body, "if (await refreshStaleSessionAfterResume(hiddenDuration)) return;"
       assert_includes response.body, "window.addEventListener(\"pageshow\", () => resumeEventPolling().catch(() => {}));"
-      assert_includes response.body, "window.addEventListener(\"focus\", () => resumeEventPolling().catch(() => {}));"
+      assert_includes response.body, "window.addEventListener(\"focus\", () => {"
+      assert_includes response.body, "resumeEventPolling().catch(() => {});"
       assert_includes response.body, "window.addEventListener(\"online\", () => resumeEventPolling().catch(() => {}));"
       refute_includes response.body, "setInterval(() => pollEvents()"
     end
@@ -4771,6 +4772,44 @@ class AppTest < Minitest::Test
 
       unread_response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => second_path })
       assert_includes unread_response.body, "class=\"session recent-session unread"
+    end
+  end
+
+  def test_mark_read_endpoint_clears_unread_session_from_other_windows
+    Dir.mktmpdir do |dir|
+      first_path, second_path = write_sessions(dir, count: 2)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      request.get("/sidebar", params: { "session" => first_path })
+      File.write(second_path, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Read elsewhere" }] } }) + "\n", mode: "a")
+      unread_response = request.get("/sidebar", params: { "session" => first_path })
+      assert_includes unread_response.body, "class=\"session recent-session unread"
+
+      mark_response = request.post("/sessions/mark_read", params: { "session" => second_path })
+      assert_equal 204, mark_response.status
+
+      read_response = request.get("/sidebar", params: { "session" => first_path })
+      assert_empty Nokogiri::HTML(read_response.body).css("a.session.unread")
+    end
+  end
+
+  def test_session_only_live_script_marks_final_assistant_messages_read
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/", params: { "session" => path, "session_only" => "1" })
+
+      assert_equal 200, response.status
+      assert_includes response.body, "function markCurrentSessionRead()"
+      assert_includes response.body, "fetch(\"/sessions/mark_read\""
+      assert_includes response.body, "if (roleName === \"assistant\" && event.type === \"message_end\") markCurrentSessionRead();"
+      assert_includes response.body, "if (document.hidden || !document.hasFocus())"
+      assert_includes response.body, "markReadAfterVisible = true;"
+      assert_includes response.body, "if (markReadAfterVisible) markCurrentSessionRead();"
     end
   end
 

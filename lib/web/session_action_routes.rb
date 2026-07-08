@@ -294,6 +294,15 @@ module Web
         JSON.generate(rpc_clients.events_after(session_path, after_seq))
       end
 
+      app.post "/sessions/mark_read" do
+        session_path = require_current_workspace_session!(params.fetch("session"))
+        session = PiSessionStore.new(root: settings.sessions_root).sessions.find { |candidate| candidate.path == session_path }
+        halt 404 unless session
+
+        read_state_store.mark_read(session)
+        status 204
+      end
+
       app.get "/status" do
         session_path = require_current_workspace_session!(params.fetch("session"))
         halt 404 unless File.exist?(session_path)

@@ -451,6 +451,9 @@
     let eventPollAbortController = null;
     let eventPollResumeTimer = null;
     let staleSessionRefreshInFlight = false;
+    let markReadInFlight = false;
+    let markReadQueued = false;
+    let markReadAfterVisible = false;
     let hiddenAt = null;
     let lastEventPollSuccessAt = Date.now();
     let lastEventSeq = 0;
@@ -2184,6 +2187,7 @@
         clearLiveAssistantStreaming();
         resetLiveAssistantTracking();
       }
+      if (roleName === "assistant" && event.type === "message_end") markCurrentSessionRead();
       if (roleName === "assistant" && event.type === "message_end") clearLiveAssistantStreaming();
       if (segments.length === 0) return;
 
@@ -3285,6 +3289,33 @@
       return promptSessionInput?.value || new URLSearchParams(window.location.search).get("session") || "";
     }
 
+    async function markCurrentSessionRead() {
+      const sessionPath = currentSessionPath();
+      if (!sessionPath || sessionSidebar) return;
+      if (document.hidden || !document.hasFocus()) {
+        markReadAfterVisible = true;
+        return;
+      }
+      markReadAfterVisible = false;
+      if (markReadInFlight) {
+        markReadQueued = true;
+        return;
+      }
+
+      markReadInFlight = true;
+      const body = new URLSearchParams({ session: sessionPath });
+      try {
+        await fetch("/sessions/mark_read", { method: "POST", body });
+      } catch (_error) {
+      } finally {
+        markReadInFlight = false;
+        if (markReadQueued) {
+          markReadQueued = false;
+          markCurrentSessionRead();
+        }
+      }
+    }
+
     function activeSidebarSessionSearch() {
       return new URLSearchParams(window.location.search).get("session_search") || "";
     }
@@ -4142,10 +4173,14 @@
       } else {
         scheduleNextEventPoll(0);
       }
+      if (markReadAfterVisible) markCurrentSessionRead();
       scheduleSidebarRefresh();
     });
     window.addEventListener("pageshow", () => resumeEventPolling().catch(() => {}));
-    window.addEventListener("focus", () => resumeEventPolling().catch(() => {}));
+    window.addEventListener("focus", () => {
+      if (markReadAfterVisible) markCurrentSessionRead();
+      resumeEventPolling().catch(() => {});
+    });
     window.addEventListener("online", () => resumeEventPolling().catch(() => {}));
     window.addEventListener("popstate", () => switchSession(window.location.href, { push: false, focus: false }));
 
