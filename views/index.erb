@@ -2933,8 +2933,10 @@
 
     async function copyText(text) {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-        return true;
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (_error) {}
       }
 
       const textarea = document.createElement("textarea");

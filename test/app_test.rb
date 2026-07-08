@@ -5074,6 +5074,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'button.dataset.copyTarget === "code-block"'
       assert_includes response.body, "navigator.clipboard.writeText"
       assert_includes response.body, "window.isSecureContext"
+      assert_includes response.body, "catch (_error)"
       assert_includes response.body, "document.execCommand(\"copy\")"
       assert_includes response.body, "Copy failed"
       assert_includes response.body, "empty-state"

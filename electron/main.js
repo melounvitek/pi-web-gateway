@@ -207,12 +207,12 @@ function installGatewayNavigationGuard(guestContents, allowedOrigin, partition) 
 
 function installGatewayPermissionHandlers(partition, allowedOrigin) {
   const gatewaySession = partition ? session.fromPartition(partition) : session.defaultSession;
+  const allowedGatewayPermissions = new Set(["notifications", "clipboard-sanitized-write"]);
   gatewaySession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
-    if (permission !== "notifications") return false;
-    return requestingOrigin === allowedOrigin;
+    return allowedGatewayPermissions.has(permission) && requestingOrigin === allowedOrigin;
   });
   gatewaySession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-    callback(permission === "notifications" && details.requestingOrigin === allowedOrigin);
+    callback(allowedGatewayPermissions.has(permission) && details.requestingOrigin === allowedOrigin);
   });
 }
 

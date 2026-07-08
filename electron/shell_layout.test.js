@@ -69,6 +69,14 @@ test("desktop gateway webviews install the notification bridge", () => {
   assert.match(preload, /gateway-notification:show/);
 });
 
+test("desktop gateway webviews allow same-origin clipboard writes", () => {
+  const main = read("electron/main.js");
+
+  assert.match(main, /const allowedGatewayPermissions = new Set\(\["notifications", "clipboard-sanitized-write"\]\);/);
+  assert.match(main, /allowedGatewayPermissions\.has\(permission\) && requestingOrigin === allowedOrigin/);
+  assert.match(main, /allowedGatewayPermissions\.has\(permission\) && details\.requestingOrigin === allowedOrigin/);
+});
+
 test("desktop shell does not reset an existing gateway webview after in-app navigation", () => {
   const shell = read("electron/shell.js");
 
