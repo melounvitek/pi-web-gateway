@@ -58,8 +58,10 @@ class PiSessionStore
   end
 
   def messages(path, current_leaf_id: nil)
+    entries = session_entries(path, current_leaf_id: current_leaf_id)
+    tool_call_timestamps = tool_call_timestamps_from_entries(entries)
     pending_tool_calls = {}
-    session_entries(path, current_leaf_id: current_leaf_id).each_with_object([]) do |entry, rendered_messages|
+    entries.each_with_object([]) do |entry, rendered_messages|
       if entry["type"] == "compaction"
         rendered_messages << compaction_message_from_entry(entry)
         next
@@ -73,6 +75,10 @@ class PiSessionStore
       next unless entry["type"] == "message"
 
       messages_from_entry(entry).each do |message|
+        if message.role == "toolResult" && message.tool_name == "subagent" && tool_call_timestamps[message.tool_call_id]
+          message.timestamp = parse_time(tool_call_timestamps[message.tool_call_id])
+        end
+
         if message.role == "toolResult" && pending_tool_calls[message.tool_call_id]
           call_message = pending_tool_calls.delete(message.tool_call_id)
           call_message.text = paired_tool_text(call_message, message)
@@ -87,6 +93,13 @@ class PiSessionStore
         pending_tool_calls[message.tool_call_id] = message if message.tool_call_id && pair_tool_result?(message.tool_name)
       end
     end
+  end
+
+  def tool_call_timestamps(path, tool_call_ids)
+    requested_ids = Array(tool_call_ids).to_h { |tool_call_id| [tool_call_id, true] }
+    return {} if requested_ids.empty?
+
+    tool_call_timestamps_from_entries(read_entries(path)).select { |tool_call_id, _timestamp| requested_ids[tool_call_id] }
   end
 
   def tree_entries(path, current_leaf_id: nil)
@@ -146,6 +159,19 @@ class PiSessionStore
   end
 
   private
+
+  def tool_call_timestamps_from_entries(entries)
+    entries.each_with_object({}) do |entry, timestamps|
+      message = entry["message"]
+      next unless entry["type"] == "message" && message.is_a?(Hash) && message["role"] == "assistant"
+
+      Array(message["content"]).each do |part|
+        next unless part.is_a?(Hash) && part["type"] == "toolCall" && part["id"] && entry["timestamp"]
+
+        timestamps[part["id"]] ||= entry["timestamp"]
+      end
+    end
+  end
 
   def session_entries(path, current_leaf_id: nil)
     entries = read_entries(path)

@@ -4048,7 +4048,7 @@ class AppTest < Minitest::Test
           message: {
             role: "assistant",
             content: [
-              { type: "toolCall", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }
+              { type: "toolCall", id: "call-1", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }
             ]
           }
         },
@@ -4057,6 +4057,7 @@ class AppTest < Minitest::Test
           timestamp: "2026-06-13T10:01:00Z",
           message: {
             role: "toolResult",
+            toolCallId: "call-1",
             toolName: "subagent",
             content: [{ type: "text", text: "No findings." }],
             isError: false
@@ -4079,6 +4080,7 @@ class AppTest < Minitest::Test
 
       assert_equal 1, subagent_cards.length
       assert_equal "No findings.", subagent_cards.first.at_css(".message-body").text
+      assert_equal Time.parse("2026-06-13T10:00:00Z").localtime.strftime("%Y-%m-%d %H:%M"), subagent_cards.first.at_css(".message-meta").text
       refute_includes response.body, "[tool: subagent]"
       refute_includes response.body, "Review the diff"
     end
@@ -4152,7 +4154,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, "let liveToolExecutions = new Map();"
-      assert_includes response.body, "function renderToolExecutionEvent(event)"
+      assert_includes response.body, "function renderToolExecutionEvent(event, timestamp = eventTimestamp(event))"
       assert_includes response.body, "event.type === \"tool_execution_update\""
       assert_includes response.body, "event.partialResult?.content"
       assert_includes response.body, "updateLiveToolExecution(entry, event, shouldScroll)"
@@ -4452,7 +4454,16 @@ class AppTest < Minitest::Test
 
   def test_live_output_restores_running_tool_progress_with_the_current_event_cursor
     Dir.mktmpdir do |dir|
-      path = write_session(dir)
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }]
+          }
+        }
+      ])
       registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
       client = FakeRpcClient.new([], [{ "type" => "old" }])
       def client.live_snapshot
@@ -4479,9 +4490,10 @@ class AppTest < Minitest::Test
       live_output = document.at_css("#live-output")
       assert_equal "7", live_output["data-events-after"]
       assert_equal "call-1", JSON.parse(live_output["data-active-tool-events"]).first["toolCallId"]
+      assert_equal({ "call-1" => "2026-06-13T10:00:00Z" }, JSON.parse(live_output["data-active-tool-timestamps"]))
       assert_includes response.body, "function restoreActiveToolExecutions()"
       assert_includes response.body, "restoreActiveToolExecutions();"
-      assert_includes response.body, "renderToolExecutionEvent(event);"
+      assert_includes response.body, "events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId]));"
     end
   end
 

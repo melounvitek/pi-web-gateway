@@ -2143,7 +2143,7 @@
       return entry;
     }
 
-    function renderToolExecutionEvent(event) {
+    function renderToolExecutionEvent(event, timestamp = eventTimestamp(event)) {
       if (!event.toolCallId || ["bash", "read", "edit", "write"].includes(event.toolName)) return;
       const shouldScroll = followLiveOutput();
       const existing = liveToolExecutions.get(event.toolCallId);
@@ -2152,7 +2152,7 @@
         return;
       }
 
-      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), eventTimestamp(event), { toolName: event.toolName, error: event.isError === true });
+      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), timestamp, { toolName: event.toolName, error: event.isError === true });
       if (entry) liveToolExecutions.set(event.toolCallId, entry);
     }
 
@@ -2160,11 +2160,14 @@
       if (!liveOutput?.dataset.activeToolEvents) return;
 
       const serializedEvents = liveOutput.dataset.activeToolEvents;
+      const serializedTimestamps = liveOutput.dataset.activeToolTimestamps || "{}";
       delete liveOutput.dataset.activeToolEvents;
+      delete liveOutput.dataset.activeToolTimestamps;
       try {
         const events = JSON.parse(serializedEvents);
-        if (!Array.isArray(events)) return;
-        events.forEach((event) => renderToolExecutionEvent(event));
+        const timestamps = JSON.parse(serializedTimestamps);
+        if (!Array.isArray(events) || !timestamps || typeof timestamps !== "object" || Array.isArray(timestamps)) return;
+        events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId]));
       } catch (_error) {
       }
     }

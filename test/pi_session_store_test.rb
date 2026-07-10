@@ -172,6 +172,40 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_uses_the_subagent_tool_call_entry_timestamp_for_its_result
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:05:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "subagent",
+            content: [{ type: "text", text: "No findings." }]
+          }
+        }
+      ])
+
+      store = PiSessionStore.new(root: dir)
+      message = store.messages(path).first
+
+      assert_equal "subagent", message.tool_name
+      assert_equal Time.parse("2026-06-13T10:00:00Z"), message.timestamp
+      assert_equal({ "call-1" => "2026-06-13T10:00:00Z" }, store.tool_call_timestamps(path, ["call-1", "missing-call"]))
+    end
+  end
+
   def test_reads_structured_error_entries_as_error_messages
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")
