@@ -1574,9 +1574,9 @@
       delete message.dataset.optimisticImageCount;
     }
 
-    function formatTimestamp(timestamp) {
-      const date = timestamp ? new Date(timestamp) : new Date();
-      if (Number.isNaN(date.getTime())) return "";
+    function formatTimestamp(timestamp, fallbackToNow = true) {
+      const date = timestamp ? new Date(timestamp) : (fallbackToNow ? new Date() : null);
+      if (!date || Number.isNaN(date.getTime())) return "";
       const pad = (value) => String(value).padStart(2, "0");
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
@@ -1711,7 +1711,7 @@
       role.textContent = options.toolName && roleName === "assistant" ? "tool" : messageRoleLabel(roleName);
       const meta = document.createElement("div");
       meta.className = "message-meta";
-      meta.textContent = formatTimestamp(timestamp);
+      meta.textContent = formatTimestamp(timestamp, options.timestampFallback !== false);
       header.append(role);
       if (meta.textContent) header.append(meta);
 
@@ -2143,7 +2143,7 @@
       return entry;
     }
 
-    function renderToolExecutionEvent(event, timestamp = eventTimestamp(event)) {
+    function renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true) {
       if (!event.toolCallId || ["bash", "read", "edit", "write"].includes(event.toolName)) return;
       const shouldScroll = followLiveOutput();
       const existing = liveToolExecutions.get(event.toolCallId);
@@ -2152,7 +2152,7 @@
         return;
       }
 
-      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), timestamp, { toolName: event.toolName, error: event.isError === true });
+      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), timestamp, { toolName: event.toolName, error: event.isError === true, timestampFallback });
       if (entry) liveToolExecutions.set(event.toolCallId, entry);
     }
 
@@ -2167,7 +2167,7 @@
         const events = JSON.parse(serializedEvents);
         const timestamps = JSON.parse(serializedTimestamps);
         if (!Array.isArray(events) || !timestamps || typeof timestamps !== "object" || Array.isArray(timestamps)) return;
-        events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId]));
+        events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId], false));
       } catch (_error) {
       }
     }

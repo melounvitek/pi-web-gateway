@@ -202,7 +202,59 @@ class PiSessionStoreTest < Minitest::Test
 
       assert_equal "subagent", message.tool_name
       assert_equal Time.parse("2026-06-13T10:00:00Z"), message.timestamp
-      assert_equal({ "call-1" => "2026-06-13T10:00:00Z" }, store.tool_call_timestamps(path, ["call-1", "missing-call"]))
+      assert_equal({ "call-1" => "2026-06-13T10:00:00.000Z" }, store.tool_call_timestamps(path, ["call-1", "missing-call"]))
+    end
+  end
+
+  def test_rejects_non_subagent_and_invalid_tool_call_timestamps
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "custom_tool", arguments: {} }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "not-a-timestamp",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-2", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:05:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "subagent",
+            content: [{ type: "text", text: "First result" }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:06:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-2",
+            toolName: "subagent",
+            content: [{ type: "text", text: "Second result" }]
+          }
+        }
+      ])
+
+      store = PiSessionStore.new(root: dir)
+      subagent_results = store.messages(path).select { |message| message.role == "toolResult" }
+
+      assert_equal [Time.parse("2026-06-13T10:05:00Z"), Time.parse("2026-06-13T10:06:00Z")], subagent_results.map(&:timestamp)
+      assert_empty store.tool_call_timestamps(path, ["call-1", "call-2"])
+      assert_empty store.tool_call_timestamps(File.join(dir, "missing.jsonl"), ["call-3"])
     end
   end
 

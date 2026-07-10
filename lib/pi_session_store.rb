@@ -76,7 +76,7 @@ class PiSessionStore
 
       messages_from_entry(entry).each do |message|
         if message.role == "toolResult" && message.tool_name == "subagent" && tool_call_timestamps[message.tool_call_id]
-          message.timestamp = parse_time(tool_call_timestamps[message.tool_call_id])
+          message.timestamp = tool_call_timestamps[message.tool_call_id]
         end
 
         if message.role == "toolResult" && pending_tool_calls[message.tool_call_id]
@@ -99,7 +99,11 @@ class PiSessionStore
     requested_ids = Array(tool_call_ids).to_h { |tool_call_id| [tool_call_id, true] }
     return {} if requested_ids.empty?
 
-    tool_call_timestamps_from_entries(read_entries(path)).select { |tool_call_id, _timestamp| requested_ids[tool_call_id] }
+    tool_call_timestamps_from_entries(read_entries(path))
+      .select { |tool_call_id, _timestamp| requested_ids[tool_call_id] }
+      .transform_values { |timestamp| timestamp.utc.iso8601(3) }
+  rescue SystemCallError
+    {}
   end
 
   def tree_entries(path, current_leaf_id: nil)
@@ -166,9 +170,11 @@ class PiSessionStore
       next unless entry["type"] == "message" && message.is_a?(Hash) && message["role"] == "assistant"
 
       Array(message["content"]).each do |part|
-        next unless part.is_a?(Hash) && part["type"] == "toolCall" && part["id"] && entry["timestamp"]
+        next unless part.is_a?(Hash) && part["type"] == "toolCall" && part["name"] == "subagent"
+        next unless part["id"].is_a?(String) && !part["id"].empty?
 
-        timestamps[part["id"]] ||= entry["timestamp"]
+        timestamp = parse_time(entry["timestamp"])
+        timestamps[part["id"]] ||= timestamp if timestamp
       end
     end
   end
