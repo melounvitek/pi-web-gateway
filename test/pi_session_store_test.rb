@@ -221,10 +221,18 @@ class PiSessionStoreTest < Minitest::Test
         },
         {
           type: "message",
-          timestamp: "not-a-timestamp",
+          timestamp: "10:00",
           message: {
             role: "assistant",
             content: [{ type: "toolCall", id: "call-2", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "1e100",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-3", name: "subagent", arguments: { agent: "reviewer", task: "Review the diff" } }]
           }
         },
         {
@@ -246,14 +254,24 @@ class PiSessionStoreTest < Minitest::Test
             toolName: "subagent",
             content: [{ type: "text", text: "Second result" }]
           }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:07:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-3",
+            toolName: "subagent",
+            content: [{ type: "text", text: "Third result" }]
+          }
         }
       ])
 
       store = PiSessionStore.new(root: dir)
       subagent_results = store.messages(path).select { |message| message.role == "toolResult" }
 
-      assert_equal [Time.parse("2026-06-13T10:05:00Z"), Time.parse("2026-06-13T10:06:00Z")], subagent_results.map(&:timestamp)
-      assert_empty store.tool_call_timestamps(path, ["call-1", "call-2"])
+      assert_equal [Time.parse("2026-06-13T10:05:00Z"), Time.parse("2026-06-13T10:06:00Z"), Time.parse("2026-06-13T10:07:00Z")], subagent_results.map(&:timestamp)
+      assert_empty store.tool_call_timestamps(path, ["call-1", "call-2", "call-3"])
       assert_empty store.tool_call_timestamps(File.join(dir, "missing.jsonl"), ["call-3"])
     end
   end

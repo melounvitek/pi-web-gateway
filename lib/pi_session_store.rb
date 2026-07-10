@@ -173,7 +173,7 @@ class PiSessionStore
         next unless part.is_a?(Hash) && part["type"] == "toolCall" && part["name"] == "subagent"
         next unless part["id"].is_a?(String) && !part["id"].empty?
 
-        timestamp = parse_time(entry["timestamp"])
+        timestamp = parse_iso8601_time(entry["timestamp"])
         timestamps[part["id"]] ||= timestamp if timestamp
       end
     end
@@ -772,6 +772,12 @@ class PiSessionStore
   def display_home_path(text)
     home = Dir.home
     text.to_s.gsub(/(?<![A-Za-z0-9_.~\/-])#{Regexp.escape(home)}(?=\/|\z|[^A-Za-z0-9_.~\/-])/, "~")
+  end
+
+  def parse_iso8601_time(value)
+    Time.iso8601(value) if value.is_a?(String)
+  rescue ArgumentError
+    nil
   end
 
   def parse_time(value)
