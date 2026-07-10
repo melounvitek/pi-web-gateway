@@ -3711,15 +3711,6 @@
       if (wasVisible) scheduleSidebarRefresh(0);
     }
 
-    function sessionShortcutModifierKey() {
-      const platform = navigator.userAgentData?.platform || navigator.platform || "";
-      return /mac|iphone|ipad|ipod/i.test(platform) ? "Meta" : "Control";
-    }
-
-    function sessionShortcutModifierHeld(event) {
-      return sessionShortcutModifierKey() === "Meta" ? event.metaKey : event.ctrlKey;
-    }
-
     function currentSessionPath() {
       return promptSessionInput?.value || new URLSearchParams(window.location.search).get("session") || "";
     }
@@ -4325,7 +4316,7 @@
 
       if (event.key === "Escape" && confirmOrStopRunningTask(event)) return;
 
-      if (event.key === sessionShortcutModifierKey()) {
+      if (event.key === "Control") {
         enterSessionShortcutMode();
         return;
       }
@@ -4337,7 +4328,7 @@
         return;
       }
 
-      if (event.altKey || !sessionShortcutModifierHeld(event)) return;
+      if (event.altKey || !event.ctrlKey) return;
       const shortcut = recentSessionShortcutFromEvent(event);
       if (shortcut) {
         event.preventDefault();
@@ -4346,7 +4337,7 @@
     });
 
     document.addEventListener("keyup", (event) => {
-      if (event.key === sessionShortcutModifierKey()) exitSessionShortcutMode();
+      if (event.key === "Control") exitSessionShortcutMode();
     });
 
     window.addEventListener("blur", exitSessionShortcutMode);
