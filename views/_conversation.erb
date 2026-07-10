@@ -25,6 +25,14 @@
         </header>
 
         <section class="conversation-scroll" id="conversation-scroll" tabindex="0" data-has-older-messages="<%= @conversation_has_older_messages ? "true" : "false" %>" data-older-message-count="<%= h @conversation_older_message_count.to_i %>" data-older-message-cursor="<%= h @conversation_start_index.to_i %>" data-older-messages-url="/conversation_older?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
+          <div class="current-session-find" data-current-session-find hidden>
+            <input type="search" data-current-session-find-input aria-label="Find in conversation" autocomplete="off" spellcheck="false">
+            <output class="current-session-find-count" data-current-session-find-count aria-live="polite">0 / 0</output>
+            <button type="button" class="secondary current-session-find-button" data-current-session-find-previous aria-label="Previous match" title="Previous match">↑</button>
+            <button type="button" class="secondary current-session-find-button" data-current-session-find-next aria-label="Next match" title="Next match">↓</button>
+            <button type="button" class="secondary current-session-find-button" data-current-session-find-close aria-label="Close find" title="Close find">×</button>
+            <label class="current-session-find-conversation-only"><input type="checkbox" data-current-session-find-conversation-only> Conversation only</label>
+          </div>
           <div class="jump-controls jump-controls--top">
             <button type="button" class="jump-button jump-to-first" aria-label="Top">↑↑</button>
           </div>

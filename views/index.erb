@@ -29,6 +29,14 @@
     .session-header-window-action:hover { background: var(--border); }
     .conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 1.5rem; }
     .conversation-scroll:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(138, 190, 183, 0.22); }
+    .current-session-find { position: sticky; top: 0.4rem; z-index: 5; width: min(38rem, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto repeat(3, 2rem); align-items: center; gap: 0.4rem; margin: 0 0 0.75rem auto; padding: 0.55rem; border: 1px solid var(--border); border-radius: 0.7rem; background: rgba(30, 30, 36, 0.98); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35); }
+    .current-session-find input[type="search"] { min-width: 0; padding: 0.5rem 0.65rem; }
+    .current-session-find-count { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .current-session-find-button { width: 2rem; height: 2rem; min-height: 0; padding: 0; }
+    .current-session-find-conversation-only { grid-column: 1 / -1; justify-self: end; display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.8rem; }
+    .current-session-find-conversation-only input { margin: 0; }
+    .current-session-find-match { padding: 0; border-radius: 0.12rem; background: rgba(255, 255, 0, 0.45); color: inherit; }
+    .current-session-find-match.is-active { background: #ff9f1c; color: #18181e; box-shadow: 0 0 0 2px rgba(255, 159, 28, 0.35); }
     .conversation-history-status { margin: 0 0 0.85rem; color: var(--muted); font-size: 0.84rem; text-align: center; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid var(--border); background: rgba(30, 30, 36, 0.97); box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.16); }
     .composer-inner { display: grid; gap: 0.6rem; }
@@ -415,6 +423,16 @@
     let commandList = null;
     let highlightedCommandIndex = 0;
     let conversationScroll = null;
+    let currentSessionFindBar = null;
+    let currentSessionFindInput = null;
+    let currentSessionFindCount = null;
+    let currentSessionFindConversationOnly = null;
+    let currentSessionFindMatches = [];
+    let currentSessionFindIndex = -1;
+    let currentSessionFindObserver = null;
+    let currentSessionFindRefreshFrame = null;
+    let currentSessionFindPreparationPromise = null;
+    let currentSessionFindExpandedToolOutput = null;
     let topJumpControls = null;
     let bottomJumpControls = null;
     let jumpToFirstButton = null;
@@ -483,7 +501,7 @@
     let cwdValidationController = null;
     let notificationRegistration = null;
     const notifiedFinalReplyKeys = new Set();
-    let olderConversationLoadInFlight = false;
+    let olderConversationLoadPromise = null;
 
     function bindSessionDom() {
       sessionSidebar = document.querySelector(".session-sidebar");
@@ -503,6 +521,10 @@
       commandList = document.getElementById("command-list");
       highlightedCommandIndex = 0;
       conversationScroll = document.getElementById("conversation-scroll");
+      currentSessionFindBar = document.querySelector("[data-current-session-find]");
+      currentSessionFindInput = currentSessionFindBar?.querySelector("[data-current-session-find-input]") || null;
+      currentSessionFindCount = currentSessionFindBar?.querySelector("[data-current-session-find-count]") || null;
+      currentSessionFindConversationOnly = currentSessionFindBar?.querySelector("[data-current-session-find-conversation-only]") || null;
       lastConversationScrollTop = conversationScroll?.scrollTop || 0;
       conversationScrollDirection = null;
       followOversizedMessageBottom = false;
@@ -736,36 +758,354 @@
       updateScrollJumpButtons();
     }
 
-    async function loadOlderConversationHistory(generation = sessionViewGeneration) {
-      if (!conversationScroll || olderConversationLoadInFlight) return;
+    function loadOlderConversationHistory(generation = sessionViewGeneration) {
+      if (!conversationScroll) return Promise.resolve();
+      if (olderConversationLoadPromise) return olderConversationLoadPromise;
       let cursor = Number(conversationScroll.dataset.olderMessageCursor || 0);
-      if (!cursor || conversationScroll.dataset.hasOlderMessages !== "true") return;
+      if (!cursor || conversationScroll.dataset.hasOlderMessages !== "true") return Promise.resolve();
 
-      olderConversationLoadInFlight = true;
       const scrollElement = conversationScroll;
       const sessionPath = currentSessionPath();
-      try {
-        while (cursor > 0 && generation === sessionViewGeneration && scrollElement === conversationScroll && sessionPath === currentSessionPath()) {
-          const response = await fetch(olderConversationUrl(cursor), { headers: { "Accept": "application/json" } });
-          if (!response.ok || generation !== sessionViewGeneration || scrollElement !== conversationScroll || sessionPath !== currentSessionPath()) return;
-          const payload = await response.json();
-          if (generation !== sessionViewGeneration || scrollElement !== conversationScroll || sessionPath !== currentSessionPath()) return;
+      const loadPromise = (async () => {
+        try {
+          while (cursor > 0 && generation === sessionViewGeneration && scrollElement === conversationScroll && sessionPath === currentSessionPath()) {
+            const response = await fetch(olderConversationUrl(cursor), { headers: { "Accept": "application/json" } });
+            if (!response.ok || generation !== sessionViewGeneration || scrollElement !== conversationScroll || sessionPath !== currentSessionPath()) return;
+            const payload = await response.json();
+            if (generation !== sessionViewGeneration || scrollElement !== conversationScroll || sessionPath !== currentSessionPath()) return;
 
-          prependOlderConversationHtml(payload.html || "");
-          cursor = Number(payload.next_cursor || 0);
-          conversationScroll.dataset.olderMessageCursor = String(cursor);
-          conversationScroll.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
-          conversationScroll.dataset.olderMessageCount = String(payload.older_message_count || 0);
-          if (!payload.has_older_messages) {
-            finishConversationHistoryStatus();
-            break;
+            prependOlderConversationHtml(payload.html || "");
+            cursor = Number(payload.next_cursor || 0);
+            conversationScroll.dataset.olderMessageCursor = String(cursor);
+            conversationScroll.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
+            conversationScroll.dataset.olderMessageCount = String(payload.older_message_count || 0);
+            if (!payload.has_older_messages) {
+              finishConversationHistoryStatus();
+              break;
+            }
           }
+        } catch (_error) {
+          if (generation === sessionViewGeneration && scrollElement === conversationScroll) failConversationHistoryStatus();
         }
-      } catch (_error) {
-        if (generation === sessionViewGeneration && scrollElement === conversationScroll) failConversationHistoryStatus();
-      } finally {
-        if (generation === sessionViewGeneration && scrollElement === conversationScroll) olderConversationLoadInFlight = false;
+      })();
+      const sharedPromise = loadPromise.finally(() => {
+        if (olderConversationLoadPromise === sharedPromise) olderConversationLoadPromise = null;
+      });
+      olderConversationLoadPromise = sharedPromise;
+      return sharedPromise;
+    }
+
+    function currentSessionFindOpen() {
+      return !!currentSessionFindBar && !currentSessionFindBar.hidden;
+    }
+
+    function currentSessionFindShortcut(event) {
+      if (!currentSessionFindBar || String(event.key || "").toLowerCase() !== "f") return false;
+      if (event.altKey || event.shiftKey) return false;
+      return !!(event.ctrlKey || event.metaKey);
+    }
+
+    function handleCurrentSessionFindShortcut(event) {
+      if (!currentSessionFindShortcut(event)) return false;
+      event.preventDefault();
+      openCurrentSessionFind().catch(() => {});
+      return true;
+    }
+
+    function currentSessionFindConversationMessage(message) {
+      return message.matches('[data-role="user"].message--user:not(.message--compact):not(.message--thinking):not(.message--error):not(.message--tool-error), [data-role="assistant"].message--assistant:not(.message--compact):not(.message--thinking):not(.message--status):not(.message--tool):not(.message--tool-call):not(.message--tool-transcript):not(.message--error):not(.message--tool-error)');
+    }
+
+    function currentSessionFindTextNodes(root) {
+      if (!root) return [];
+      const nodes = [];
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+          if (node.parentElement?.closest("button, input, select, textarea, [contenteditable]")) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      return nodes;
+    }
+
+    function currentSessionFindRootText(root) {
+      return currentSessionFindTextNodes(root).map((node) => node.nodeValue).join("");
+    }
+
+    function currentSessionFindSource(root) {
+      const body = root.matches?.("[data-tool-output-body]") ? root : null;
+      const collapse = body?.closest("[data-tool-output-collapse]") || null;
+      if (!body || collapse?.dataset.collapsed !== "true") {
+        return { root, collapse, text: currentSessionFindRootText(root) };
       }
+
+      const template = collapse.querySelector("[data-tool-output-full]");
+      const fullText = currentSessionFindRootText(template?.content);
+      const rawText = body.dataset.rawText;
+      return { root: body, collapse, text: fullText || rawText || currentSessionFindRootText(body) };
+    }
+
+    function currentSessionFindRanges(text, query) {
+      if (!query) return [];
+      const ranges = [];
+      const pattern = new RegExp(escapeRegExp(query), "giu");
+      for (const match of text.matchAll(pattern)) ranges.push({ start: match.index, end: match.index + match[0].length });
+      return ranges;
+    }
+
+    function collectCurrentSessionFindMatches() {
+      if (!conversationScroll || !currentSessionFindInput) return [];
+      const query = currentSessionFindInput.value;
+      if (!query) return [];
+
+      const matches = [];
+      conversationScroll.querySelectorAll(".message").forEach((message) => {
+        if (currentSessionFindConversationOnly?.checked && !currentSessionFindConversationMessage(message)) return;
+
+        message.querySelectorAll(".compact-summary, .message-body").forEach((root) => {
+          const source = currentSessionFindSource(root);
+          currentSessionFindRanges(source.text, query).forEach((range) => {
+            matches.push({ ...source, ...range, elements: [] });
+          });
+        });
+      });
+      return matches;
+    }
+
+    function removeCurrentSessionFindHighlights() {
+      conversationScroll?.querySelectorAll("[data-current-session-find-match]").forEach((mark) => {
+        const parent = mark.parentNode;
+        mark.replaceWith(...mark.childNodes);
+        parent?.normalize();
+      });
+    }
+
+    function restoreCurrentSessionFindToolOutput(exceptCollapse = null) {
+      const expanded = currentSessionFindExpandedToolOutput;
+      if (!expanded || expanded.collapse === exceptCollapse) return;
+      currentSessionFindExpandedToolOutput = null;
+
+      const { collapse, body, tailTemplate, control, button } = expanded;
+      if (!collapse.isConnected || !body.isConnected) return;
+      if (body.dataset.rawText !== undefined) {
+        const lines = String(body.dataset.rawText).split("\n");
+        if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+        if (lines.length <= TOOL_OUTPUT_DESKTOP_TAIL_LINES) {
+          delete collapse.dataset.expanded;
+          collapse.dataset.collapsed = "false";
+          if (button) button.setAttribute("aria-expanded", expanded.originalAriaExpanded);
+          return;
+        }
+      }
+
+      if (expanded.originalExpanded === undefined) delete collapse.dataset.expanded;
+      else collapse.dataset.expanded = expanded.originalExpanded;
+      collapse.dataset.collapsed = expanded.originalCollapsed;
+      if (button) button.setAttribute("aria-expanded", expanded.originalAriaExpanded);
+      if (control) control.hidden = expanded.originalControlHidden;
+      if (tailTemplate?.content.childNodes.length) {
+        body.replaceChildren(...Array.from(tailTemplate.content.cloneNode(true).childNodes));
+      } else {
+        body.replaceChildren(...expanded.originalBodyNodes.map((node) => node.cloneNode(true)));
+      }
+    }
+
+    function revealToolOutputForCurrentSessionFind(match) {
+      const collapse = match?.collapse;
+      if (!collapse || collapse.dataset.collapsed !== "true") return false;
+
+      const body = collapse.querySelector("[data-tool-output-body]");
+      const template = collapse.querySelector("[data-tool-output-full]");
+      const tailTemplate = collapse.querySelector("[data-tool-output-tail]");
+      const control = collapse.querySelector("[data-tool-output-collapse-control]");
+      const button = collapse.querySelector("[data-tool-output-toggle]");
+      if (!body) return false;
+
+      currentSessionFindExpandedToolOutput = {
+        collapse,
+        body,
+        tailTemplate,
+        control,
+        button,
+        originalExpanded: collapse.dataset.expanded,
+        originalCollapsed: collapse.dataset.collapsed,
+        originalControlHidden: control?.hidden || false,
+        originalAriaExpanded: button?.getAttribute("aria-expanded") || "false",
+        originalBodyNodes: Array.from(body.childNodes).map((node) => node.cloneNode(true))
+      };
+      collapse.dataset.expanded = "true";
+      collapse.dataset.collapsed = "false";
+      if (button) button.setAttribute("aria-expanded", "true");
+      if (control) control.hidden = true;
+      if (template?.content.childNodes.length) {
+        body.replaceChildren(...Array.from(template.content.cloneNode(true).childNodes));
+      } else if (body.dataset.rawText) {
+        body.textContent = body.dataset.rawText;
+      }
+      return true;
+    }
+
+    function highlightCurrentSessionFindMatch(match, index) {
+      const nodes = currentSessionFindTextNodes(match.root);
+      const portions = [];
+      let offset = 0;
+      nodes.forEach((node) => {
+        const nodeEnd = offset + node.nodeValue.length;
+        const start = Math.max(match.start, offset);
+        const end = Math.min(match.end, nodeEnd);
+        if (start < end) portions.push({ node, start: start - offset, end: end - offset });
+        offset = nodeEnd;
+      });
+
+      portions.reverse().forEach((portion) => {
+        const selected = portion.start === 0 ? portion.node : portion.node.splitText(portion.start);
+        const length = portion.end - portion.start;
+        if (length < selected.nodeValue.length) selected.splitText(length);
+        const mark = document.createElement("mark");
+        mark.className = "current-session-find-match";
+        mark.dataset.currentSessionFindMatch = "";
+        mark.classList.toggle("is-active", index === currentSessionFindIndex);
+        selected.replaceWith(mark);
+        mark.append(selected);
+        match.elements.unshift(mark);
+      });
+    }
+
+    function observeCurrentSessionFindChanges() {
+      if (!currentSessionFindOpen() || !conversationScroll) return;
+      if (!currentSessionFindObserver) {
+        currentSessionFindObserver = new MutationObserver(() => {
+          scheduleCurrentSessionFindRefresh();
+        });
+      }
+      currentSessionFindObserver.observe(conversationScroll, { childList: true, subtree: true, characterData: true });
+    }
+
+    function renderCurrentSessionFindHighlights() {
+      currentSessionFindObserver?.disconnect();
+      removeCurrentSessionFindHighlights();
+      currentSessionFindMatches.forEach((match) => { match.elements = []; });
+
+      const activeMatch = currentSessionFindMatches[currentSessionFindIndex];
+      restoreCurrentSessionFindToolOutput(activeMatch?.collapse);
+      revealToolOutputForCurrentSessionFind(activeMatch);
+      const matchesByRoot = new Map();
+      currentSessionFindMatches.forEach((match, index) => {
+        if (match.collapse?.dataset.collapsed === "true") return;
+        const matches = matchesByRoot.get(match.root) || [];
+        matches.push({ match, index });
+        matchesByRoot.set(match.root, matches);
+      });
+      matchesByRoot.forEach((matches) => {
+        matches.sort((left, right) => right.match.start - left.match.start).forEach(({ match, index }) => {
+          highlightCurrentSessionFindMatch(match, index);
+        });
+      });
+      currentSessionFindObserver?.takeRecords();
+      observeCurrentSessionFindChanges();
+    }
+
+    function updateCurrentSessionFindCount() {
+      if (!currentSessionFindCount) return;
+      const current = currentSessionFindIndex >= 0 ? currentSessionFindIndex + 1 : 0;
+      currentSessionFindCount.textContent = `${current} / ${currentSessionFindMatches.length}`;
+    }
+
+    function scrollCurrentSessionFindMatchIntoView() {
+      const element = currentSessionFindMatches[currentSessionFindIndex]?.elements[0];
+      if (!conversationScroll || !element) return;
+
+      const scrollRect = conversationScroll.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const top = conversationScroll.scrollTop + elementRect.top - scrollRect.top - ((conversationScroll.clientHeight - elementRect.height) / 2);
+      autoScrollEnabled = false;
+      forceBottomAutoScroll = false;
+      followOversizedMessageBottom = false;
+      withProgrammaticScroll(() => conversationScroll.scrollTo({ top: Math.max(top, 0), behavior: "smooth" }));
+    }
+
+    function refreshCurrentSessionFindMatches({ resetIndex = false } = {}) {
+      if (!currentSessionFindOpen()) return;
+      currentSessionFindObserver?.disconnect();
+      removeCurrentSessionFindHighlights();
+      const previousIndex = resetIndex ? 0 : currentSessionFindIndex;
+      currentSessionFindMatches = collectCurrentSessionFindMatches();
+      currentSessionFindIndex = currentSessionFindMatches.length > 0 ? Math.min(Math.max(previousIndex, 0), currentSessionFindMatches.length - 1) : -1;
+      renderCurrentSessionFindHighlights();
+      updateCurrentSessionFindCount();
+      scrollCurrentSessionFindMatchIntoView();
+    }
+
+    function scheduleCurrentSessionFindRefresh() {
+      if (!currentSessionFindOpen() || currentSessionFindPreparationPromise || currentSessionFindRefreshFrame) return;
+      currentSessionFindRefreshFrame = requestAnimationFrame(() => {
+        currentSessionFindRefreshFrame = null;
+        refreshCurrentSessionFindMatches();
+      });
+    }
+
+    function moveCurrentSessionFind(direction) {
+      if (currentSessionFindMatches.length === 0) return;
+      currentSessionFindIndex = (currentSessionFindIndex + direction + currentSessionFindMatches.length) % currentSessionFindMatches.length;
+      renderCurrentSessionFindHighlights();
+      updateCurrentSessionFindCount();
+      scrollCurrentSessionFindMatchIntoView();
+    }
+
+    async function openCurrentSessionFind() {
+      if (!currentSessionFindBar || !currentSessionFindInput) return;
+      currentSessionFindBar.hidden = false;
+      currentSessionFindInput.focus({ preventScroll: true });
+      currentSessionFindInput.select();
+      if (currentSessionFindPreparationPromise) return currentSessionFindPreparationPromise;
+
+      const generation = sessionViewGeneration;
+      const bar = currentSessionFindBar;
+      const scrollElement = conversationScroll;
+      const preparation = (async () => {
+        await loadOlderConversationHistory(generation);
+        if (!currentSessionFindOpen() || generation !== sessionViewGeneration || bar !== currentSessionFindBar || scrollElement !== conversationScroll) return;
+        refreshCurrentSessionFindMatches();
+      })();
+      currentSessionFindPreparationPromise = preparation;
+      try {
+        await preparation;
+      } finally {
+        if (currentSessionFindPreparationPromise === preparation) currentSessionFindPreparationPromise = null;
+      }
+    }
+
+    function closeCurrentSessionFind({ restoreFocus = true } = {}) {
+      currentSessionFindObserver?.disconnect();
+      if (currentSessionFindRefreshFrame) cancelAnimationFrame(currentSessionFindRefreshFrame);
+      currentSessionFindRefreshFrame = null;
+      currentSessionFindPreparationPromise = null;
+      removeCurrentSessionFindHighlights();
+      restoreCurrentSessionFindToolOutput();
+      currentSessionFindMatches = [];
+      currentSessionFindIndex = -1;
+      updateCurrentSessionFindCount();
+      if (currentSessionFindBar) currentSessionFindBar.hidden = true;
+      if (restoreFocus) conversationScroll?.focus({ preventScroll: true });
+    }
+
+    function bindCurrentSessionFindControls() {
+      currentSessionFindInput?.addEventListener("input", () => {
+        if (!currentSessionFindPreparationPromise) refreshCurrentSessionFindMatches({ resetIndex: true });
+      });
+      currentSessionFindInput?.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        moveCurrentSessionFind(event.shiftKey ? -1 : 1);
+      });
+      currentSessionFindConversationOnly?.addEventListener("change", () => {
+        if (!currentSessionFindPreparationPromise) refreshCurrentSessionFindMatches({ resetIndex: true });
+      });
+      currentSessionFindBar?.querySelector("[data-current-session-find-previous]")?.addEventListener("click", () => moveCurrentSessionFind(-1));
+      currentSessionFindBar?.querySelector("[data-current-session-find-next]")?.addEventListener("click", () => moveCurrentSessionFind(1));
+      currentSessionFindBar?.querySelector("[data-current-session-find-close]")?.addEventListener("click", () => closeCurrentSessionFind());
     }
 
     function applyAutoScroll(behavior = "auto") {
@@ -2839,6 +3179,7 @@
     }
 
     function bindSessionControls() {
+      bindCurrentSessionFindControls();
       promptTextarea?.addEventListener("keydown", (event) => {
         if (promptTextarea.value.startsWith("/") && commandList?.classList.contains("is-visible")) {
           if (event.key === "ArrowDown") {
@@ -2981,6 +3322,7 @@
     }
 
     function resetSessionViewState() {
+      closeCurrentSessionFind({ restoreFocus: false });
       sessionViewGeneration += 1;
       clearTimeout(eventPollTimer);
       clearTimeout(sidebarRefreshTimer);
@@ -3001,7 +3343,7 @@
       autoScrollEnabled = true;
       forceBottomAutoScroll = false;
       hideReconnectBanner();
-      olderConversationLoadInFlight = false;
+      olderConversationLoadPromise = null;
       clearAttachments();
     }
 
@@ -3901,6 +4243,13 @@
 
       handleNewSessionModalTab(event);
       if (modalIsOpen()) return;
+
+      if (handleCurrentSessionFindShortcut(event)) return;
+      if (event.key === "Escape" && currentSessionFindOpen()) {
+        event.preventDefault();
+        closeCurrentSessionFind();
+        return;
+      }
 
       if (isCtrlOrMetaShortcut(event, "n") && !event.shiftKey) {
         event.preventDefault();
