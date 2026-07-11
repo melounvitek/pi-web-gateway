@@ -2230,6 +2230,35 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_sidebar_gives_matching_project_names_the_same_visual_identity
+    Dir.mktmpdir do |dir|
+      projects = [File.join(dir, "machine-a", "pi-web-gateway"), File.join(dir, "machine-b", "pi-web-gateway"), File.join(dir, "machine-b", "acme-platform")]
+      projects.each_with_index do |cwd, index|
+        FileUtils.mkdir_p(cwd)
+        session_dir = File.join(dir, "sessions-#{index}")
+        FileUtils.mkdir_p(session_dir)
+        File.write(File.join(session_dir, "session-#{index}.jsonl"), [
+          JSON.generate({ type: "session", id: "session-#{index}", cwd: cwd }),
+          JSON.generate({ type: "session_info", name: "Session #{index}" })
+        ].join("\n") + "\n")
+      end
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/sidebar")
+      document = Nokogiri::HTML(response.body)
+      identities = document.css(".session-project")
+      gateway_identities = identities.select { |identity| identity.at_css(".session-project-label")&.text == "pi-web-gateway" }
+      platform_identity = identities.find { |identity| identity.at_css(".session-project-label")&.text == "acme-platform" }
+
+      assert_equal 200, response.status
+      assert_equal 2, gateway_identities.length
+      assert_equal ["PW"], gateway_identities.map { |identity| identity.at_css(".session-project-monogram").text }.uniq
+      assert_equal ["--project-identity-bg: #215f59; --project-identity-fg: #76cbbf"], gateway_identities.map { |identity| identity["style"] }.uniq
+      assert_equal "AP", platform_identity.at_css(".session-project-monogram").text
+    end
+  end
+
   def test_selected_session_shows_related_parent_and_child_sessions
     Dir.mktmpdir do |dir|
       session_dir = File.join(dir, "sessions")

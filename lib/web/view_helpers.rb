@@ -1,3 +1,4 @@
+require "digest"
 require "erb"
 require_relative "../rendering/markdown_renderer"
 require_relative "../sessions/session_view"
@@ -10,6 +11,20 @@ module Web
     RAW_DETAILS_INLINE_BYTE_LIMIT = 8 * 1024
     TOOL_OUTPUT_DESKTOP_TAIL_LINES = 18
     TOOL_OUTPUT_MOBILE_TAIL_LINES = 12
+    PROJECT_IDENTITY_COLORS = [
+      ["#6a3b1d", "#e6a66f"],
+      ["#334f78", "#8db9ef"],
+      ["#563a70", "#c5a0e8"],
+      ["#703746", "#ef9aae"],
+      ["#4b612b", "#acd276"],
+      ["#285d70", "#75c5df"],
+      ["#67365f", "#dfa0d4"],
+      ["#665020", "#e0bd65"],
+      ["#315d3b", "#86cb98"],
+      ["#3f4775", "#a5afe9"],
+      ["#713f32", "#eda18b"],
+      ["#215f59", "#76cbbf"]
+    ].freeze
 
     def h(value)
       ERB::Util.html_escape(value)
@@ -122,6 +137,21 @@ module Web
 
     def project_label(session)
       File.basename(session.cwd.to_s)
+    end
+
+    def project_identity(session)
+      label = project_label(session).unicode_normalize(:nfc)
+      words = label.scan(/[[:alnum:]]+/)
+      monogram = if words.length > 1
+        words.first(2).map { |word| word.upcase.scan(/\X/).first }.join
+      elsif words.any?
+        words.first.upcase.scan(/\X/).first(2).join
+      else
+        label.upcase.scan(/\X/).first(2).join
+      end
+      background, foreground = PROJECT_IDENTITY_COLORS[Digest::SHA256.digest(label).getbyte(0) % PROJECT_IDENTITY_COLORS.length]
+
+      { monogram: monogram, background: background, foreground: foreground }
     end
 
     def sidebar_session_search_query
