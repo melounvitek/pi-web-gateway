@@ -4118,10 +4118,12 @@ class AppTest < Minitest::Test
       end
 
       assert_equal 1, subagent_cards.length
+      assert_equal "Review the diff", subagent_cards.first.at_css("[data-subagent-prompt-preview]").text
+      assert_equal "Review the diff", subagent_cards.first.at_css("[data-subagent-prompt-body]").text
+      assert_nil subagent_cards.first.at_css("[data-subagent-prompt]")["open"]
       assert_equal "No findings.", subagent_cards.first.at_css(".message-body").text
       assert_equal Time.parse("2026-06-13T10:00:00Z").localtime.strftime("%Y-%m-%d %H:%M"), subagent_cards.first.at_css(".message-meta").text
       refute_includes response.body, "[tool: subagent]"
-      refute_includes response.body, "Review the diff"
     end
   end
 
@@ -4165,6 +4167,8 @@ class AppTest < Minitest::Test
       document = Nokogiri::HTML(response.body)
       card = document.css(".message--compact").find { |entry| entry.at_css(".compact-summary")&.text == "subagent general" }
       refute_nil card
+      assert_equal "Find the largest directory", card.at_css("[data-subagent-prompt-preview]").text
+      assert_equal "Find the largest directory", card.at_css("[data-subagent-prompt-body]").text
       assert_includes card.at_css(".message-body").text, "✓ general"
       assert_includes card.at_css(".message-body").text, "$ du -shx ~/.hermes"
       assert_includes card.at_css(".message-body").text, "3 turns ↑6.5k ↓332 R1.5k $0.0433 ctx:2.9k openai-codex/gpt-5.6-sol"
@@ -4223,6 +4227,9 @@ class AppTest < Minitest::Test
       assert_includes response.body, "part.type === \"thinking\""
       assert_includes response.body, "function subagentToolCall(part)"
       assert_includes response.body, "if (subagentToolCall(part)) return;"
+      assert_includes response.body, "function renderSubagentPrompt(entry, prompt)"
+      assert_includes response.body, "subagentPromptFromEvent(event)"
+      assert_includes response.body, "subagentPromptFromDetails(message.details)"
     end
   end
 
@@ -4239,13 +4246,13 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes response.body, "let liveToolExecutions = new Map();"
-      assert_includes response.body, "function renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true)"
+      assert_includes response.body, "function renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true, restoredPrompt = \"\")"
       assert_includes response.body, "event.type === \"tool_execution_update\""
       assert_includes response.body, "event.partialResult?.content"
       assert_includes response.body, "updateLiveToolExecution(entry, event, shouldScroll)"
       assert_includes response.body, "renderToolTranscriptBody(entry.body, toolExecutionText(event), event.toolName || entry.toolName)"
       assert_includes response.body, "appendCompactMessage(\"tool\", toolExecutionSummary(event), toolExecutionText(event)"
-      assert_includes response.body, "{ toolName: event.toolName, error: event.isError === true, timestampFallback }"
+      assert_includes response.body, "{ toolName: event.toolName, toolPrompt: event.toolName === \"subagent\" ? subagentPromptFromEvent(event) || restoredPrompt : \"\", error: event.isError === true, timestampFallback }"
       assert_includes response.body, "if (!event.toolCallId || [\"bash\", \"read\", \"edit\", \"write\"].includes(event.toolName)) return;"
       assert_includes response.body, "if (segment.toolCallId && !segment.isToolResult && ![\"bash\", \"read\", \"edit\", \"write\"].includes(segment.toolName)) liveToolExecutions.set(segment.toolCallId, entry);"
       assert_includes response.body, 'if (["tool_execution_start", "tool_execution_update", "tool_execution_end"].includes(event.type))'
@@ -4599,9 +4606,10 @@ class AppTest < Minitest::Test
       assert_equal "7", live_output["data-events-after"]
       assert_equal "call-1", JSON.parse(live_output["data-active-tool-events"]).first["toolCallId"]
       assert_equal({ "call-1" => "2026-06-13T10:00:00.000Z" }, JSON.parse(live_output["data-active-tool-timestamps"]))
+      assert_equal({ "call-1" => "Review the diff" }, JSON.parse(live_output["data-active-tool-prompts"]))
       assert_includes response.body, "function restoreActiveToolExecutions()"
       assert_includes response.body, "restoreActiveToolExecutions();"
-      assert_includes response.body, "events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId], false));"
+      assert_includes response.body, "events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId], false, prompts[event.toolCallId]));"
       assert_includes response.body, "formatTimestamp(timestamp, options.timestampFallback !== false)"
     end
   end

@@ -176,6 +176,15 @@
     .message--compact .message-details-summary:last-child { margin-bottom: 0; }
     .message--tool .message-body, .message--tool-transcript .message-body { max-width: 100%; overflow-x: auto; }
     .compact-summary { margin-left: 0.25rem; }
+    .subagent-prompt { margin: 0 0 0.65rem; padding: 0.5rem 0.6rem; border: 1px solid rgba(138, 190, 183, 0.18); border-radius: 0.5rem; background: rgba(8, 13, 32, 0.2); font-family: ui-sans-serif, system-ui, sans-serif; }
+    .subagent-prompt-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 0.45rem; cursor: pointer; list-style: none; }
+    .subagent-prompt-summary::-webkit-details-marker { display: none; }
+    .subagent-prompt-label { color: var(--accent); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+    .subagent-prompt-preview { min-width: 0; display: -webkit-box; overflow: hidden; color: rgba(216, 222, 216, 0.74); font-size: 0.86rem; line-height: 1.35; overflow-wrap: anywhere; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+    .subagent-prompt-action { color: var(--accent); font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+    .subagent-prompt-action::before { content: "Show"; }
+    .subagent-prompt[open] .subagent-prompt-action::before { content: "Hide"; }
+    .subagent-prompt-body { margin: 0.55rem 0 0; padding-top: 0.55rem; border-top: 1px solid rgba(138, 190, 183, 0.14); color: rgba(216, 222, 216, 0.82); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.88rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word; }
     .tool-output-collapse { display: grid; gap: 0.4rem; }
     .tool-output-collapse-control { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .tool-output-toggle { justify-self: start; min-height: 0; padding: 0.15rem 0.45rem; border: 1px solid rgba(138, 190, 183, 0.28); background: transparent; color: var(--accent); font-size: 0.78rem; }
@@ -1879,6 +1888,7 @@
           isToolResult: message.role === "toolResult" || toolPart?.type === "toolResult",
           toolTranscript: ["read", "edit", "write"].includes(toolName),
           toolPreview: toolPart?.type === "toolCall" && toolName === "edit",
+          toolPrompt: toolName === "subagent" ? subagentPromptFromDetails(message.details) : "",
           rawDetails
         };
       }).filter((segment) => segment.text || segment.compact);
@@ -2203,10 +2213,42 @@
       renderToolTranscriptBody(body, text, options.toolName, { preview: options.toolPreview === true });
       details.append(summaryElement, output);
 
+      const entry = { article, details, output, body, summaryText, compact: true, toolName: options.toolName || "" };
+      renderSubagentPrompt(entry, options.toolPrompt);
       article.append(header, details);
       liveOutput.append(article);
       afterLiveOutputChange(shouldScroll, live);
-      return { article, details, body, summaryText, compact: true, toolName: options.toolName || "" };
+      return entry;
+    }
+
+    function renderSubagentPrompt(entry, prompt) {
+      if (typeof prompt !== "string" || !prompt.trim() || !entry?.details || entry.subagentPromptElement) return;
+      entry.subagentPrompt = prompt;
+      const details = document.createElement("details");
+      details.className = "subagent-prompt";
+      details.dataset.subagentPrompt = "";
+      const summary = document.createElement("summary");
+      summary.className = "subagent-prompt-summary";
+      const label = document.createElement("span");
+      label.className = "subagent-prompt-label";
+      label.textContent = "Prompt";
+      const preview = document.createElement("span");
+      preview.className = "subagent-prompt-preview";
+      preview.dataset.subagentPromptPreview = "";
+      preview.textContent = prompt;
+      const action = document.createElement("span");
+      action.className = "subagent-prompt-action";
+      action.setAttribute("aria-hidden", "true");
+      const body = document.createElement("pre");
+      body.className = "subagent-prompt-body";
+      body.dataset.subagentPromptBody = "";
+      body.textContent = prompt;
+      summary.append(label, preview, action);
+      details.append(summary, body);
+      entry.details.insertBefore(details, entry.output || null);
+      entry.subagentPromptElement = details;
+      entry.subagentPromptPreview = preview;
+      entry.subagentPromptBody = body;
     }
 
     const TOOL_OUTPUT_DESKTOP_TAIL_LINES = 18;
@@ -2451,7 +2493,7 @@
       if (liveMessageAlreadyRendered(roleName, segment.text, messageTimestampKey(timestamp))) return null;
 
       const entry = segment.compact ?
-        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, error: segment.error }) :
+        appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error }) :
         appendMessage("assistant", segment.text, true, shouldScroll, timestamp, { thinking: segment.thinking, finalAssistantResponse });
       if (!entry) return null;
       entry.article.classList.toggle("message--streaming", streamingAssistantResponse);
@@ -2464,6 +2506,27 @@
 
     function toolExecutionResult(event) {
       return event.type === "tool_execution_update" ? event.partialResult : event.result;
+    }
+
+    function subagentPromptFromArguments(args) {
+      if (!args || typeof args !== "object") return "";
+      if (typeof args.task === "string" && args.task.trim()) return args.task;
+      return subagentPromptList(args.tasks) || subagentPromptList(args.chain);
+    }
+
+    function subagentPromptList(items) {
+      if (!Array.isArray(items)) return "";
+      return items.filter((item) => item && typeof item.task === "string" && item.task.trim()).map((item) => item.agent ? `${item.agent}: ${item.task}` : item.task).join("\n\n");
+    }
+
+    function subagentPromptFromDetails(details) {
+      if (!details || typeof details !== "object") return "";
+      if (typeof details.task === "string" && details.task.trim()) return details.task;
+      return subagentPromptList(details.results);
+    }
+
+    function subagentPromptFromEvent(event) {
+      return subagentPromptFromArguments(event?.args) || subagentPromptFromDetails((event?.partialResult || event?.result)?.details);
     }
 
     function subagentDetailsFromEvent(event) {
@@ -2661,6 +2724,7 @@
 
     function updateLiveToolExecution(entry, event, shouldScroll) {
       if (event.toolName === "subagent") {
+        renderSubagentPrompt(entry, subagentPromptFromEvent(event));
         const finalStatus = event.type === "tool_execution_end" ? (event.isError ? "error" : "done") : null;
         const eventDetails = subagentDetailsFromEvent(event);
         const freshDetails = richSubagentDetails(eventDetails);
@@ -2677,7 +2741,7 @@
       return entry;
     }
 
-    function renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true) {
+    function renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true, restoredPrompt = "") {
       if (!event.toolCallId || ["bash", "read", "edit", "write"].includes(event.toolName)) return;
       const shouldScroll = followLiveOutput();
       const existing = liveToolExecutions.get(event.toolCallId);
@@ -2686,7 +2750,7 @@
         return;
       }
 
-      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), timestamp, { toolName: event.toolName, error: event.isError === true, timestampFallback });
+      const entry = appendCompactMessage("tool", toolExecutionSummary(event), toolExecutionText(event), true, true, shouldScroll, toolExecutionRawDetails(event), timestamp, { toolName: event.toolName, toolPrompt: event.toolName === "subagent" ? subagentPromptFromEvent(event) || restoredPrompt : "", error: event.isError === true, timestampFallback });
       if (entry) {
         if (event.toolName === "subagent") retainSubagentDetails(entry, subagentDetailsFromEvent(event));
         liveToolExecutions.set(event.toolCallId, entry);
@@ -2698,13 +2762,16 @@
 
       const serializedEvents = liveOutput.dataset.activeToolEvents;
       const serializedTimestamps = liveOutput.dataset.activeToolTimestamps || "{}";
+      const serializedPrompts = liveOutput.dataset.activeToolPrompts || "{}";
       delete liveOutput.dataset.activeToolEvents;
       delete liveOutput.dataset.activeToolTimestamps;
+      delete liveOutput.dataset.activeToolPrompts;
       try {
         const events = JSON.parse(serializedEvents);
         const timestamps = JSON.parse(serializedTimestamps);
-        if (!Array.isArray(events) || !timestamps || typeof timestamps !== "object" || Array.isArray(timestamps)) return;
-        events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId], false));
+        const prompts = JSON.parse(serializedPrompts);
+        if (!Array.isArray(events) || !timestamps || typeof timestamps !== "object" || Array.isArray(timestamps) || !prompts || typeof prompts !== "object" || Array.isArray(prompts)) return;
+        events.forEach((event) => renderToolExecutionEvent(event, timestamps[event.toolCallId], false, prompts[event.toolCallId]));
       } catch (_error) {
       }
     }
@@ -2756,6 +2823,7 @@
             const subagentDetails = segment.toolName === "subagent" ? retainSubagentDetails(toolExecutionEntry, message.details, message.isError ? "error" : "done") : null;
             const resultText = subagentDetails ? subagentDisplayText(subagentDetails, segment.text, false, !freshSubagentDetails) : segment.text;
             const resultSummary = subagentDetails ? subagentSummary(subagentDetails, false) : segment.summary;
+            renderSubagentPrompt(toolExecutionEntry, segment.toolPrompt || subagentPromptFromDetails(message.details));
             renderToolTranscriptBody(toolExecutionEntry.body, resultText, segment.toolName || toolExecutionEntry.toolName, { preview: segment.toolPreview === true });
             renderToolSummary(toolExecutionEntry.summaryText, segment.summaryParts, resultSummary);
             toolExecutionEntry.article.classList.toggle("message--tool-error", segment.error === true);
@@ -2771,7 +2839,7 @@
           } else if (roleName === "user" && !segment.compact) {
             upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);
           } else if (segment.compact) {
-            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, error: segment.error });
+            appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error });
           } else {
             appendMessage(roleName, segment.text, true, shouldScroll, timestamp);
           }

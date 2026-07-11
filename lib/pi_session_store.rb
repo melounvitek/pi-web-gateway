@@ -21,7 +21,7 @@ class PiSessionStore
     keyword_init: true
   )
 
-  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, :tool_call_id, :tool_name, :raw_details, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :final_assistant_response, :entry_id, :images, keyword_init: true)
+  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, :tool_call_id, :tool_name, :raw_details, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
 
   @session_cache = {}
@@ -59,7 +59,7 @@ class PiSessionStore
 
   def messages(path, current_leaf_id: nil)
     entries = session_entries(path, current_leaf_id: current_leaf_id)
-    tool_call_timestamps = tool_call_timestamps_from_entries(entries)
+    subagent_tool_calls = subagent_tool_calls_from_entries(entries)
     pending_tool_calls = {}
     entries.each_with_object([]) do |entry, rendered_messages|
       if entry["type"] == "compaction"
@@ -75,8 +75,9 @@ class PiSessionStore
       next unless entry["type"] == "message"
 
       messages_from_entry(entry).each do |message|
-        if message.role == "toolResult" && message.tool_name == "subagent" && tool_call_timestamps[message.tool_call_id]
-          message.timestamp = tool_call_timestamps[message.tool_call_id]
+        if message.role == "toolResult" && message.tool_name == "subagent" && (tool_call = subagent_tool_calls[message.tool_call_id])
+          message.timestamp = tool_call[:timestamp] if tool_call[:timestamp]
+          message.tool_prompt = tool_call[:prompt] unless tool_call[:prompt].to_s.empty?
         end
 
         if message.role == "toolResult" && pending_tool_calls[message.tool_call_id]
@@ -96,12 +97,20 @@ class PiSessionStore
   end
 
   def tool_call_timestamps(path, tool_call_ids)
+    subagent_tool_call_context(path, tool_call_ids).filter_map do |tool_call_id, details|
+      [tool_call_id, details[:timestamp]] if details[:timestamp]
+    end.to_h
+  end
+
+  def subagent_tool_call_context(path, tool_call_ids)
     requested_ids = Array(tool_call_ids).to_h { |tool_call_id| [tool_call_id, true] }
     return {} if requested_ids.empty?
 
-    tool_call_timestamps_from_entries(read_entries(path))
-      .select { |tool_call_id, _timestamp| requested_ids[tool_call_id] }
-      .transform_values { |timestamp| timestamp.utc.iso8601(3) }
+    subagent_tool_calls_from_entries(read_entries(path))
+      .select { |tool_call_id, _details| requested_ids[tool_call_id] }
+      .transform_values do |details|
+        { timestamp: details[:timestamp]&.utc&.iso8601(3), prompt: details[:prompt] }
+      end
   rescue SystemCallError
     {}
   end
@@ -164,8 +173,8 @@ class PiSessionStore
 
   private
 
-  def tool_call_timestamps_from_entries(entries)
-    entries.each_with_object({}) do |entry, timestamps|
+  def subagent_tool_calls_from_entries(entries)
+    entries.each_with_object({}) do |entry, tool_calls|
       message = entry["message"]
       next unless entry["type"] == "message" && message.is_a?(Hash) && message["role"] == "assistant"
 
@@ -173,10 +182,27 @@ class PiSessionStore
         next unless part.is_a?(Hash) && part["type"] == "toolCall" && part["name"] == "subagent"
         next unless part["id"].is_a?(String) && !part["id"].empty?
 
-        timestamp = parse_iso8601_time(entry["timestamp"])
-        timestamps[part["id"]] ||= timestamp if timestamp
+        tool_calls[part["id"]] ||= {
+          timestamp: parse_iso8601_time(entry["timestamp"]),
+          prompt: subagent_prompt(part["arguments"])
+        }
       end
     end
+  end
+
+  def subagent_prompt(value)
+    return unless value.is_a?(Hash)
+
+    task = value["task"]
+    return task if task.is_a?(String) && !task.empty?
+
+    items = value["tasks"] || value["chain"] || value["results"]
+    prompts = Array(items).filter_map do |item|
+      next unless item.is_a?(Hash) && item["task"].is_a?(String) && !item["task"].empty?
+
+      item["agent"].to_s.empty? ? item["task"] : "#{item["agent"]}: #{item["task"]}"
+    end
+    prompts.join("\n\n") unless prompts.empty?
   end
 
   def session_entries(path, current_leaf_id: nil)
@@ -527,6 +553,7 @@ class PiSessionStore
         tool_name: message["toolName"],
         raw_details: compact_raw_details(message["content"]) || (compact_message?(message) ? safe_pretty_generate(message) : nil),
         images: images,
+        tool_prompt: message["toolName"] == "subagent" ? subagent_prompt(message["details"]) : nil,
         tool_transcript: general_subagent || transcript_tool?(message["toolName"])
       )]
     end

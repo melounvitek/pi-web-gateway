@@ -201,8 +201,10 @@ class PiSessionStoreTest < Minitest::Test
       message = store.messages(path).first
 
       assert_equal "subagent", message.tool_name
+      assert_equal "Review the diff", message.tool_prompt
       assert_equal Time.parse("2026-06-13T10:00:00Z"), message.timestamp
       assert_equal({ "call-1" => "2026-06-13T10:00:00.000Z" }, store.tool_call_timestamps(path, ["call-1", "missing-call"]))
+      assert_equal({ "call-1" => { timestamp: "2026-06-13T10:00:00.000Z", prompt: "Review the diff" } }, store.subagent_tool_call_context(path, ["call-1", "missing-call"]))
     end
   end
 
@@ -253,6 +255,7 @@ class PiSessionStoreTest < Minitest::Test
       message = PiSessionStore.new(root: dir).messages(path).first
 
       assert_equal "subagent general", message.summary
+      assert_equal "Find the largest directory", message.tool_prompt
       assert_equal <<~TEXT.chomp, message.text
         ✓ general
         ✓ $ du -shx /home/vitek/.hermes
