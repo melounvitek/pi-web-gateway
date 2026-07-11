@@ -1,12 +1,10 @@
 # Pi Web Gateway
 
-Browser UI for local Pi sessions.
+Connect to your Pi sessions! Local or remote, does not matter -- both works.
 
-<img width="1470" height="956" alt="Pi Web Gateway desktop screenshot" src="https://github.com/user-attachments/assets/09b55035-b68a-46d7-b1ce-24697d8e3412" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/2738cf92-9ed4-483f-8bc7-849cb07a4e5f" />
 
-<img width="360" alt="Pi Web Gateway mobile screenshot" src="docs/images/mobile-screenshot.png" />
-
-I'm scared to look into the code (the project is my attempt to try real vibe-coding), but it works nicely!
+I have not really seen the code (this project is my first attempt to try real vibe-coding), but it works nicely!
 
 ## Features
 
