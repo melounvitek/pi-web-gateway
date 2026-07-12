@@ -15,7 +15,7 @@ Wrap up the current work for this repo.
    - delete the feature branch if it was merged and is no longer needed
 5. If already on `master`:
    - push `master`
-6. If code changes require the local server to restart, use the safe pi-web-gateway restart script from `AGENTS.md` as the final step, then verify the server responds.
+6. If code changes require the local server to restart, restart it as the final step, then verify the server responds.
 7. Report:
    - commits created
    - branch/merge/push result
