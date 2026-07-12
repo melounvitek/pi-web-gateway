@@ -194,7 +194,7 @@ class PiRpcClientTest < Minitest::Test
     reader&.close
   end
 
-  def test_bounds_large_running_tool_snapshots
+  def test_bounds_large_running_tool_snapshots_without_discarding_latest_progress
     input = StringIO.new
     reader, writer = IO.pipe
     client = PiRpcClient.new(stdin: input, stdout: reader)
@@ -205,14 +205,95 @@ class PiRpcClientTest < Minitest::Test
       type: "tool_execution_update",
       toolCallId: "call-1",
       toolName: "subagent",
-      partialResult: { content: [{ type: "text", text: "x" * (PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES + 1) }] }
+      partialResult: {
+        content: [{ type: "text", text: "Latest meaningful progress" }],
+        details: {
+          task: "Inspect the project #{"😀" * 20_000}",
+          status: "running",
+          tools: 20.times.map do |index|
+            { name: "read", args: { path: "/tmp/file-#{index}" }, status: "done", output: "x" * 10_000 }
+          end,
+          textItems: ["Latest meaningful progress"],
+          streamingText: "",
+          usage: { turns: 20 },
+          model: "provider/model"
+        }
+      }
+    })
+    writer.puts JSON.generate({ id: "state-1", type: "state" })
+    request_thread.join(1)
+
+    event = client.live_snapshot.fetch(:active_tool_events).first
+    details = event.dig("partialResult", "details")
+    assert_operator JSON.generate(event).bytesize, :<=, PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
+    assert JSON.generate(event).valid_encoding?
+    assert_equal "running", details["status"]
+    assert_equal "Latest meaningful progress", details["textItems"].last
+    assert_equal "read", details["tools"].last["name"]
+    refute_equal "Subagent is still running…", event.dig("partialResult", "content", 0, "text")
+  ensure
+    request_thread&.kill
+    writer&.close
+    reader&.close
+  end
+
+  def test_falls_back_to_latest_text_when_compacted_progress_still_exceeds_the_limit
+    input = StringIO.new
+    reader, writer = IO.pipe
+    client = PiRpcClient.new(stdin: input, stdout: reader)
+    request_thread = Thread.new { client.request("get_state", id: "state-1") }
+    Timeout.timeout(1) { sleep 0.01 until input.string.include?("get_state") }
+    arguments = 12.times.to_h { |index| ["argument-#{index}", "x" * 2_000] }
+
+    writer.puts JSON.generate({
+      type: "tool_execution_update",
+      toolCallId: "call-1",
+      toolName: "subagent",
+      partialResult: {
+        content: [{ type: "text", text: "Latest aggregate progress" }],
+        details: {
+          status: "running",
+          tools: 10.times.map { { name: "custom", args: arguments, status: "done", output: "x" * 2_000 } },
+          textItems: ["Latest aggregate progress"],
+          usage: { turns: 10 }
+        }
+      }
     })
     writer.puts JSON.generate({ id: "state-1", type: "state" })
     request_thread.join(1)
 
     event = client.live_snapshot.fetch(:active_tool_events).first
     assert_operator JSON.generate(event).bytesize, :<=, PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
-    assert_equal "Subagent is still running…", event.dig("partialResult", "content", 0, "text")
+    assert_nil event.dig("partialResult", "details")
+    assert_equal "Latest aggregate progress", event.dig("partialResult", "content", 0, "text")
+  ensure
+    request_thread&.kill
+    writer&.close
+    reader&.close
+  end
+
+  def test_keeps_latest_text_when_large_subagent_details_have_an_unknown_shape
+    input = StringIO.new
+    reader, writer = IO.pipe
+    client = PiRpcClient.new(stdin: input, stdout: reader)
+    request_thread = Thread.new { client.request("get_state", id: "state-1") }
+    Timeout.timeout(1) { sleep 0.01 until input.string.include?("get_state") }
+
+    writer.puts JSON.generate({
+      type: "tool_execution_update",
+      toolCallId: "call-1",
+      toolName: "subagent",
+      partialResult: {
+        content: [{ type: "text", text: "Latest progress" }],
+        details: { customProgress: "x" * PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES }
+      }
+    })
+    writer.puts JSON.generate({ id: "state-1", type: "state" })
+    request_thread.join(1)
+
+    event = client.live_snapshot.fetch(:active_tool_events).first
+    assert_operator JSON.generate(event).bytesize, :<=, PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
+    assert_equal "Latest progress", event.dig("partialResult", "content", 0, "text")
   ensure
     request_thread&.kill
     writer&.close

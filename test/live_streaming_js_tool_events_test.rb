@@ -14,7 +14,9 @@ class LiveStreamingJsToolEventsTest < Minitest::Test
       if (fromArgs !== "Original delegated prompt") process.exit(1);
       const fromDetails = subagentPromptFromEvent({ result: { details: { task: "Retained result prompt" } } });
       if (fromDetails !== "Retained result prompt") process.exit(2);
-      if (subagentPromptFromEvent({ args: { task: {} }, result: { details: null } }) !== "") process.exit(3);
+      const restored = subagentPromptFromEvent({ result: { details: { task: "Truncated snapshot prompt" } } }, "Complete restored prompt");
+      if (restored !== "Complete restored prompt") process.exit(3);
+      if (subagentPromptFromEvent({ args: { task: {} }, result: { details: null } }) !== "") process.exit(4);
     JS
 
     refute_nil formatter_start
@@ -47,7 +49,8 @@ class LiveStreamingJsToolEventsTest < Minitest::Test
       renderSubagentPrompt(entry, "Original delegated prompt");
       renderSubagentPrompt(entry, "reviewer: Reconstructed result prompt");
       if (entry.subagentPromptPreview.textContent !== "Original delegated prompt") process.exit(1);
-      if (entry.subagentPromptBody.textContent !== "Original delegated prompt") process.exit(2);
+      if (entry.subagentPromptElement.children.length !== 1) process.exit(2);
+      if (entry.subagentPromptBody !== undefined) process.exit(3);
     JS
 
     refute_nil renderer_start
@@ -55,6 +58,14 @@ class LiveStreamingJsToolEventsTest < Minitest::Test
     _stdout, stderr, status = Open3.capture3("node", stdin_data: renderer + assertion)
 
     assert status.success?, stderr
+  end
+
+  def test_expanded_subagent_prompt_unclamps_the_same_preview
+    stylesheet = File.read(VIEW_PATH)
+
+    assert_includes stylesheet, ".subagent-prompt[open] .subagent-prompt-preview { display: block; overflow: visible;"
+    assert_includes stylesheet, "white-space: pre-wrap; -webkit-line-clamp: unset;"
+    refute_includes stylesheet, ".subagent-prompt-body"
   end
 
   def test_retained_general_subagent_progress_uses_final_fallback_only_after_completion

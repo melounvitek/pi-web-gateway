@@ -8,6 +8,9 @@ class PiRpcClient
   MAX_ACTIVE_TOOL_SNAPSHOTS = 16
   MAX_ACTIVE_TOOL_SNAPSHOT_BYTES = 64 * 1024
   MAX_ACTIVE_TOOL_SNAPSHOT_ID_BYTES = 1_024
+  ACTIVE_TOOL_SNAPSHOT_TOOL_LIMIT = 10
+  ACTIVE_TOOL_SNAPSHOT_OUTPUT_BYTES = 1_024
+  ACTIVE_TOOL_SNAPSHOT_TEXT_BYTES = 4 * 1_024
   SNAPSHOT_TOOL_NAME = "subagent"
   GATEWAY_EXTENSION_PATH = File.expand_path("../pi_extensions/pi-web-gateway-tree.ts", __dir__)
   RUBY_ENV_KEYS = %w[
@@ -362,15 +365,92 @@ class PiRpcClient
   def bounded_active_tool_event(response, serialized_bytesize)
     return response if serialized_bytesize <= MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
 
-    fallback = {
+    result = response["partialResult"]
+    details = result["details"] if result.is_a?(Hash)
+    snapshot = general_subagent_snapshot(response, result, details) if details.is_a?(Hash) && details["tools"].is_a?(Array) && details["usage"].is_a?(Hash)
+    return snapshot if snapshot && JSON.generate(snapshot).bytesize <= MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
+
+    fallback = subagent_fallback_snapshot(response, result)
+    fallback if JSON.generate(fallback).bytesize <= MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
+  end
+
+  def general_subagent_snapshot(response, result, details)
+    text_items = details["textItems"].is_a?(Array) ? details["textItems"].last(1) : []
+    compact_details = {
+      "task" => bounded_snapshot_text(details["task"], ACTIVE_TOOL_SNAPSHOT_TEXT_BYTES),
+      "model" => bounded_snapshot_text(details["model"], 512),
+      "status" => bounded_snapshot_text(details["status"], 256),
+      "tools" => details["tools"].last(ACTIVE_TOOL_SNAPSHOT_TOOL_LIMIT).filter_map { |tool| compact_snapshot_tool(tool) },
+      "textItems" => text_items.map { |text| bounded_snapshot_text(text, ACTIVE_TOOL_SNAPSHOT_TEXT_BYTES) },
+      "streamingText" => bounded_snapshot_text(details["streamingText"], ACTIVE_TOOL_SNAPSHOT_TEXT_BYTES),
+      "usage" => compact_snapshot_values(details["usage"])
+    }.compact
+
+    {
       "type" => "tool_execution_update",
       "toolCallId" => response["toolCallId"],
       "toolName" => SNAPSHOT_TOOL_NAME,
       "partialResult" => {
-        "content" => [{ "type" => "text", "text" => "Subagent is still running…" }]
+        "content" => compact_snapshot_content(result["content"]),
+        "details" => compact_details
       }
     }
-    fallback if JSON.generate(fallback).bytesize <= MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
+  end
+
+  def compact_snapshot_tool(tool)
+    return unless tool.is_a?(Hash)
+
+    {
+      "name" => bounded_snapshot_text(tool["name"], 256),
+      "args" => compact_snapshot_values(tool["args"]),
+      "status" => bounded_snapshot_text(tool["status"], 256),
+      "output" => bounded_snapshot_text(tool["output"], ACTIVE_TOOL_SNAPSHOT_OUTPUT_BYTES)
+    }.compact
+  end
+
+  def compact_snapshot_content(content)
+    Array(content).last(1).filter_map do |part|
+      next unless part.is_a?(Hash) && part["type"] == "text"
+
+      { "type" => "text", "text" => bounded_snapshot_text(part["text"], ACTIVE_TOOL_SNAPSHOT_TEXT_BYTES) }
+    end
+  end
+
+  def compact_snapshot_values(values)
+    return {} unless values.is_a?(Hash)
+
+    values.first(12).to_h do |key, value|
+      compact_value = value.is_a?(String) ? bounded_snapshot_text(value, 512) : value
+      compact_value = nil if compact_value.is_a?(Float) && !compact_value.finite?
+      compact_value = nil unless compact_value.nil? || compact_value.is_a?(Numeric) || compact_value == true || compact_value == false || compact_value.is_a?(String)
+      [key, compact_value]
+    end.compact
+  end
+
+  def bounded_snapshot_text(value, byte_limit)
+    text = value.to_s
+    return text if text.bytesize <= byte_limit
+
+    omission = "\n…\n"
+    available = byte_limit - omission.bytesize
+    head_limit = available / 2
+    tail_limit = available - head_limit
+    head = text.byteslice(0, head_limit)
+    head = head.byteslice(0, head.bytesize - 1) until head.valid_encoding?
+    tail_start = text.bytesize - tail_limit
+    tail_start += 1 until (tail = text.byteslice(tail_start, text.bytesize - tail_start)).valid_encoding?
+    "#{head}#{omission}#{tail}"
+  end
+
+  def subagent_fallback_snapshot(response, result)
+    text = compact_snapshot_content(result.is_a?(Hash) ? result["content"] : nil).dig(0, "text")
+    text = "Subagent is still running…" if text.to_s.empty?
+    {
+      "type" => "tool_execution_update",
+      "toolCallId" => response["toolCallId"],
+      "toolName" => SNAPSHOT_TOOL_NAME,
+      "partialResult" => { "content" => [{ "type" => "text", "text" => text }] }
+    }
   end
 
   def update_busy_state(response)
