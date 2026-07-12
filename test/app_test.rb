@@ -2571,9 +2571,14 @@ class AppTest < Minitest::Test
       refute_includes title_response.body, "Gamma cleanup"
       refute_includes title_response.body, "No sessions match these filters."
       assert_equal 200, message_response.status
-      assert_includes message_response.body, "Investigate webhook delivery"
+      message_document = Nokogiri::HTML(message_response.body)
+      assert_equal ["Current session", "Sessions"], message_document.css(".recent-sessions-header h2").map(&:text)
+      assert_equal ["Alpha refactor"], message_document.css(".current-session-section .session-title").map(&:text)
+      assert_equal ["Investigate webhook delivery"], message_document.css(".sessions-list .session-title").map(&:text)
       assert_equal 200, cwd_response.status
-      assert_includes cwd_response.body, "beta-project"
+      cwd_document = Nokogiri::HTML(cwd_response.body)
+      assert_equal ["Alpha refactor"], cwd_document.css(".current-session-section .session-title").map(&:text)
+      assert_equal ["Investigate webhook delivery"], cwd_document.css(".sessions-list .session-title").map(&:text)
     end
   end
 
@@ -2591,6 +2596,8 @@ class AppTest < Minitest::Test
       assert_includes document.at_css(".sidebar-session-search")["class"], "is-open"
       assert_equal "true", document.at_css("[data-sidebar-search-toggle]")["aria-expanded"]
       assert_includes response.body, "No sessions match these filters."
+      assert_equal ["Session 22"], document.css(".current-session-section .session-title").map(&:text)
+      assert_empty document.css(".sessions-list a.session")
       assert_includes document.at_css('.sidebar-project-filter-form input[name="session_search"]')["value"], "missing"
       session_link = document.at_css('.recent-sessions a.session[href]')
       assert_includes session_link["href"], "session_search=missing"
@@ -2791,9 +2798,9 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      assert_equal ["Sessions"], document.css(".recent-sessions-header h2").map(&:text)
+      assert_equal ["Current session", "Sessions"], document.css(".recent-sessions-header h2").map(&:text)
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      assert_equal ["Filtered work", "Selected work"], session_titles
+      assert_equal ["Selected work", "Filtered work"], session_titles
       assert document.at_css('.recent-sessions a.session[href*="selected.jsonl"]')["class"].include?("selected")
       refute document.at_css('.recent-sessions a.session[href*="unread.jsonl"]')
       assert_equal "1", document.at_css(".session-sidebar")["data-unread-session-count"]
@@ -3352,9 +3359,9 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      assert_equal 21, session_titles.length
+      assert_equal 20, session_titles.length
       assert_equal "Session 41", session_titles.first
-      assert_equal "Session 21", session_titles.last
+      assert_equal "Session 22", session_titles.last
       refute_includes response.body, "Session 20"
       load_more = document.at_css(".sidebar-load-more")
       assert load_more
@@ -3365,26 +3372,34 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_keeps_older_selected_session_visible_in_chronological_order_when_sidebar_is_trimmed
+  def test_moves_older_current_session_from_separate_section_into_loaded_page
     Dir.mktmpdir do |dir|
       paths = write_sessions(dir, count: 42)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+      request = Rack::MockRequest.new(PiWebGateway)
 
-      response = Rack::MockRequest.new(PiWebGateway).get(
-        "/",
-        params: { "session" => paths.first }
-      )
+      response = request.get("/", params: { "session" => paths.first })
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      assert_equal 21, session_titles.length
-      assert_equal "Session 42", session_titles.first
-      assert_equal "Session 23", session_titles[-2]
-      assert_equal "Session 1", session_titles.last
-      assert_equal "Session 1", document.at_css(".recent-sessions a.session.selected .session-title").text
-      assert_includes document.at_css(".sidebar-load-more")["href"], "sidebar_sessions_limit=40"
+      assert_equal ["Current session", "Sessions"], document.css(".recent-sessions-header h2").map(&:text)
+      assert_equal ["Session 1"], document.css(".current-session-section a.session .session-title").map(&:text)
+      assert_equal (23..42).to_a.reverse.map { |index| "Session #{index}" }, document.css(".sessions-list a.session .session-title").map(&:text)
+      assert_nil document.at_css(".current-session-section a.session.selected")["data-session-shortcut"]
+
+      loaded_response = request.get("/", params: { "session" => paths.first, "sidebar_sessions_limit" => "42" })
+
+      assert_equal 200, loaded_response.status
+      loaded_document = Nokogiri::HTML(loaded_response.body)
+      assert_equal ["Sessions"], loaded_document.css(".recent-sessions-header h2").map(&:text)
+      assert_empty loaded_document.css(".current-session-section")
+      loaded_links = loaded_document.css(".sessions-list a.session")
+      assert_equal 42, loaded_links.length
+      assert_equal "Session 1", loaded_links.last.at_css(".session-title").text
+      assert loaded_links.last["class"].include?("selected")
+      assert_nil loaded_links.last["data-session-shortcut"]
+      refute loaded_document.at_css(".sidebar-load-more")
     end
   end
 
@@ -3402,11 +3417,13 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
       session_titles = document.css(".recent-sessions a.session .session-title").map(&:text)
-      assert_equal 41, session_titles.length
+      assert_equal 40, session_titles.length
       assert_equal "Session 41", session_titles.first
-      assert_equal "Session 1", session_titles.last
-      refute document.at_css(".sidebar-load-more")
-      session_link = document.at_css('.recent-sessions a.session[href*="session-1.jsonl"]')
+      assert_equal "Session 2", session_titles.last
+      load_more = document.at_css(".sidebar-load-more")
+      assert_equal "Load 1 more", load_more.text.gsub(/\s+/, " ").strip
+      assert_includes load_more["href"], "sidebar_sessions_limit=41"
+      session_link = document.at_css('.recent-sessions a.session[href*="session-2.jsonl"]')
       refute_includes session_link["href"], "sidebar_sessions_limit"
       refute_includes session_link["href"], "show_all_sessions"
     end

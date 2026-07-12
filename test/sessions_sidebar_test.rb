@@ -5,7 +5,7 @@ require_relative "../lib/sessions/sidebar"
 class SessionsSidebarTest < Minitest::Test
   Session = Struct.new(:path, :cwd, :display_name, :first_user_message, :modified_at, keyword_init: true)
 
-  def test_lists_filtered_sessions_chronologically_while_always_including_current_session
+  def test_keeps_filtered_sessions_strict_while_exposing_filtered_out_current_session
     current = session("current", "current-project", "Current work", 10)
     unread = session("unread", "unread-project", "Unread work", 30)
     matching = session("matching", "filtered-project", "Matching work", 20, first_user_message: "Webhook setup")
@@ -18,12 +18,13 @@ class SessionsSidebarTest < Minitest::Test
     )
 
     assert_equal [hidden.path, unread.path, matching.path, current.path], sidebar.sorted_sessions.map(&:path)
-    assert_equal [matching, current], sidebar.sessions
+    assert_equal [matching], sidebar.sessions
+    assert_equal current, sidebar.separate_current_session
     assert_equal 1, sidebar.unread_session_count
   end
 
-  def test_paginates_filtered_sessions_and_builds_load_more_url
-    current = session("current", "project", "Current", -1)
+  def test_paginates_filtered_sessions_including_matching_current_session_in_counts
+    current = session("current", "project", "Current regular", -1)
     regulars = 25.times.map { |index| session("regular-#{index}", "project", "Regular #{index}", index) }
     sidebar = build_sidebar(
       groups: groups(current, *regulars),
@@ -32,16 +33,37 @@ class SessionsSidebarTest < Minitest::Test
       unread_paths: [regulars.last.path]
     )
 
-    assert_equal 21, sidebar.sessions.length
+    assert_equal 20, sidebar.sessions.length
     assert_includes sidebar.sessions, regulars.last
-    assert_equal current, sidebar.sessions.last
+    assert sidebar.unread?(regulars.last)
+    assert_equal 1, sidebar.unread_session_count
+    refute_includes sidebar.sessions, current
+    assert_equal current, sidebar.separate_current_session
     assert sidebar.sessions_overflow?
-    assert_equal 25, sidebar.next_sessions_limit
-    assert_equal 5, sidebar.sessions_remaining_count
+    assert_equal 26, sidebar.next_sessions_limit
+    assert_equal 6, sidebar.sessions_remaining_count
     assert_includes sidebar.sessions_load_more_url, "session=#{Rack::Utils.escape(current.path)}"
     assert_includes sidebar.sessions_load_more_url, "project=project"
     assert_includes sidebar.sessions_load_more_url, "session_search=regular"
-    assert_includes sidebar.sessions_load_more_url, "sidebar_sessions_limit=25"
+    assert_includes sidebar.sessions_load_more_url, "sidebar_sessions_limit=26"
+  end
+
+  def test_moves_current_session_into_chronological_position_when_page_reaches_it
+    current = session("current", "project", "Current", 4.5)
+    sessions = 25.times.map { |index| session("session-#{index}", "project", "Session #{index}", index) }
+
+    first_page = build_sidebar(groups: groups(current, *sessions), selected_session: current)
+    loaded_page = build_sidebar(
+      groups: groups(current, *sessions),
+      selected_session: current,
+      params: { "sidebar_sessions_limit" => "25" }
+    )
+
+    assert_equal current, first_page.separate_current_session
+    refute_includes first_page.sessions, current
+    assert_nil loaded_page.separate_current_session
+    assert_equal current, loaded_page.sessions[-5]
+    assert_equal 25, loaded_page.sessions.length
   end
 
   def test_lists_known_projects_by_recent_activity_then_name

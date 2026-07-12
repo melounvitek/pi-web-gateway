@@ -38,11 +38,15 @@ module Sessions
     end
 
     def sessions
-      @sessions ||= [*session_pool.first(sessions_limit), @selected_session].compact.sort_by { |session| session.modified_at || Time.at(0) }.reverse
+      @sessions ||= session_pool.first(sessions_limit)
+    end
+
+    def separate_current_session
+      @selected_session unless sessions.any? { |session| selected?(session) }
     end
 
     def session_pool
-      @session_pool ||= sorted_sessions.reject { |session| selected?(session) }.select { |session| matches_filters?(session) }
+      @session_pool ||= sorted_sessions.select { |session| matches_filters?(session) }
     end
 
     def show_all_sessions?

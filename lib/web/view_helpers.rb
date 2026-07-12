@@ -62,6 +62,10 @@ module Web
       @sidebar.sessions
     end
 
+    def sidebar_separate_current_session
+      @sidebar.separate_current_session
+    end
+
     def sidebar_session_pool
       @sidebar.session_pool
     end
