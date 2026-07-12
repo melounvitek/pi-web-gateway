@@ -59,6 +59,43 @@ class LiveStreamingJsTest < Minitest::Test
     assert_includes script[paired_result...next_branch], "replaceMessageImages(bashCallEntry.article, segment.images);"
   end
 
+  def test_live_message_images_are_replaced_and_cleared
+    script = File.read(VIEW_PATH)
+    renderer_start = script.index("    function replaceMessageImages")
+    renderer_end = script.index("    function appendMessage", renderer_start)
+    renderer = script[renderer_start...renderer_end]
+    assertion = <<~JS
+      let currentContainer = null;
+      global.document = {
+        createElement(tagName) {
+          return {
+            tagName,
+            children: [],
+            append(...children) { this.children.push(...children); },
+            addEventListener() {},
+            remove() { if (currentContainer === this) currentContainer = null; }
+          };
+        }
+      };
+      const article = {
+        querySelector() { return currentContainer; },
+        append(container) { currentContainer = container; }
+      };
+      const image = { src: "data:image/png;base64,cG5n", alt: "Attached image" };
+      replaceMessageImages(article, [image]);
+      replaceMessageImages(article, [image]);
+      if (!currentContainer || currentContainer.children.length !== 1) process.exit(1);
+      replaceMessageImages(article, []);
+      if (currentContainer) process.exit(2);
+    JS
+
+    refute_nil renderer_start
+    refute_nil renderer_end
+    _stdout, stderr, status = Open3.capture3("node", stdin_data: renderer + assertion)
+
+    assert status.success?, stderr
+  end
+
   def test_optimistic_user_message_can_render_uploaded_image_previews
     script = File.read(VIEW_PATH)
 

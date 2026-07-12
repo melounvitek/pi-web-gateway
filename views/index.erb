@@ -2143,7 +2143,7 @@
     function contentPartImage(part) {
       if (!part || typeof part !== "object" || part.type !== "image" || !part.data) return null;
       if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(part.mimeType)) return null;
-      return { src: `data:${part.mimeType};base64,${part.data}`, alt: "Tool result image" };
+      return { src: `data:${part.mimeType};base64,${part.data}`, alt: "Attached image" };
     }
 
     function contentSegments(content, message = {}) {
@@ -2743,7 +2743,7 @@
       }
 
       if (!markLiveEntryRendered(entry, roleName, segment.text, timestamp)) return null;
-      if (segment.images.length > 0) replaceMessageImages(entry.article, segment.images);
+      replaceMessageImages(entry.article, segment.images);
       afterLiveOutputChange(shouldScroll);
       return entry;
     }
@@ -2782,7 +2782,7 @@
 
       const optimisticEntry = optimisticUserEntry(segment, timestamp);
       const entry = optimisticEntry || appendMessage("user", segment.text, true, shouldScroll, timestamp, { images: segment.images });
-      if (optimisticEntry && segment.images.length > 0) replaceMessageImages(entry.article, segment.images);
+      if (optimisticEntry) replaceMessageImages(entry.article, segment.images);
       if (!entry) return null;
       liveUserMessages.set(key, entry);
       return entry;
@@ -3141,7 +3141,7 @@
             renderToolSummary(toolExecutionEntry.summaryText, segment.summaryParts, resultSummary);
             toolExecutionEntry.article.classList.toggle("message--tool-error", segment.error === true);
             if (!markLiveEntryRendered(toolExecutionEntry, toolExecutionEntry.article.dataset.role || "toolResult", segment.text, timestamp)) return;
-            if (segment.images.length > 0) replaceMessageImages(toolExecutionEntry.article, segment.images);
+            replaceMessageImages(toolExecutionEntry.article, segment.images);
             afterLiveOutputChange(shouldScroll);
           } else if (bashCallEntry && segment.isToolResult) {
             const mergedText = segment.toolName === "read" && segment.error !== true ? "" : (segment.toolName === "bash" || (segment.toolTranscript && segment.error !== true && segment.toolName !== "write") ? segment.text : [bashCallEntry.body.dataset.rawText, segment.text].filter(Boolean).join("\n\n"));
