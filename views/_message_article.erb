@@ -11,7 +11,7 @@
               <% visible_images = Array(message.images) %>
               <% visible_images = Array(defined?(attachment_images) ? attachment_images : []) if visible_images.empty? %>
               <% if message.thinking %>
-                <div class="message-body message-body--thinking"><%= render_message_body(message) %></div>
+                <div class="message-body message-body--thinking message-body--markdown"><%= render_message_body(message) %></div>
               <% elsif message.compact %>
                 <div class="message-details message-details--always-open">
                   <div class="message-details-summary"><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></div>

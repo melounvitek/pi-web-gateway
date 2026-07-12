@@ -19,6 +19,14 @@ class LiveStreamingJsTest < Minitest::Test
     assert_cleanup_before_reset_in('if (!liveErrorSeen) {', after: 'if (event.type === "agent_end")')
   end
 
+  def test_thinking_segments_are_rendered_as_markdown
+    script = File.read(VIEW_PATH)
+
+    assert_includes script, 'options.thinking ? "message-body message-body--thinking message-body--markdown"'
+    assert_includes script, "if (roleName === \"assistant\") {\n        renderAssistantMarkdown(body, text);"
+    assert_includes script, "if (roleName === \"assistant\") {\n          renderAssistantMarkdown(entry.body, segment.text);"
+  end
+
   def test_optimistic_user_message_can_render_uploaded_image_previews
     script = File.read(VIEW_PATH)
 

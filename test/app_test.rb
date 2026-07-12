@@ -3663,7 +3663,7 @@ class AppTest < Minitest::Test
           message: {
             role: "assistant",
             content: [
-              { type: "thinking", thinking: "**Heading**\n\nPrivate reasoning" },
+              { type: "thinking", thinking: "**Heading**\n\nPrivate **reasoning**" },
               { type: "text", text: "## Visible answer" }
             ]
           }
@@ -3680,10 +3680,11 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_includes response.body, 'message--thinking'
       refute_includes response.body, 'Thinking:'
-      assert_includes response.body, 'Private reasoning'
+      assert_includes response.body, 'Private <strong>reasoning</strong>'
       refute_includes response.body, '<div class="message-details-summary"><span class="compact-summary">thinking</span></div>'
       refute_includes response.body, "**Heading**"
-      assert_includes response.body, "Private reasoning"
+      refute_includes response.body, "**reasoning**"
+      assert_includes response.body, 'class="message-body message-body--thinking message-body--markdown"'
       assert_includes response.body, 'class="message-body message-body--markdown"'
       assert_includes response.body, "<h2>Visible answer</h2>"
     end

@@ -292,7 +292,7 @@ module Web
     end
 
     def render_message_body(message)
-      return h(message.text) if message.thinking
+      return markdown_renderer.render(message.text) if message.thinking
       return h(message.text) unless message.role == "assistant" && !message.compact
 
       markdown_renderer.render(message.text)

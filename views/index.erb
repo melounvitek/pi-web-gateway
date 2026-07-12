@@ -198,6 +198,7 @@
       .tool-output-hidden-count--mobile { display: inline; }
     }
     .message-body--thinking { font-size: 0.95rem; font-style: italic; line-height: 1.45; color: var(--muted); }
+    .message-body--thinking.message-body--markdown h1, .message-body--thinking.message-body--markdown h2, .message-body--thinking.message-body--markdown h3 { color: inherit; font-size: 1em; }
     .message-body--markdown { max-width: 100%; overflow-x: auto; line-height: 1.6; overflow-wrap: anywhere; }
     .message-body--markdown[data-rendering="pending"]:empty::before { content: "…"; color: var(--muted); }
     .message-body--markdown > :first-child { margin-top: 0; }
@@ -2422,10 +2423,8 @@
       role.textContent = messageRoleLabel(roleName);
 
       const body = document.createElement(roleName === "assistant" ? "div" : "pre");
-      body.className = options.thinking ? "message-body message-body--thinking" : (roleName === "assistant" ? "message-body message-body--markdown" : "message-body");
-      if (options.thinking) {
-        body.textContent = text;
-      } else if (roleName === "assistant") {
+      body.className = options.thinking ? "message-body message-body--thinking message-body--markdown" : (roleName === "assistant" ? "message-body message-body--markdown" : "message-body");
+      if (roleName === "assistant") {
         renderAssistantMarkdown(body, text);
       } else {
         body.textContent = text;
@@ -2718,9 +2717,7 @@
         renderToolSummary(entry.summaryText, segment.summaryParts, segment.summary);
         renderToolTranscriptBody(entry.body, segment.text, segment.toolName || entry.toolName, { preview: segment.toolPreview === true });
       } else {
-        if (segment.thinking) {
-          entry.body.textContent = segment.text;
-        } else if (roleName === "assistant") {
+        if (roleName === "assistant") {
           renderAssistantMarkdown(entry.body, segment.text);
         } else {
           entry.body.textContent = displayText;
