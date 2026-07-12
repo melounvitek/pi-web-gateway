@@ -4467,16 +4467,16 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'span.className = `tool-diff-line ${toolDiffLineClass(line, preview)}`;'
       assert_includes response.body, 'renderToolTranscriptBody(entry.body, segment.text, segment.toolName || entry.toolName, { preview: segment.toolPreview === true });'
       assert_includes response.body, 'toolPreview: toolPart?.type === "toolCall" && toolName === "edit"'
-      assert_includes response.body, 'bashCallEntry.body.classList.contains("message-body--edit-preview")'
+      assert_includes response.body, 'pairedToolCallEntry.body.classList.contains("message-body--edit-preview")'
       assert_includes response.body, 'segment.toolName === "bash" || (segment.toolTranscript && segment.error !== true && segment.toolName !== "write") ? segment.text'
-      assert_includes response.body, '[bashCallEntry.body.dataset.rawText, segment.text].filter(Boolean).join("\\n\\n")'
+      assert_includes response.body, '[pairedToolCallEntry.body.dataset.rawText, segment.text].filter(Boolean).join("\\n\\n")'
       refute_includes response.body, 'details.open = options.open === true;'
       refute_includes response.body, 'collapseButton.textContent = "▴ Collapse details";'
       refute_includes response.body, 'event.target.closest("[data-collapse-details]")'
       assert_includes response.body, 'error: message.isError === true'
       refute_includes response.body, 'open: segment.expanded'
       assert_includes response.body, 'error: segment.error'
-      assert_includes response.body, '["bash", "read", "edit", "write"].includes(segment.toolName)'
+      assert_includes response.body, 'PAIRED_TOOL_NAMES.has(segment.toolName)'
       assert_includes response.body, "part.type === \"toolCall\""
       assert_includes response.body, "part.type === \"thinking\""
       assert_includes response.body, "function subagentToolCall(part)"
@@ -4507,8 +4507,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "renderToolTranscriptBody(entry.body, toolExecutionText(event), event.toolName || entry.toolName)"
       assert_includes response.body, "appendCompactMessage(\"tool\", toolExecutionSummary(event), toolExecutionText(event)"
       assert_includes response.body, "{ toolName: event.toolName, toolPrompt: event.toolName === \"subagent\" ? subagentPromptFromEvent(event) || restoredPrompt : \"\", error: event.isError === true, timestampFallback }"
-      assert_includes response.body, "if (!event.toolCallId || [\"bash\", \"read\", \"edit\", \"write\"].includes(event.toolName)) return;"
-      assert_includes response.body, "if (segment.toolCallId && !segment.isToolResult && ![\"bash\", \"read\", \"edit\", \"write\"].includes(segment.toolName)) liveToolExecutions.set(segment.toolCallId, entry);"
+      assert_includes response.body, "if (!event.toolCallId || PAIRED_TOOL_NAMES.has(event.toolName)) return;"
+      assert_includes response.body, "if (segment.toolCallId && !segment.isToolResult && !PAIRED_TOOL_NAMES.has(segment.toolName)) liveToolExecutions.set(segment.toolCallId, entry);"
       assert_includes response.body, 'if (["tool_execution_start", "tool_execution_update", "tool_execution_end"].includes(event.type))'
     end
   end
@@ -4613,8 +4613,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "entry.article.remove();"
       assert_includes response.body, "function forgetLiveEntry(entry)"
       assert_includes response.body, "if (storedEntry === entry) liveAssistantSegments.delete(key);"
-      assert_includes response.body, "if (storedEntry === entry) liveBashToolCalls.delete(key);"
-      assert_includes response.body, "markLiveEntryRendered(bashCallEntry, bashCallEntry.article.dataset.role || \"assistant\", mergedText)"
+      assert_includes response.body, "if (storedEntry === entry) livePairedToolCalls.delete(key);"
+      assert_includes response.body, "markLiveEntryRendered(pairedToolCallEntry, pairedToolCallEntry.article.dataset.role || \"assistant\", mergedText)"
       assert_includes response.body, "article.dataset.messageTimestamp = timestampKey;"
     end
   end

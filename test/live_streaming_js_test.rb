@@ -53,10 +53,10 @@ class LiveStreamingJsTest < Minitest::Test
 
   def test_live_read_results_are_rendered_on_the_existing_tool_card
     script = File.read(VIEW_PATH)
-    paired_result = script.index("else if (bashCallEntry && segment.isToolResult)")
+    paired_result = script.index("else if (pairedToolCallEntry && segment.isToolResult)")
     next_branch = script.index("else if (roleName === \"user\"", paired_result)
 
-    assert_includes script[paired_result...next_branch], "replaceMessageImages(bashCallEntry.article, segment.images);"
+    assert_includes script[paired_result...next_branch], "replaceMessageImages(pairedToolCallEntry.article, segment.images);"
   end
 
   def test_live_message_images_are_replaced_and_cleared

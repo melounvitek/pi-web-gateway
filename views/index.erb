@@ -511,7 +511,8 @@
     let liveAgentRunning = false;
     let liveErrorSeen = false;
     let liveCompactionRendered = false;
-    let liveBashToolCalls = new Map();
+    const PAIRED_TOOL_NAMES = new Set(["bash", "read", "edit", "write"]);
+    let livePairedToolCalls = new Map();
     let liveToolExecutions = new Map();
     let liveUserMessages = new Map();
     let liveStatusModel = null;
@@ -2678,7 +2679,7 @@
     function resetLiveAssistantTracking() {
       liveAssistantMessage = null;
       liveAssistantSegments = new Map();
-      liveBashToolCalls = new Map();
+      livePairedToolCalls = new Map();
       liveToolExecutions = new Map();
       liveUserMessages = new Map();
       liveAssistantSeen = false;
@@ -2704,8 +2705,8 @@
       liveAssistantSegments.forEach((storedEntry, key) => {
         if (storedEntry === entry) liveAssistantSegments.delete(key);
       });
-      liveBashToolCalls.forEach((storedEntry, key) => {
-        if (storedEntry === entry) liveBashToolCalls.delete(key);
+      livePairedToolCalls.forEach((storedEntry, key) => {
+        if (storedEntry === entry) livePairedToolCalls.delete(key);
       });
       liveToolExecutions.forEach((storedEntry, key) => {
         if (storedEntry === entry) liveToolExecutions.delete(key);
@@ -2812,8 +2813,8 @@
       entry.article.classList.toggle("message--streaming", streamingAssistantResponse);
       if (finalAssistantResponse) entry.article.dataset.finalAssistantResponse = "true";
       liveAssistantSegments.set(key, entry);
-      if (["bash", "read", "edit", "write"].includes(segment.toolName) && segment.toolCallId && !segment.isToolResult) liveBashToolCalls.set(segment.toolCallId, entry);
-      if (segment.toolCallId && !segment.isToolResult && !["bash", "read", "edit", "write"].includes(segment.toolName)) liveToolExecutions.set(segment.toolCallId, entry);
+      if (PAIRED_TOOL_NAMES.has(segment.toolName) && segment.toolCallId && !segment.isToolResult) livePairedToolCalls.set(segment.toolCallId, entry);
+      if (segment.toolCallId && !segment.isToolResult && !PAIRED_TOOL_NAMES.has(segment.toolName)) liveToolExecutions.set(segment.toolCallId, entry);
       return entry;
     }
 
@@ -3055,7 +3056,7 @@
     }
 
     function renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true, restoredPrompt = "") {
-      if (!event.toolCallId || ["bash", "read", "edit", "write"].includes(event.toolName)) return;
+      if (!event.toolCallId || PAIRED_TOOL_NAMES.has(event.toolName)) return;
       const shouldScroll = followLiveOutput();
       const existing = liveToolExecutions.get(event.toolCallId);
       if (existing) {
@@ -3130,7 +3131,7 @@
       if (roleName !== "assistant") {
         segments.forEach((segment, index) => {
           const toolExecutionEntry = segment.toolCallId && liveToolExecutions.get(segment.toolCallId);
-          const bashCallEntry = ["bash", "read", "edit", "write"].includes(segment.toolName) && segment.toolCallId && liveBashToolCalls.get(segment.toolCallId);
+          const pairedToolCallEntry = PAIRED_TOOL_NAMES.has(segment.toolName) && segment.toolCallId && livePairedToolCalls.get(segment.toolCallId);
           if (toolExecutionEntry && segment.isToolResult) {
             const freshSubagentDetails = segment.toolName === "subagent" && richSubagentDetails(message.details);
             const subagentDetails = segment.toolName === "subagent" ? retainSubagentDetails(toolExecutionEntry, message.details, message.isError ? "error" : "done") : null;
@@ -3143,13 +3144,13 @@
             if (!markLiveEntryRendered(toolExecutionEntry, toolExecutionEntry.article.dataset.role || "toolResult", segment.text, timestamp)) return;
             replaceMessageImages(toolExecutionEntry.article, segment.images);
             afterLiveOutputChange(shouldScroll);
-          } else if (bashCallEntry && segment.isToolResult) {
-            const mergedText = segment.toolName === "read" && segment.error !== true ? "" : (segment.toolName === "bash" || (segment.toolTranscript && segment.error !== true && segment.toolName !== "write") ? segment.text : [bashCallEntry.body.dataset.rawText, segment.text].filter(Boolean).join("\n\n"));
-            const preview = segment.toolPreview === true || (segment.error === true && bashCallEntry.body.classList.contains("message-body--edit-preview"));
-            renderToolTranscriptBody(bashCallEntry.body, mergedText, segment.toolName || bashCallEntry.toolName, { preview });
-            bashCallEntry.article.classList.toggle("message--tool-error", segment.error === true);
-            if (!markLiveEntryRendered(bashCallEntry, bashCallEntry.article.dataset.role || "assistant", mergedText)) return;
-            if (segment.images.length > 0) replaceMessageImages(bashCallEntry.article, segment.images);
+          } else if (pairedToolCallEntry && segment.isToolResult) {
+            const mergedText = segment.toolName === "read" && segment.error !== true ? "" : (segment.toolName === "bash" || (segment.toolTranscript && segment.error !== true && segment.toolName !== "write") ? segment.text : [pairedToolCallEntry.body.dataset.rawText, segment.text].filter(Boolean).join("\n\n"));
+            const preview = segment.toolPreview === true || (segment.error === true && pairedToolCallEntry.body.classList.contains("message-body--edit-preview"));
+            renderToolTranscriptBody(pairedToolCallEntry.body, mergedText, segment.toolName || pairedToolCallEntry.toolName, { preview });
+            pairedToolCallEntry.article.classList.toggle("message--tool-error", segment.error === true);
+            if (!markLiveEntryRendered(pairedToolCallEntry, pairedToolCallEntry.article.dataset.role || "assistant", mergedText)) return;
+            replaceMessageImages(pairedToolCallEntry.article, segment.images);
             afterLiveOutputChange(shouldScroll);
           } else if (roleName === "user" && !segment.compact) {
             upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);
