@@ -4732,7 +4732,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "function recentSessionShortcutFromEvent(event)"
       assert_includes APP_JAVASCRIPT, "event.code.match(/^Digit([1-9])$/)"
       assert_includes APP_JAVASCRIPT, "event.code.match(/^Numpad([1-9])$/)"
-      assert_includes APP_JAVASCRIPT, "openRecentSessionShortcut(shortcut)"
+      assert_includes APP_JAVASCRIPT, "if (shortcut) {\n    event.preventDefault();\n    if (event.repeat) return;\n    openRecentSessionShortcut(shortcut)"
       assert_includes APP_JAVASCRIPT, "function currentSessionPath()"
       assert_includes APP_JAVASCRIPT, "window.location.href = link.href;"
       refute_includes APP_JAVASCRIPT, "clearUnreadSession(link.dataset.sessionPath)"

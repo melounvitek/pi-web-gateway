@@ -1643,7 +1643,6 @@ async function markCurrentSessionRead() {
 async function openRecentSessionShortcut(shortcut) {
   const link = sidebarController.element?.querySelector(`.recent-session[data-session-shortcut="${shortcut}"]`);
   if (!link) return false;
-  exitSessionShortcutMode();
   if (currentSessionPath() === link.dataset.sessionPath) return true;
   const switched = await switchSession(link.href, { push: true, focus: true });
   if (switched && currentSessionPath() !== link.dataset.sessionPath) window.location.href = link.href;
@@ -2130,6 +2129,7 @@ document.addEventListener("keydown", (event) => {
   const shortcut = recentSessionShortcutFromEvent(event);
   if (shortcut) {
     event.preventDefault();
+    if (event.repeat) return;
     openRecentSessionShortcut(shortcut).catch(() => {});
   }
 });

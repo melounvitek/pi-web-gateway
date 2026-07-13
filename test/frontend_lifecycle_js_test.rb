@@ -124,6 +124,30 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal 0, results.fetch("focusCount")
   end
 
+  def test_opening_session_shortcut_keeps_shortcut_mode_visible
+    app_source = File.read(File.join(ASSETS, "app.js"))
+    shortcut_source = app_source.match(/async function openRecentSessionShortcut\(.*?(?=\nfunction sessionShortcutsVisible)/m).to_s
+
+    results = run_javascript(<<~JS)
+      const classes = new Set(["session-shortcuts-visible"]);
+      const document = { body: { classList: { contains: (name) => classes.has(name), remove: (name) => classes.delete(name) } } };
+      const link = { href: "/?session=new", dataset: { sessionPath: "new" } };
+      const sidebarController = { element: { querySelector: () => link } };
+      const window = { location: { href: "https://example.test/?session=old" } };
+      let currentSession = "old";
+      const currentSessionPath = () => currentSession;
+      const exitSessionShortcutMode = () => document.body.classList.remove("session-shortcuts-visible");
+      const switchSession = async () => { currentSession = "new"; return true; };
+      eval(#{(shortcut_source + "\nglobalThis.openRecentSessionShortcutUnderTest = openRecentSessionShortcut;").to_json});
+
+      const switched = await globalThis.openRecentSessionShortcutUnderTest("2");
+      console.log(JSON.stringify({ switched, shortcutsVisible: classes.has("session-shortcuts-visible") }));
+    JS
+
+    assert_equal true, results.fetch("switched")
+    assert_equal true, results.fetch("shortcutsVisible")
+  end
+
   def test_stale_failed_session_switch_does_not_replace_a_newer_success
     app_source = File.read(File.join(ASSETS, "app.js"))
     switch_source = app_source.match(/async function switchSession\(.*?(?=\nfunction enterSessionShortcutMode)/m).to_s
@@ -163,7 +187,6 @@ class FrontendLifecycleJsTest < Minitest::Test
       const bindSessionDom = () => { currentSession = "newer"; };
       const bindSessionControls = () => {};
       const initializeSessionView = () => {};
-      const exitSessionShortcutMode = () => {};
       const currentSessionPath = () => currentSession;
       eval(#{(switch_source + "\n" + shortcut_source + "\nglobalThis.switchSessionUnderTest = switchSession; globalThis.openRecentSessionShortcutUnderTest = openRecentSessionShortcut;").to_json});
 
