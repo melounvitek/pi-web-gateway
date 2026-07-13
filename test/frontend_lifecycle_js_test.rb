@@ -69,16 +69,18 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal 2, results.fetch("epoch")
   end
 
-  def test_composer_focus_follows_work_lifecycle_on_desktop
+  def test_composer_focus_follows_work_lifecycle_on_desktop_only_near_the_conversation_bottom
     app_source = File.read(File.join(ASSETS, "app.js"))
     focus_source = app_source.match(/function automaticComposerFocusEnabled\(\).*?(?=\nfunction desktopConversationFocusEnabled)/m).to_s
 
     results = run_javascript(<<~JS)
       let modalOpen = false;
+      let nearBottom = true;
       const focused = [];
       const focusTarget = (name) => ({ focus(options) { focused.push([name, options]); } });
       const window = { matchMedia: () => ({ matches: true }) };
       const modalIsOpen = () => modalOpen;
+      const conversationController = { nearBottom: () => nearBottom };
       const promptTextarea = focusTarget("prompt");
       const conversationScroll = focusTarget("conversation");
       let composerState = { dataset: { state: "idle" } };
@@ -86,9 +88,11 @@ class FrontendLifecycleJsTest < Minitest::Test
 
       globalThis.syncComposerFocusUnderTest();
       globalThis.syncComposerFocusUnderTest("sending");
+      nearBottom = false;
       globalThis.syncComposerFocusUnderTest("running");
       globalThis.syncComposerFocusUnderTest("done");
-      globalThis.syncComposerFocusUnderTest("error");
+      nearBottom = true;
+      globalThis.syncComposerFocusUnderTest("done");
       modalOpen = true;
       globalThis.syncComposerFocusUnderTest("running");
 
@@ -99,7 +103,6 @@ class FrontendLifecycleJsTest < Minitest::Test
       ["prompt", { "preventScroll" => true }],
       ["conversation", { "preventScroll" => true }],
       ["conversation", { "preventScroll" => true }],
-      ["prompt", { "preventScroll" => true }],
       ["prompt", { "preventScroll" => true }]
     ], results
   end

@@ -194,7 +194,10 @@ function automaticComposerFocusEnabled() {
 function syncComposerFocus(state = composerState?.dataset.state) {
   if (!automaticComposerFocusEnabled() || modalIsOpen()) return;
 
-  const target = ["running", "sending"].includes(state) ? conversationScroll : promptTextarea;
+  const agentBusy = ["running", "sending"].includes(state);
+  if (!agentBusy && !conversationController.nearBottom()) return;
+
+  const target = agentBusy ? conversationScroll : promptTextarea;
   target?.focus({ preventScroll: true });
 }
 
