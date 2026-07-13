@@ -56,8 +56,25 @@ export class ConversationController {
     this.listen(this.element, "scroll", () => this.handleScroll(), { passive: true });
     this.listen(this.historyStatus(), "click", () => this.loadOlderWindow().catch(() => {}));
     this.listen(this.jumpToFirstButton, "click", () => {
-      if (this.jumpToFirstButton.dataset.jumpTarget === "message") this.scrollToMessageTop();
-      else this.loadOlderHistory().then((status) => { if (status === "complete") this.scrollToTop(); }).catch(() => {});
+      if (this.jumpToFirstButton.dataset.jumpTarget === "message") return this.scrollToMessageTop();
+
+      const button = this.jumpToFirstButton;
+      const controls = this.topJumpControls;
+      button.classList.add("is-loading");
+      controls?.classList.add("is-loading");
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      button.setAttribute("aria-label", "Loading earlier messages");
+      this.loadOlderHistory()
+        .then((status) => { if (status === "complete") this.scrollToTop(); })
+        .catch(() => {})
+        .finally(() => {
+          button.classList.remove("is-loading");
+          controls?.classList.remove("is-loading");
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+          if (button === this.jumpToFirstButton) this.updateJumpControls();
+        });
     });
     this.listen(this.jumpToLatestButton, "click", () => {
       if (this.jumpToLatestButton.dataset.jumpTarget === "message") this.scrollToMessageBottom();
@@ -213,7 +230,7 @@ export class ConversationController {
   setJumpButton(button, target, label, ariaLabel) {
     if (!button) return;
     button.textContent = label;
-    button.setAttribute("aria-label", ariaLabel);
+    if (!button.classList.contains("is-loading")) button.setAttribute("aria-label", ariaLabel);
     button.dataset.jumpTarget = target;
   }
 

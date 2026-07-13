@@ -157,6 +157,63 @@ class CurrentSessionFindTest < Minitest::Test
     assert_equal({ "calls" => 1, "clickable" => true }, results)
   end
 
+  def test_jump_to_top_shows_loading_state_until_full_history_is_ready
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      class Classes {
+        constructor() { this.values = new Set(); }
+        add(value) { this.values.add(value); }
+        remove(value) { this.values.delete(value); }
+        contains(value) { return this.values.has(value); }
+        toggle(value, enabled) { enabled ? this.add(value) : this.remove(value); }
+      }
+      class Target {
+        constructor() { this.listeners = {}; this.dataset = {}; this.classList = new Classes(); this.attributes = {}; this.disabled = false; this.scrollTop = 0; }
+        addEventListener(type, listener) { this.listeners[type] = listener; }
+        removeEventListener() {}
+        setAttribute(name, value) { this.attributes[name] = String(value); }
+        removeAttribute(name) { delete this.attributes[name]; }
+        querySelector() { return null; }
+      }
+      const scroll = new Target(); const button = new Target(); const topControls = new Target();
+      const document = {
+        body: { classList: new Classes() },
+        getElementById: (id) => id === "conversation-scroll" ? scroll : null,
+        querySelector(selector) {
+          if (selector === ".jump-controls--top") return topControls;
+          if (selector === ".jump-to-first") return button;
+          if (selector.includes("input")) return { value: "/session" };
+          return null;
+        }
+      };
+      const controller = new ConversationController(document, { matchMedia: () => ({ matches: false }) });
+      let finish; let scrolls = 0;
+      controller.loadOlderHistory = () => new Promise((resolve) => { finish = resolve; });
+      controller.scrollToTop = () => { scrolls += 1; };
+      controller.bind();
+      let messageTarget = true;
+      controller.updateJumpControls = () => controller.setJumpButton(button, messageTarget ? "message" : "conversation", messageTarget ? "↑" : "↑↑", messageTarget ? "Message top" : "Top");
+      button.dataset.jumpTarget = "conversation";
+      button.listeners.click();
+      controller.updateJumpControls();
+      const loading = { button: button.classList.contains("is-loading"), controls: topControls.classList.contains("is-loading"), disabled: button.disabled, busy: button.attributes["aria-busy"], label: button.attributes["aria-label"] };
+      messageTarget = false;
+      finish("complete");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const restored = { button: !button.classList.contains("is-loading"), controls: !topControls.classList.contains("is-loading"), enabled: !button.disabled, busy: button.attributes["aria-busy"] === undefined, label: button.attributes["aria-label"] };
+      console.log(JSON.stringify({ loading, restored, scrolls }));
+    JS
+
+    assert_equal(
+      {
+        "loading" => { "button" => true, "controls" => true, "disabled" => true, "busy" => "true", "label" => "Loading earlier messages" },
+        "restored" => { "button" => true, "controls" => true, "enabled" => true, "busy" => true, "label" => "Top" },
+        "scrolls" => 1
+      },
+      results
+    )
+  end
+
   def test_stale_history_response_is_ignored_after_rebinding
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});

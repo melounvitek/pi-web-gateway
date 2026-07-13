@@ -322,7 +322,10 @@
     .jump-controls--top { top: 0.75rem; }
     .jump-controls--bottom { bottom: 0.75rem; }
     .jump-button { display: none; align-items: center; justify-content: center; width: 2.75rem; height: 2rem; min-height: 0; padding: 0; box-shadow: var(--shadow-soft); pointer-events: auto; }
-    .jump-button.is-visible { display: inline-flex; }
+    .jump-button.is-visible, .jump-button.is-loading { display: inline-flex; }
+    .jump-button.is-loading:disabled { position: relative; color: transparent; cursor: wait; opacity: 1; }
+    .jump-button.is-loading::after { content: ""; position: absolute; width: 0.85rem; height: 0.85rem; border: 2px solid var(--button-text); border-right-color: transparent; border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
+    .jump-controls.is-loading { visibility: visible; opacity: 1; pointer-events: auto; }
     .session-switch-overlay { position: fixed; inset: 0; z-index: 140; display: none; place-items: center; background: #18181e80; backdrop-filter: blur(2px); }
     body.session-switching .session-switch-overlay { display: grid; }
     .session-switch-indicator { display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border-strong); border-radius: 0.4rem; background: #1e1e24fa; color: var(--text); box-shadow: var(--shadow-soft); font-family: var(--mono); font-size: 0.85rem; font-weight: 600; }
@@ -398,7 +401,7 @@
     @keyframes progress-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.32; } }
     @keyframes streaming-bubble-pulse { 0%, 100% { box-shadow: 0 0 0 1px #8abeb73d inset; } 50% { box-shadow: 0 0 0 2px #8abeb766 inset; } }
     @keyframes streaming-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-    @media (prefers-reduced-motion: reduce) { .composer-stop-button.is-visible:not(:disabled)::before, .session-running-indicator::before, .session-compacting-indicator::before, .message--assistant.message--streaming, .message--assistant.message--streaming .message-body--markdown > :last-child:not(pre):not(ul):not(ol)::after, .message--assistant.message--streaming .message-body--markdown > ul:last-child > li:last-child::after, .message--assistant.message--streaming .message-body--markdown > ol:last-child > li:last-child::after, .message--assistant.message--streaming .message-body--markdown > blockquote:last-child > :last-child::after { animation: none; opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .jump-button.is-loading::after, .composer-stop-button.is-visible:not(:disabled)::before, .session-running-indicator::before, .session-compacting-indicator::before, .message--assistant.message--streaming, .message--assistant.message--streaming .message-body--markdown > :last-child:not(pre):not(ul):not(ol)::after, .message--assistant.message--streaming .message-body--markdown > ul:last-child > li:last-child::after, .message--assistant.message--streaming .message-body--markdown > ol:last-child > li:last-child::after, .message--assistant.message--streaming .message-body--markdown > blockquote:last-child > :last-child::after { animation: none; opacity: 1; } }
     .mobile-session-toggle, .mobile-sessions-button, .mobile-sidebar-backdrop { display: none; }
     .hamburger-icon { position: relative; display: inline-block; width: 1.25rem; height: 0.9rem; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor; }
     .hamburger-icon::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 2px solid currentColor; transform: translateY(-50%); }
@@ -434,6 +437,7 @@
       .conversation-scroll { padding: 0.75rem; }
       .jump-controls.is-visible { transition: opacity 140ms ease, visibility 140ms ease; }
       body:not(.is-conversation-scrolling) .jump-controls.is-visible { visibility: hidden; opacity: 0; pointer-events: none; }
+      body:not(.is-conversation-scrolling) .jump-controls.is-loading { visibility: visible; opacity: 1; pointer-events: auto; }
       .message { margin-bottom: 0.65rem; padding: 0.75rem; border-radius: 0.35rem; }
       .message--user, .message--assistant { margin-left: 0; margin-right: 0; }
       .message-header { flex-wrap: wrap; }
