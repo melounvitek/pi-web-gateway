@@ -148,7 +148,7 @@ module Web
       end
 
       def commands_for(session_path)
-        response = with_rpc_client(session_path) { |client| client.get_commands }
+        response = with_synchronized_rpc_client(session_path) { |client| client.get_commands }
         Rpc::CommandCatalog.commands_from(response)
       rescue Errno::EPIPE, IOError
         Rpc::CommandCatalog.builtin_commands
@@ -192,35 +192,45 @@ module Web
 
       app.post "/prompt" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
+        halt_if_session_sync_blocked(session_path)
         message = params.fetch("message").to_s
         images = prompt_images_from(params["images"])
-        attachment_paths = attachment_store.persist_prompt_images(session_path, images)
-        rpc_message = message_with_attachment_paths(message, attachment_paths)
-        halt 400, "Message cannot be empty" if rpc_message.strip.empty? && images.empty?
+        halt 400, "Message cannot be empty" if message.strip.empty? && images.empty?
 
         follow_up_prompt = params["streaming_behavior"].to_s == "follow_up"
-
         slash_command = follow_up_prompt ? nil : Prompts::SlashCommand.parse(message)
         branch_response = nil
         if follow_up_prompt
           submitted_at = Time.now
-          response = with_rpc_client(session_path) { |client| client.follow_up(rpc_message, images) }
+          attachment_paths = []
+          rpc_message = message
+          response = with_synchronized_rpc_client(session_path) do |client|
+            attachment_paths = attachment_store.persist_prompt_images(session_path, images)
+            rpc_message = message_with_attachment_paths(message, attachment_paths)
+            client.follow_up(rpc_message, images)
+          end
           halt_failed_rpc_prompt(response)
           attachment_store.record_prompt(session_path, rpc_message, images.length, timestamp: submitted_at, paths: attachment_paths, mime_types: images.map { |image| image[:mimeType] })
         elsif slash_command&.type == :rename && slash_command.name
-          with_rpc_client(session_path) { |client| client.set_session_name(slash_command.name) }
+          with_synchronized_rpc_client(session_path) { |client| client.set_session_name(slash_command.name) }
         elsif slash_command&.type == :rename || [:fork, :tree, :model].include?(slash_command&.type)
           nil
         elsif slash_command&.type == :compact
-          with_rpc_client(session_path) { |client| client.compact(slash_command.instructions) }
+          with_synchronized_rpc_client(session_path) { |client| client.compact(slash_command.instructions) }
         elsif slash_command&.type == :new
           branch_response = redirect_to_new_session(start_new_session(current_session_cwd(session_path)), command: "new")
         elsif slash_command&.type == :clone
-          response = with_rpc_client(session_path) { |client| client.clone_session }
+          response = with_synchronized_rpc_client(session_path) { |client| client.clone_session }
           branch_response = redirect_to_rpc_session_after_branch(session_path, response)
         else
           submitted_at = Time.now
-          response = with_rpc_client(session_path) { |client| client.prompt(rpc_message, images) }
+          attachment_paths = []
+          rpc_message = message
+          response = with_synchronized_rpc_client(session_path) do |client|
+            attachment_paths = attachment_store.persist_prompt_images(session_path, images)
+            rpc_message = message_with_attachment_paths(message, attachment_paths)
+            client.prompt(rpc_message, images)
+          end
           halt_failed_rpc_prompt(response)
           attachment_store.record_prompt(session_path, rpc_message, images.length, timestamp: submitted_at, paths: attachment_paths, mime_types: images.map { |image| image[:mimeType] })
         end
@@ -261,8 +271,8 @@ module Web
 
       app.get "/sessions/model_settings" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        state_response = with_rpc_client(session_path) { |client| client.get_state }
-        models_response = with_rpc_client(session_path) { |client| client.get_available_models }
+        state_response = with_synchronized_rpc_client(session_path) { |client| client.get_state }
+        models_response = with_synchronized_rpc_client(session_path) { |client| client.get_available_models }
         state = state_response["data"] if state_response.is_a?(Hash) && state_response["success"] == true
         models = models_response.dig("data", "models") if models_response.is_a?(Hash) && models_response["success"] == true
         unless state.is_a?(Hash) && models.is_a?(Array)
@@ -284,7 +294,7 @@ module Web
         halt 400, "Model cannot be empty" if model_id.empty?
         halt 400, "Invalid thinking level" unless %w[off minimal low medium high xhigh max].include?(thinking_level)
 
-        state_response = with_rpc_client(session_path) do |client|
+        state_response = with_synchronized_rpc_client(session_path) do |client|
           halt_if_rpc_session_busy(session_path, client)
           halt_failed_rpc_setting(client.set_model(provider, model_id))
           halt_failed_rpc_setting(client.set_thinking_level(thinking_level))
@@ -304,7 +314,7 @@ module Web
 
       app.post "/sessions/cycle_thinking" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        response = with_rpc_client(session_path) do |client|
+        response = with_synchronized_rpc_client(session_path) do |client|
           halt_if_rpc_session_busy(session_path, client)
           client.cycle_thinking_level
         end
@@ -342,7 +352,7 @@ module Web
 
       app.get "/sessions/fork_messages" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        response = with_rpc_client(session_path) { |client| client.get_fork_messages }
+        response = with_synchronized_rpc_client(session_path) { |client| client.get_fork_messages }
         messages = response_data(response).fetch("messages", [])
         content_type :json
         JSON.generate(messages: messages)
@@ -350,7 +360,7 @@ module Web
 
       app.get "/sessions/tree_entries" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        current_leaf_id = with_rpc_client(session_path) { |client| client.tree_leaf }
+        current_leaf_id = with_synchronized_rpc_client(session_path) { |client| client.tree_leaf }
         store = PiSessionStore.new(root: settings.sessions_root)
         entries = store.tree_entries(session_path, current_leaf_id: current_leaf_id)
         content_type :json
@@ -362,7 +372,8 @@ module Web
         entry_id = params.fetch("entry_id").to_s
         halt 400, "Tree entry cannot be empty" if entry_id.empty?
 
-        response = with_rpc_client(session_path) { |client| client.navigate_tree(entry_id) }
+        response = with_synchronized_rpc_client(session_path) { |client| client.navigate_tree(entry_id) }
+        halt_failed_rpc_setting(response)
         data = response_data(response)
         payload = { session: session_path, redirect: session_redirect_path(session_path), cancelled: data.is_a?(Hash) ? data["cancelled"] || false : false }
         content_type :json
@@ -374,19 +385,25 @@ module Web
         entry_id = params.fetch("entry_id").to_s
         halt 400, "Fork entry cannot be empty" if entry_id.empty?
 
-        response = with_rpc_client(session_path) { |client| client.fork(entry_id) }
+        response = with_synchronized_rpc_client(session_path) { |client| client.fork(entry_id) }
         redirect_to_rpc_session_after_branch(session_path, response, text: response_data(response)["text"])
       end
 
       app.post "/sessions/clone" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        response = with_rpc_client(session_path) { |client| client.clone_session }
+        response = with_synchronized_rpc_client(session_path) { |client| client.clone_session }
         redirect_to_rpc_session_after_branch(session_path, response)
       end
 
       app.post "/abort" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        with_rpc_client(session_path) { |client| client.abort }
+        sync_state = File.exist?(session_path) ? session_sync_state(session_path) : nil
+        if sync_state&.blocked?
+          halt_session_sync_error(Sessions::SessionSynchronizer::BlockedError.new(session_sync_error_message(sync_state), mode: sync_state.mode)) unless rpc_clients.busy?(session_path)
+          rpc_clients.with_existing_client(session_path) { |client| client.abort }
+        else
+          with_synchronized_rpc_client(session_path) { |client| client.abort }
+        end
         if json_request?
           content_type :json
           JSON.generate(ok: true, session: session_path)
@@ -398,7 +415,7 @@ module Web
       app.post "/compact" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
         instructions = params["instructions"].to_s.strip
-        with_rpc_client(session_path) { |client| client.compact(instructions.empty? ? nil : instructions) }
+        with_synchronized_rpc_client(session_path) { |client| client.compact(instructions.empty? ? nil : instructions) }
         redirect session_redirect_path(session_path)
       end
 
@@ -407,15 +424,40 @@ module Web
         name = params.fetch("name").to_s.strip
         halt 400, "Name cannot be empty" if name.empty?
 
-        with_rpc_client(session_path) { |client| client.set_session_name(name) }
+        with_synchronized_rpc_client(session_path) { |client| client.set_session_name(name) }
         redirect session_redirect_path(session_path)
       end
 
       app.get "/events" do
         session_path = require_current_workspace_session!(params.fetch("session"))
         after_seq = params.fetch("after", 0).to_i
+        payload = rpc_clients.events_after(session_path, after_seq)
+        sync_state = File.exist?(session_path) ? session_sync_state(session_path) : nil
+        payload[:session_sync] = {
+          mode: sync_state&.mode || :available,
+          revision: sync_state&.revision,
+          error: sync_state&.error,
+          gateway_busy: rpc_clients.busy?(session_path)
+        }
+        cleanup_idle_rpc_clients
         content_type :json
-        JSON.generate(rpc_clients.events_after(session_path, after_seq))
+        JSON.generate(payload)
+      end
+
+      app.post "/sessions/takeover" do
+        session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
+        begin
+          sync_state = session_synchronizer.take_over(session_path)
+        rescue Sessions::SessionSynchronizer::BusyError => error
+          status 409
+          content_type :json
+          next JSON.generate(error: error.message)
+        rescue Sessions::SessionSynchronizer::BlockedError => error
+          halt_session_sync_error(error)
+        end
+
+        content_type :json
+        JSON.generate(ok: true, session: session_path, session_sync: { mode: sync_state.mode, revision: sync_state.revision })
       end
 
       app.post "/sessions/mark_read" do

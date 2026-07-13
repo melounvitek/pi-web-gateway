@@ -31,6 +31,7 @@ class AppTest < Minitest::Test
     PiWebGateway.set :gateway_admin_password, nil
     PiWebGateway.set :session_cwds_path, nil
     PiWebGateway.set :rpc_client_registry, nil
+    PiWebGateway.set :session_synchronizer, nil
     PiWebGateway.set :pending_session_registry, Rpc::PendingSessionRegistry.new
     PiWebGateway.set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path) }]
     PiWebGateway.set :new_rpc_client_factory, [->(cwd) { PiRpcClient.start_in_cwd(cwd) }]
@@ -1132,7 +1133,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_equal "application/json", response.content_type
-      assert_equal({ "events" => [{ "type" => "assistant_delta", "text" => "Hi" }], "last_seq" => 1, "missed" => false }, JSON.parse(response.body))
+      assert_event_payload(response, events: [{ "type" => "assistant_delta", "text" => "Hi" }], last_seq: 1, mode: "managed")
       assert_equal [[ :events_after, 0 ]], calls
     end
   end
@@ -1152,7 +1153,7 @@ class AppTest < Minitest::Test
       second = request.get("/events", params: { "session" => path, "after" => "0" })
 
       assert_equal JSON.parse(first.body), JSON.parse(second.body)
-      assert_equal({ "events" => [{ "type" => "assistant_delta", "text" => "Hi" }], "last_seq" => 1, "missed" => false }, JSON.parse(second.body))
+      assert_event_payload(second, events: [{ "type" => "assistant_delta", "text" => "Hi" }], last_seq: 1, mode: "managed")
       assert_equal [[ :events_after, 0 ], [ :events_after, 0 ]], calls
     end
   end
@@ -1176,7 +1177,7 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_equal({ "events" => [], "last_seq" => 0, "missed" => false }, JSON.parse(response.body))
+      assert_event_payload(response, events: [], last_seq: 0, mode: "available")
       assert_empty calls
     end
   end
@@ -1223,8 +1224,8 @@ class AppTest < Minitest::Test
       response_a = request.get("/events", params: { "session" => paths.first })
       response_b = request.get("/events", params: { "session" => paths.last })
 
-      assert_equal({ "events" => [{ "type" => "from-a" }], "last_seq" => 1, "missed" => false }, JSON.parse(response_a.body))
-      assert_equal({ "events" => [{ "type" => "from-b" }], "last_seq" => 1, "missed" => false }, JSON.parse(response_b.body))
+      assert_event_payload(response_a, events: [{ "type" => "from-a" }], last_seq: 1, mode: "managed")
+      assert_event_payload(response_b, events: [{ "type" => "from-b" }], last_seq: 1, mode: "managed")
     end
   end
 
@@ -1441,6 +1442,113 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_follows_external_pi_cli_entries_blocks_prompts_and_allows_takeover
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "message", id: "user-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", message: { role: "user", content: [{ type: "text", text: "Gateway prompt" }] } },
+        { type: "message", id: "assistant-1", parentId: "user-1", timestamp: "2026-06-13T10:01:00Z", message: { role: "assistant", content: [{ type: "text", text: "Gateway answer" }] } }
+      ])
+      stale_calls = []
+      fresh_calls = []
+      stale_client = SyncAwareRpcClient.new(["user-1", "assistant-1"], "assistant-1", stale_calls)
+      stale_client.busy = true
+      fresh_client = SyncAwareRpcClient.new(["user-1", "assistant-1", "pi-cli-user"], "pi-cli-user", fresh_calls)
+      now = Time.at(1_000)
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { fresh_client }, clock: -> { now })
+      registry.register(path, stale_client)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      initial = request.get("/", params: { "session" => path })
+      assert_equal 200, initial.status
+      refute_includes initial.body, "Session changed outside the gateway"
+
+      File.open(path, "a") do |file|
+        file.puts(JSON.generate(
+          type: "message",
+          id: "pi-cli-user",
+          parentId: "user-1",
+          timestamp: "2026-06-13T10:02:00Z",
+          message: { role: "user", content: [{ type: "text", text: "From Pi CLI" }] }
+        ))
+      end
+
+      events = request.get("/events", params: { "session" => path })
+      events_payload = JSON.parse(events.body)
+      assert_equal "external_follow", events_payload.dig("session_sync", "mode")
+      refute_includes stale_calls, [:close]
+
+      stale_client.busy = false
+      stale_client.events = [{ "type" => "agent_settled" }]
+      now = Time.at(3_000)
+      stale_client.settled_at = now
+      sidebar_response = request.get("/sidebar", params: { "session" => path })
+      assert_equal 200, sidebar_response.status
+      refute_includes stale_calls, [:close]
+      settled_events = JSON.parse(request.get("/events", params: { "session" => path }).body)
+      assert_equal [{ "type" => "agent_settled" }], settled_events.fetch("events")
+      assert_equal false, settled_events.dig("session_sync", "gateway_busy")
+      assert_includes stale_calls, [:close]
+
+      fragment = request.get("/session_fragment", params: { "session" => path })
+      conversation_html = JSON.parse(fragment.body).fetch("conversation_html")
+      assert_includes conversation_html, "From Pi CLI"
+      refute_includes conversation_html, "Gateway answer"
+      assert_includes conversation_html, "Session changed outside the gateway"
+      assert_includes conversation_html, "Finish using this session in Pi CLI"
+      assert_includes conversation_html, "data-session-takeover"
+      assert_match(/<textarea[^>]+disabled/, conversation_html)
+
+      image_path = File.join(dir, "blocked.png")
+      File.binwrite(image_path, "blocked image")
+      upload = Rack::Multipart::UploadedFile.new(image_path, "image/png", true)
+      rejected_prompt = request.post(
+        "/prompt",
+        params: { "session" => path, "message" => "Unsafe prompt", "images[]" => upload },
+        "HTTP_ACCEPT" => "application/json"
+      )
+      assert_equal 409, rejected_prompt.status
+      assert_empty Dir.glob(File.join(@attachments_root, "**", "*"))
+
+      blocked_requests = [
+        [:get, "/commands", { "session" => path }],
+        [:get, "/sessions/model_settings", { "session" => path }],
+        [:get, "/sessions/fork_messages", { "session" => path }],
+        [:get, "/sessions/tree_entries", { "session" => path }],
+        [:post, "/sessions/model_settings", { "session" => path, "provider" => "openai", "model" => "gpt-5", "thinking" => "high" }],
+        [:post, "/sessions/cycle_thinking", { "session" => path }],
+        [:post, "/sessions/tree", { "session" => path, "entry_id" => "user-1" }],
+        [:post, "/sessions/fork", { "session" => path, "entry_id" => "user-1" }],
+        [:post, "/sessions/clone", { "session" => path }],
+        [:post, "/compact", { "session" => path }],
+        [:post, "/rename", { "session" => path, "name" => "Blocked rename" }],
+        [:post, "/abort", { "session" => path }]
+      ]
+      blocked_requests.each do |method, endpoint, request_params|
+        response = request.public_send(method, endpoint, params: request_params, "HTTP_ACCEPT" => "application/json")
+        assert_equal 409, response.status, "expected #{method.upcase} #{endpoint} to be blocked"
+      end
+      assert_empty fresh_calls
+
+      takeover = request.post(
+        "/sessions/takeover",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+      assert_equal 200, takeover.status
+      assert_equal "managed", JSON.parse(takeover.body).dig("session_sync", "mode")
+
+      resumed_prompt = request.post(
+        "/prompt",
+        params: { "session" => path, "message" => "Continue in gateway" },
+        "HTTP_ACCEPT" => "application/json"
+      )
+      assert_equal 200, resumed_prompt.status
+      assert_includes fresh_calls, [:prompt, "Continue in gateway"]
+    end
+  end
+
   def test_conversation_views_follow_active_tree_leaf
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
@@ -1477,7 +1585,7 @@ class AppTest < Minitest::Test
       assert_includes page_conversation_text, "Viewing earlier tree point"
       refute_includes page_conversation_text, "Later prompt"
       refute_includes page_conversation_text, "Later answer"
-      assert_equal [[:start, path], [:navigate_tree, "assistant-1"], [:tree_leaf], [:tree_leaf]], calls
+      assert_equal [[:start, path], [:navigate_tree, "assistant-1"]], calls
     end
   end
 
@@ -1803,7 +1911,7 @@ class AppTest < Minitest::Test
       )
 
       assert_equal 200, response.status
-      assert_equal({ "events" => [], "last_seq" => 0, "missed" => false }, JSON.parse(response.body))
+      assert_event_payload(response, events: [], last_seq: 0, mode: "available")
       refute registry.active?(real_path)
       assert registry.active?(pending_path)
       assert_includes PiWebGateway.pending_session_registry.paths, pending_path
@@ -1997,6 +2105,9 @@ class AppTest < Minitest::Test
       path = write_session(dir)
       calls = []
       broken_client = Object.new
+      broken_client.define_singleton_method(:session_position) do |_append_cursor|
+        { known: true, leaf_id: nil, error: nil }
+      end
       broken_client.define_singleton_method(:get_commands) do
         calls << [:get_commands]
         raise Errno::EPIPE
@@ -4865,7 +4976,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes APP_JAVASCRIPT, "function bindSessionDom()"
-      assert_includes APP_JAVASCRIPT, "function switchSession(url, { push = true, focus = true } = {})"
+      assert_includes APP_JAVASCRIPT, "function switchSession(url, { push = true, focus = true, preserveScroll = false } = {})"
       assert_includes APP_JAVASCRIPT, "const switchGeneration = ++sessionSwitchGeneration;\n  const refreshRequestVersion = sidebarController.refreshRequestVersion;\n  let navigatingAway = false;\n  showSessionSwitching();\n  resetSessionViewState();"
       assert_includes APP_JAVASCRIPT, "if (refreshRequestVersion !== sidebarController.refreshRequestVersion) sidebarController.scheduleRefresh(0);"
       assert_includes APP_JAVASCRIPT, "fetch(sessionFragmentUrl(url), { headers: { \"Accept\": \"application/json\" } })"
@@ -5069,7 +5180,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "if (payload.missed) {"
       assert_includes APP_JAVASCRIPT, "await refreshCurrentSessionPreservingComposer();"
       assert_includes APP_JAVASCRIPT, "eventPollInFlight = false;"
-      assert_includes APP_JAVASCRIPT, "return eventPollingDelay(document.hidden, composerState?.dataset.state, emptyEventPollCount, failed);"
+      assert_includes APP_JAVASCRIPT, "return !document.hidden && sessionSyncBlocked() ? Math.min(delay, 1000) : delay;"
       assert_includes APP_JAVASCRIPT, "scheduleNextEventPoll(nextEventPollDelay(!pollSucceeded));"
       assert_includes APP_JAVASCRIPT, 'if (composerState && state === "running" && previousState !== "running") {'
       assert_includes APP_JAVASCRIPT, "sidebarController.requestRefresh();"
@@ -5123,9 +5234,9 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "images: pendingImages.map((entry) => entry.file)"
       assert_includes APP_JAVASCRIPT, "function restoreComposerDraft(draft)"
       assert_includes APP_JAVASCRIPT, "if (!draft || promptSessionInput?.value !== draft.session) return;"
-      assert_includes APP_JAVASCRIPT, "if (draft.images.length > 0) addImageFiles(draft.images);"
+      assert_includes APP_JAVASCRIPT, "if (draft.images.length > 0) addImageFiles(draft.images, { restore: true });"
       assert_includes APP_JAVASCRIPT, "function refreshCurrentSessionPreservingComposer()"
-      assert_includes APP_JAVASCRIPT, "const refreshed = await switchSession(window.location.href, { push: false, focus: false });"
+      assert_includes APP_JAVASCRIPT, "const refreshed = await switchSession(window.location.href, { push: false, focus: false, preserveScroll: true });"
       assert_includes APP_JAVASCRIPT, "if (refreshed) restoreComposerDraft(draft);"
       assert_includes APP_JAVASCRIPT, "function reconnectSession()"
       assert_includes APP_JAVASCRIPT, "await refreshCurrentSessionPreservingComposer();"
@@ -5234,12 +5345,12 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "composerState.textContent = \"Press ESC again to stop current task\";"
       assert_includes APP_JAVASCRIPT, "composerStopButton = document.querySelector(\".session-header .composer-stop-button\") || null;"
       assert_includes APP_JAVASCRIPT, "const agentBusy = [\"running\", \"sending\"].includes(state);"
-      assert_includes APP_JAVASCRIPT, "promptTextarea.disabled = submitting;"
+      assert_includes APP_JAVASCRIPT, "promptTextarea.disabled = submitting || sessionSyncBlocked();"
       assert_includes APP_JAVASCRIPT, "if (focus && state !== previousState) syncComposerFocus(state);"
       assert_includes APP_JAVASCRIPT, "if (focus) syncComposerFocus();"
       assert_includes APP_JAVASCRIPT, "composerStopButton.hidden = !agentBusy;"
       assert_includes APP_JAVASCRIPT, "if (followUp) formData.set(\"streaming_behavior\", \"follow_up\");"
-      assert_includes APP_JAVASCRIPT, "const attachmentsDisabled = submitting;"
+      assert_includes APP_JAVASCRIPT, "const attachmentsDisabled = submitting || sessionSyncBlocked();"
       assert_includes APP_JAVASCRIPT, "addImageFiles(files);"
       assert_includes APP_JAVASCRIPT, "function confirmOrStopRunningTask(event)"
       assert_includes APP_JAVASCRIPT, "if (composerState?.dataset.state !== \"running\") return false;"
@@ -5311,7 +5422,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "let liveAgentRunning = false;"
       assert_includes APP_JAVASCRIPT, "if (event.type === \"turn_end\") {"
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.resetLiveAssistantTracking();"
-      assert_includes APP_JAVASCRIPT, "if (event.type === \"agent_end\") {"
+      assert_includes APP_JAVASCRIPT, "if (event.type === \"agent_settled\") {"
     end
   end
 
@@ -6442,9 +6553,58 @@ class AppTest < Minitest::Test
 
   private
 
+  def assert_event_payload(response, events:, last_seq:, mode:)
+    payload = JSON.parse(response.body)
+    sync = payload.delete("session_sync")
+    assert_equal({ "events" => events, "last_seq" => last_seq, "missed" => false }, payload)
+    assert_equal mode, sync.fetch("mode")
+    refute_empty sync.fetch("revision")
+  end
+
   def compact_card_with_summary(document, summary)
     document.css(".message--compact").find do |card|
       card.at_css(".compact-summary")&.text == summary
+    end
+  end
+
+  class SyncAwareRpcClient
+    attr_accessor :busy, :events, :settled_at
+
+    def initialize(known_entries, leaf_id, calls)
+      @known_entries = known_entries
+      @leaf_id = leaf_id
+      @calls = calls
+      @busy = false
+      @events = []
+    end
+
+    def session_position(append_cursor)
+      { known: append_cursor.nil? || @known_entries.include?(append_cursor), leaf_id: @leaf_id, error: nil }
+    end
+
+    def session_entries_after(append_cursor)
+      position = session_position(append_cursor)
+      index = append_cursor.nil? ? -1 : @known_entries.index(append_cursor)
+      entries = position[:known] ? @known_entries.drop(index + 1).map { |id| { "id" => id } } : []
+      position.merge(entries: entries)
+    end
+
+    def prompt(message, _images = [])
+      @calls << [:prompt, message]
+      { "success" => true }
+    end
+
+    def busy?
+      @busy
+    end
+
+    def events_after(after_seq)
+      visible_events = after_seq.to_i.zero? ? @events : []
+      { events: visible_events, last_seq: @events.length, missed: false }
+    end
+
+    def close
+      @calls << [:close]
     end
   end
 
@@ -6491,6 +6651,14 @@ class AppTest < Minitest::Test
           "thinkingLevel" => @thinking_level
         }
       }
+    end
+
+    def session_position(_append_cursor)
+      { known: true, leaf_id: @session_file, error: nil }
+    end
+
+    def session_entries_after(append_cursor)
+      session_position(append_cursor).merge(entries: [])
     end
 
     def get_available_models

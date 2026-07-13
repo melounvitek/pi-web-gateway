@@ -16,6 +16,7 @@ module Web
           read_state_store: read_state_store,
           attachment_store: attachment_store,
           rpc_clients: rpc_clients,
+          session_synchronizer: session_synchronizer,
           mark_selected_read: should_mark_selected_session_read?,
           pending_sessions: pending_sessions,
           session_filter: workspace_session_filter

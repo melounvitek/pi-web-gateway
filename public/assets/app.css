@@ -397,9 +397,13 @@
     .tree-session-role { color: var(--muted); font-family: var(--mono); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
     .tree-session-badge { display: inline-block; margin-left: 0.35rem; padding: 0.08rem 0.35rem; border-radius: 0.2rem; background: var(--accent-tint-08); color: var(--accent); font-family: var(--mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; vertical-align: middle; }
     .tree-session-badge--current { background: #f0c67421; color: var(--gold); }
-    .tree-position-banner { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 0 0 0.75rem; padding: 0.7rem 0.8rem; border: 1px solid #f0c67447; border-radius: 0.35rem; background: var(--info-bg); color: var(--text); font-size: 0.85rem; }
-    .tree-position-banner strong { color: var(--gold); }
-    .tree-position-banner span { color: var(--muted); }
+    .tree-position-banner, .session-sync-banner { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 0 0 0.75rem; padding: 0.7rem 0.8rem; border: 1px solid #f0c67447; border-radius: 0.35rem; background: var(--info-bg); color: var(--text); font-size: 0.85rem; }
+    .tree-position-banner strong, .session-sync-banner strong { color: var(--gold); }
+    .tree-position-banner span, .session-sync-banner span { color: var(--muted); }
+    .session-sync-banner--conflict { border-color: #cc66666b; }
+    .session-sync-banner--conflict strong, .session-sync-error { color: var(--red); }
+    .session-sync-error { display: block; margin-top: 0.25rem; }
+    .command-list.is-disabled > summary { opacity: 0.48; cursor: not-allowed; pointer-events: none; }
     .cwd-validation-message { min-height: 1.2rem; color: var(--muted); font-size: 0.85rem; }
     .cwd-validation-message.is-valid { color: var(--success); }
     .cwd-validation-message.is-invalid { color: var(--danger); }

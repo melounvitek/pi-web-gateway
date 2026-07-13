@@ -77,25 +77,41 @@ class PiRpcClientRegistry
     client&.respond_to?(:agent_running?) ? client.agent_running? : false
   end
 
-  def begin_use(session_path)
+  def begin_use(session_path, touch: true)
     @mutex.synchronize do
       entry = @clients[session_path]
       return unless entry
 
       entry.active_requests += 1
-      touch_entry(entry)
+      touch_entry(entry) if touch
       entry.client
     end
   end
 
-  def end_use(session_path)
+  def end_use(session_path, touch: true)
     @mutex.synchronize do
       entry = @clients[session_path]
       return unless entry
 
       entry.active_requests -= 1 if entry.active_requests.positive?
-      touch_entry(entry)
+      touch_entry(entry) if touch
     end
+  end
+
+  def with_existing_client(session_path, touch: true)
+    entry = @mutex.synchronize do
+      existing_entry = @clients[session_path]
+      next unless existing_entry
+
+      existing_entry.active_requests += 1
+      touch_entry(existing_entry) if touch
+      existing_entry
+    end
+    return unless entry
+
+    entry.operation_mutex.synchronize { yield entry.client }
+  ensure
+    end_use(session_path, touch: touch) if entry
   end
 
   def with_client(session_path)
@@ -125,22 +141,47 @@ class PiRpcClientRegistry
   end
 
   def events_after(session_path, after_seq)
-    client = begin_use(session_path)
+    client = begin_use(session_path, touch: false)
     return { events: [], last_seq: 0, missed: false } unless client
 
     client.events_after(after_seq)
   ensure
-    end_use(session_path) if client
+    end_use(session_path, touch: false) if client
+  end
+
+  def close_client_if_idle(session_path)
+    client = @mutex.synchronize do
+      entry = @clients[session_path]
+      next unless entry
+      next if entry.active_requests.positive?
+      next if entry.client.respond_to?(:busy?) && entry.client.busy?
+
+      @clients.delete(session_path)
+      entry.client
+    end
+    return false unless client
+
+    client.close
+    true
   end
 
   def close_idle_clients(idle_timeout:, now: @clock.call, except: [])
+    candidates = @mutex.synchronize do
+      @clients.filter_map do |session_path, entry|
+        idle = now - entry_activity_at(entry) >= idle_timeout
+        busy = entry.client.respond_to?(:busy?) && entry.client.busy?
+        session_path if idle && !busy && entry.active_requests.zero? && !except.include?(session_path)
+      end
+    end
+    candidates.each { |session_path| yield session_path } if block_given?
+
     clients_to_close = []
     closed_paths = []
-
     @mutex.synchronize do
       @clients.delete_if do |session_path, entry|
-        idle = now - entry.last_used_at >= idle_timeout
-        close = idle && entry.active_requests.zero? && !except.include?(session_path)
+        idle = now - entry_activity_at(entry) >= idle_timeout
+        busy = entry.client.respond_to?(:busy?) && entry.client.busy?
+        close = idle && !busy && entry.active_requests.zero? && !except.include?(session_path)
         if close
           clients_to_close << entry.client
           closed_paths << session_path
@@ -170,5 +211,10 @@ class PiRpcClientRegistry
 
   def touch_entry(entry)
     entry.last_used_at = @clock.call
+  end
+
+  def entry_activity_at(entry)
+    settled_at = entry.client.settled_at if entry.client.respond_to?(:settled_at)
+    [entry.last_used_at, settled_at].compact.max
   end
 end

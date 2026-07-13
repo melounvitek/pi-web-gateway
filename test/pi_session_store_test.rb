@@ -754,6 +754,75 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_file_snapshot_reports_file_identity_and_last_append_cursor
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "entry-1", parentId: nil, message: { role: "user", content: [] } },
+        { type: "session_info", id: "entry-2", parentId: "entry-1", name: "Renamed" }
+      ])
+
+      snapshot = PiSessionStore.new(root: dir).file_snapshot(path)
+
+      assert_equal "entry-2", snapshot.append_cursor
+      assert_equal "entry-2", snapshot.persisted_leaf_id
+      assert_operator snapshot.size, :>, 0
+      assert_operator snapshot.mtime_ns, :>, 0
+      assert snapshot.revision.is_a?(String)
+    end
+  end
+
+  def test_reads_appended_entry_ids_between_stable_snapshots
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "entry-1", parentId: nil, message: { role: "user", content: [] } }
+      ])
+      store = PiSessionStore.new(root: dir)
+      before = store.file_snapshot(path)
+      File.open(path, "a") do |file|
+        file.puts(JSON.generate(type: "message", id: "entry-2", parentId: "entry-1", message: { role: "assistant", content: [] }))
+        file.puts(JSON.generate(type: "message", id: "entry-3", parentId: "entry-2", message: { role: "user", content: [] }))
+      end
+      after = store.file_snapshot(path)
+
+      assert_equal ["entry-2", "entry-3"], store.appended_entry_ids(path, before, after)
+    end
+  end
+
+  def test_file_snapshot_handles_a_tree_entry_larger_than_its_read_chunk
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "large-entry", parentId: nil, message: { role: "user", content: [{ type: "text", text: "x" * 40_000 }] } }
+      ])
+
+      snapshot = PiSessionStore.new(root: dir).file_snapshot(path)
+
+      assert_equal "large-entry", snapshot.append_cursor
+      assert snapshot.complete
+    end
+  end
+
+  def test_file_snapshot_ignores_incomplete_final_jsonl_entry
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "entry-1", parentId: nil, message: { role: "user", content: [] } }
+      ])
+      File.open(path, "a") { |file| file.write("\n{\"type\":\"message\",\"id\":") }
+
+      snapshot = PiSessionStore.new(root: dir).file_snapshot(path)
+
+      assert_equal "entry-1", snapshot.append_cursor
+      refute snapshot.complete
+    end
+  end
+
   private
 
   def write_jsonl(path, entries)

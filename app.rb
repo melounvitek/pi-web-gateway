@@ -4,6 +4,7 @@ require "securerandom"
 require_relative "lib/rpc/pending_session_registry"
 require_relative "lib/sessions/session_family"
 require_relative "lib/sessions/sidebar"
+require_relative "lib/sessions/session_synchronizer"
 require "ipaddr"
 require_relative "lib/pi_session_store"
 require_relative "lib/configured_session_cwds"
@@ -101,6 +102,9 @@ class PiWebGateway < Sinatra::Base
   set :rpc_client_factory, [->(session_path) { PiRpcClient.start(session_path, command_prefix: pi_rpc_command_prefix) }]
   set :new_rpc_client_factory, [->(cwd) { PiRpcClient.start_in_cwd(cwd, command_prefix: pi_rpc_command_prefix) }]
   set :rpc_client_registry, nil
+  set :rpc_client_registry_mutex, Mutex.new
+  set :session_synchronizer, nil
+  set :session_synchronizer_mutex, Mutex.new
   set :gateway_instance_id, SecureRandom.hex(16)
   set :gateway_update_coordinator, GatewayUpdateCoordinator.new(
     updater: GatewayUpdater.new(root),
@@ -119,6 +123,6 @@ class PiWebGateway < Sinatra::Base
   before do
     enforce_browser_access
     enforce_workspace_access
-    cleanup_idle_rpc_clients
+    cleanup_idle_rpc_clients(except: request.path_info == "/events" ? [params["session"]] : [])
   end
 end

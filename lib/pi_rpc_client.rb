@@ -67,6 +67,7 @@ class PiRpcClient
     @busy = false
     @busy_since = nil
     @agent_running = false
+    @settled_at = nil
     @compacting = false
     @compacting_since = nil
     @reader = nil
@@ -78,6 +79,26 @@ class PiRpcClient
 
   def get_messages
     request("get_messages", id: next_id("get_messages"))
+  end
+
+  def session_position(append_cursor)
+    result = session_entries_after(append_cursor)
+    { known: result[:known], leaf_id: result[:leaf_id], error: result[:error] }
+  end
+
+  def session_entries_after(append_cursor)
+    payload = append_cursor.to_s.empty? ? {} : { since: append_cursor }
+    response = request("get_entries", id: next_id("get_entries"), **payload)
+    data = response["data"] if response.is_a?(Hash) && response["success"] == true
+    if data.is_a?(Hash) && data["entries"].is_a?(Array)
+      return { known: true, leaf_id: data["leafId"], entries: data["entries"], error: nil }
+    end
+
+    error = response.is_a?(Hash) ? response["error"].to_s : "Pi RPC did not respond to get_entries"
+    return { known: false, leaf_id: nil, entries: [], error: nil } if error.start_with?("Entry not found:")
+
+    error = "Pi RPC get_entries failed" if error.empty?
+    { known: false, leaf_id: nil, entries: [], error: error }
   end
 
   def get_available_models
@@ -152,7 +173,7 @@ class PiRpcClient
     return response unless response&.fetch("success", true)
 
     result = wait_for_status("pi_web_tree:#{request_id}")
-    return response unless result
+    return response.merge("success" => false, "error" => "Tree navigation did not complete") unless result
 
     response.merge("data" => { "cancelled" => result == "cancelled" })
   end
@@ -203,6 +224,10 @@ class PiRpcClient
 
   def compacting?
     @mutex.synchronize { @compacting }
+  end
+
+  def settled_at
+    @mutex.synchronize { @settled_at }
   end
 
   def events_after(after_seq)
@@ -335,7 +360,7 @@ class PiRpcClient
       if response["id"] && @pending_ids.delete(response["id"])
         @responses[response["id"]] = response
       else
-        if ["agent_start", "turn_start", "compaction_start"].include?(response["type"])
+        if ["agent_start", "agent_settled", "turn_start", "compaction_start"].include?(response["type"])
           response = response.merge("gatewayTimestamp" => (@clock.call.to_f * 1000).to_i)
         end
         update_busy_state(response)
@@ -462,6 +487,7 @@ class PiRpcClient
     case response["type"]
     when "agent_start"
       @agent_running = true
+      @settled_at = nil
       @busy = true
       @busy_since ||= gateway_event_time(response)
     when "compaction_start"
@@ -471,8 +497,9 @@ class PiRpcClient
       @busy_since ||= gateway_event_time(response)
     when "turn_end"
       clear_busy_state unless @agent_running
-    when "agent_end"
+    when "agent_settled"
       @agent_running = false
+      @settled_at = gateway_event_time(response)
       clear_busy_state
     when "compaction", "compaction_end"
       clear_compacting

@@ -139,6 +139,53 @@ class PiRpcClientTest < Minitest::Test
     assert_equal({ "id" => "state-1", "type" => "get_state" }, written)
   end
 
+  def test_session_position_reports_known_persisted_entry_and_selected_leaf
+    input = StringIO.new
+    output = StringIO.new(JSON.generate({ id: "get_entries-1", type: "response", command: "get_entries", success: true, data: { entries: [], leafId: "selected-leaf" } }) + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    result = client.session_position("persisted-leaf")
+
+    assert_equal({ known: true, leaf_id: "selected-leaf", error: nil }, result)
+    assert_equal({ "id" => "get_entries-1", "type" => "get_entries", "since" => "persisted-leaf" }, JSON.parse(input.string.lines.first))
+  end
+
+  def test_session_entries_after_returns_rpc_suffix_and_selected_leaf
+    input = StringIO.new
+    entries = [{ "type" => "message", "id" => "entry-2" }, { "type" => "message", "id" => "entry-3" }]
+    output = StringIO.new(JSON.generate({ id: "get_entries-1", type: "response", command: "get_entries", success: true, data: { entries: entries, leafId: "entry-3" } }) + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    result = client.session_entries_after("entry-1")
+
+    assert_equal true, result[:known]
+    assert_equal "entry-3", result[:leaf_id]
+    assert_equal entries, result[:entries]
+    assert_nil result[:error]
+  end
+
+  def test_session_position_reports_entry_unknown_to_rpc_process
+    input = StringIO.new
+    output = StringIO.new(JSON.generate({ id: "get_entries-1", type: "response", command: "get_entries", success: false, error: "Entry not found: external-leaf" }) + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    result = client.session_position("external-leaf")
+
+    assert_equal({ known: false, leaf_id: nil, error: nil }, result)
+  end
+
+  def test_session_position_fails_closed_for_unsupported_rpc_command
+    input = StringIO.new
+    output = StringIO.new(JSON.generate({ id: "get_entries-1", type: "response", command: "get_entries", success: false, error: "Unknown command type: get_entries" }) + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    result = client.session_position("persisted-leaf")
+
+    assert_equal false, result[:known]
+    assert_nil result[:leaf_id]
+    assert_includes result[:error], "Unknown command"
+  end
+
   def test_raises_clear_error_when_pi_process_exits_before_write
     stdin = Object.new
     def stdin.write(_payload)
@@ -372,12 +419,21 @@ class PiRpcClientTest < Minitest::Test
     assert client.agent_running?
 
     now = Time.at(1_010)
-    writer.puts JSON.generate({ type: "agent_end" })
+    writer.puts JSON.generate({ type: "agent_end", willRetry: true })
     writer.puts JSON.generate({ id: "state-3", type: "state" })
     client.request("get_state", id: "state-3")
+    assert client.busy?
+    assert_equal Time.at(1_000), client.busy_since
+    assert client.agent_running?
+
+    now = Time.at(1_015)
+    writer.puts JSON.generate({ type: "agent_settled" })
+    writer.puts JSON.generate({ id: "state-4", type: "state" })
+    client.request("get_state", id: "state-4")
     refute client.busy?
     assert_nil client.busy_since
     refute client.agent_running?
+    assert_equal Time.at(1_015), client.settled_at
   ensure
     writer&.close
     reader&.close
@@ -530,6 +586,20 @@ class PiRpcClientTest < Minitest::Test
 
     assert_equal "entry-9", leaf_id
     assert_equal({ "id" => "prompt-1", "type" => "prompt", "message" => "/pi_web_tree_leaf abc123" }, JSON.parse(input.string))
+  end
+
+  def test_navigate_tree_reports_failure_when_extension_bridge_does_not_confirm_navigation
+    input = StringIO.new
+    output = StringIO.new(JSON.generate({ id: "prompt-1", type: "response", command: "prompt", success: true }) + "\n")
+    now = Time.at(0)
+    client = PiRpcClient.new(stdin: input, stdout: output, clock: -> { value = now; now += 6; value })
+
+    response = with_secure_random_hex("abc123") do
+      client.navigate_tree("missing-entry")
+    end
+
+    assert_equal false, response.fetch("success")
+    assert_includes response.fetch("error"), "did not complete"
   end
 
   def test_navigate_tree_reports_cancelled_status_from_extension_bridge

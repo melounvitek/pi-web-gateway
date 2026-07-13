@@ -19,6 +19,9 @@ module Sessions
       :latest_tree_leaf_id,
       :conversation_tree_leaf_id,
       :viewing_older_tree_leaf,
+      :session_sync_mode,
+      :session_sync_revision,
+      :session_sync_error,
       :messages,
       :conversation_start_index,
       :conversation_has_older_messages,
@@ -77,6 +80,7 @@ module Sessions
       read_state_store:,
       attachment_store:,
       rpc_clients:,
+      session_synchronizer: nil,
       mark_selected_read:,
       pending_sessions: [],
       session_filter: nil,
@@ -88,6 +92,7 @@ module Sessions
       @read_state_store = read_state_store
       @attachment_store = attachment_store
       @rpc_clients = rpc_clients
+      @session_synchronizer = session_synchronizer
       @mark_selected_read = mark_selected_read
       @pending_sessions = pending_sessions
       @session_filter = session_filter
@@ -126,6 +131,9 @@ module Sessions
         :@latest_tree_leaf_id => @latest_tree_leaf_id,
         :@conversation_tree_leaf_id => @conversation_tree_leaf_id,
         :@viewing_older_tree_leaf => @viewing_older_tree_leaf,
+        :@session_sync_mode => @session_sync_mode,
+        :@session_sync_revision => @session_sync_revision,
+        :@session_sync_error => @session_sync_error,
         :@messages => @messages,
         :@conversation_start_index => @conversation_start_index,
         :@conversation_has_older_messages => @conversation_has_older_messages,
@@ -185,6 +193,9 @@ module Sessions
       @latest_tree_leaf_id = nil
       @conversation_tree_leaf_id = nil
       @viewing_older_tree_leaf = false
+      @session_sync_mode = :available
+      @session_sync_revision = nil
+      @session_sync_error = nil
       @messages = []
       @conversation_start_index = 0
       @conversation_older_message_count = 0
@@ -194,7 +205,20 @@ module Sessions
       @session_status = nil
       return unless @include_conversation && selected_existing_session?
 
-      @conversation_tree_leaf_id = current_leaf_id_for(true)
+      sync_state = synchronized_session_state
+      @session_sync_mode = sync_state&.mode || :available
+      @session_sync_revision = sync_state&.revision
+      @session_sync_error = sync_state&.error
+      if sync_state
+        @current_tree_leaf_known = sync_state.mode == :managed
+        @conversation_tree_leaf_id = if @current_tree_leaf_known
+          sync_state.rpc_leaf_id
+        elsif sync_state.blocked?
+          sync_state.persisted_leaf_id
+        end
+      else
+        @conversation_tree_leaf_id = current_leaf_id_for(true)
+      end
       conversation = @store.conversation(@selected_session.path, current_leaf_id: @conversation_tree_leaf_id)
       @latest_tree_leaf_id = conversation.latest_leaf_id
       @viewing_older_tree_leaf = @current_tree_leaf_known && @conversation_tree_leaf_id != @latest_tree_leaf_id
@@ -232,6 +256,12 @@ module Sessions
       text_bytes = [message.role, message.text, message.summary].compact.sum { |value| value.to_s.bytesize }
       image_bytes = Array(message.images).sum { |image| (image[:data] || image["data"]).to_s.bytesize }
       (text_bytes * 2) + image_bytes
+    end
+
+    def synchronized_session_state
+      return unless @session_synchronizer
+
+      @session_synchronizer.inspect(@selected_session.path, include_position: true)
     end
 
     def current_leaf_id_for(existing_conversation)

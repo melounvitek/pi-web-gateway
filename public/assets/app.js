@@ -619,6 +619,10 @@ function stopWaitingForOutput() {
   waitingForOutputTimer = null;
 }
 
+function sessionSyncBlocked() {
+  return ["external_follow", "conflict"].includes(liveOutput?.dataset.sessionSyncMode);
+}
+
 function setComposerState(state, label = "", { since = null, focus = true } = {}) {
   const previousState = composerState?.dataset.state;
   if (state === "running") waitingForOutputLabel = label || "Pi is running…";
@@ -635,6 +639,7 @@ function setComposerState(state, label = "", { since = null, focus = true } = {}
   if (abortButton) abortButton.disabled = !agentBusy;
   if (sendButton) {
     sendButton.hidden = submitting;
+    sendButton.disabled = sessionSyncBlocked();
     sendButton.textContent = state === "running" ? "Queue" : state === "sending" ? "Sending…" : "Send";
     sendButton.setAttribute("aria-label", state === "running" ? "Send follow-up" : "Send message");
   }
@@ -643,10 +648,10 @@ function setComposerState(state, label = "", { since = null, focus = true } = {}
     composerStopButton.disabled = !agentBusy;
     composerStopButton.classList.toggle("is-visible", agentBusy);
   }
-  if (promptTextarea) promptTextarea.disabled = submitting;
+  if (promptTextarea) promptTextarea.disabled = submitting || sessionSyncBlocked();
   if (focus && state !== previousState) syncComposerFocus(state);
   const modelButton = sessionStatusBar?.querySelector('[data-status-key="model"]');
-  if (modelButton) modelButton.disabled = agentBusy;
+  if (modelButton) modelButton.disabled = agentBusy || sessionSyncBlocked();
   const modelApply = document.querySelector('[data-modal="model-settings-modal"] [data-model-settings-apply]');
   if (modelApply && !document.querySelector('[data-modal="model-settings-modal"]')?.hidden) modelApply.disabled = agentBusy || !selectedSettingsModel();
   if (composerState && state === "running" && previousState !== "running") {
@@ -654,7 +659,7 @@ function setComposerState(state, label = "", { since = null, focus = true } = {}
     scheduleNextEventPoll(0);
     sidebarController.requestRefresh();
   }
-  const attachmentsDisabled = submitting;
+  const attachmentsDisabled = submitting || sessionSyncBlocked();
   if (imageInput) imageInput.disabled = attachmentsDisabled;
   if (attachButton) {
     attachButton.classList.toggle("is-disabled", attachmentsDisabled);
@@ -745,8 +750,8 @@ function renderAttachments() {
   });
 }
 
-function addImageFiles(files) {
-  if (promptTextarea?.disabled || composerState?.dataset.state === "running") return false;
+function addImageFiles(files, { restore = false } = {}) {
+  if (!restore && (promptTextarea?.disabled || composerState?.dataset.state === "running")) return false;
 
   const imageFiles = [...files].filter((file) => file.type.startsWith("image/"));
   if (imageFiles.length === 0) return false;
@@ -871,7 +876,7 @@ function renderEvent(event) {
     return;
   }
 
-  if (event.type === "agent_end") {
+  if (event.type === "agent_settled") {
     liveAgentRunning = false;
     liveBusySince = null;
     if (renderErrorEvent(event)) {
@@ -892,7 +897,8 @@ function renderEvent(event) {
 }
 
 function nextEventPollDelay(failed = false) {
-  return eventPollingDelay(document.hidden, composerState?.dataset.state, emptyEventPollCount, failed);
+  const delay = eventPollingDelay(document.hidden, composerState?.dataset.state, emptyEventPollCount, failed);
+  return !document.hidden && sessionSyncBlocked() ? Math.min(delay, 1000) : delay;
 }
 
 function resetEventPollBackoff() {
@@ -981,12 +987,12 @@ function restoreComposerDraft(draft) {
     resizePromptTextarea();
     persistStoredComposerDraft();
   }
-  if (draft.images.length > 0) addImageFiles(draft.images);
+  if (draft.images.length > 0) addImageFiles(draft.images, { restore: true });
 }
 
 async function refreshCurrentSessionPreservingComposer() {
   const draft = composerDraft();
-  const refreshed = await switchSession(window.location.href, { push: false, focus: false });
+  const refreshed = await switchSession(window.location.href, { push: false, focus: false, preserveScroll: true });
   if (refreshed) restoreComposerDraft(draft);
   return refreshed;
 }
@@ -1027,6 +1033,18 @@ async function resumeEventPolling(hiddenDuration = 0) {
   }, 5000);
 }
 
+function sessionSyncRefreshRequired(sync) {
+  if (!sync || !liveOutput) return false;
+
+  const renderedMode = liveOutput.dataset.sessionSyncMode;
+  const incomingBlocked = ["external_follow", "conflict"].includes(sync.mode);
+  const renderedBlocked = ["external_follow", "conflict"].includes(renderedMode);
+  return (incomingBlocked && (sync.mode !== renderedMode || sync.revision !== liveOutput.dataset.sessionSyncRevision)) ||
+    (renderedBlocked && !incomingBlocked) ||
+    (renderedBlocked && composerState?.dataset.state === "running" && sync.gateway_busy === false) ||
+    (renderedMode === "managed" && sync.mode === "available");
+}
+
 async function pollEvents() {
   if (!liveOutput) return;
   if (modalIsOpen()) return;
@@ -1049,6 +1067,10 @@ async function pollEvents() {
     lastEventPollSuccessAt = Date.now();
     pollSucceeded = true;
     hideReconnectBanner();
+    if (sessionSyncRefreshRequired(payload.session_sync)) {
+      await refreshCurrentSessionPreservingComposer();
+      return;
+    }
     if (payload.missed) {
       await refreshCurrentSessionPreservingComposer();
       return;
@@ -1588,7 +1610,22 @@ function hideSessionSwitching() {
   document.body.classList.remove("session-switching");
 }
 
-async function switchSession(url, { push = true, focus = true } = {}) {
+function conversationScrollSnapshot() {
+  if (!conversationScroll) return null;
+
+  const scrollRect = conversationScroll.getBoundingClientRect();
+  const anchor = [...conversationScroll.querySelectorAll("[data-message-fingerprint]")]
+    .find((message) => message.getBoundingClientRect().bottom > scrollRect.top);
+  return {
+    top: conversationScroll.scrollTop,
+    nearBottom: conversationScroll.scrollHeight - conversationScroll.scrollTop - conversationScroll.clientHeight < 80,
+    anchorFingerprint: anchor?.dataset.messageFingerprint || null,
+    anchorOffset: anchor ? anchor.getBoundingClientRect().top - scrollRect.top : null
+  };
+}
+
+async function switchSession(url, { push = true, focus = true, preserveScroll = false } = {}) {
+  const scrollSnapshot = preserveScroll ? conversationScrollSnapshot() : null;
   persistStoredComposerDraft();
   sidebarController.invalidate({ clearSessionsLimit: true });
   const switchGeneration = ++sessionSwitchGeneration;
@@ -1617,7 +1654,7 @@ async function switchSession(url, { push = true, focus = true } = {}) {
     if (push) history.pushState({ session: payload.session }, payload.title || "", payload.url || url);
     document.title = payload.title ? `${payload.title} · Pi Web Gateway` : "Pi Web Gateway";
     sidebarController.closeMobile();
-    initializeSessionView({ focus });
+    initializeSessionView({ focus, scrollSnapshot });
     if (refreshRequestVersion !== sidebarController.refreshRequestVersion) sidebarController.scheduleRefresh(0);
     return true;
   } catch (_error) {
@@ -1927,6 +1964,35 @@ document.addEventListener("click", (event) => {
       })
       .finally(() => {
         hideSessionSwitching();
+      });
+    return;
+  }
+
+  const takeoverButton = event.target.closest("[data-session-takeover]");
+  if (takeoverButton) {
+    event.preventDefault();
+    const originalText = takeoverButton.textContent;
+    const banner = takeoverButton.closest("[data-session-sync-banner]");
+    const errorOutput = banner?.querySelector("[data-session-sync-error]");
+    const formData = new FormData();
+    formData.set("session", currentSessionPath());
+    takeoverButton.disabled = true;
+    takeoverButton.textContent = "Taking over…";
+    if (errorOutput) errorOutput.hidden = true;
+    fetch("/sessions/takeover", { method: "POST", body: formData, headers: { "Accept": "application/json" } })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not take over session");
+        await refreshCurrentSessionPreservingComposer();
+        scheduleNextEventPoll(0);
+      })
+      .catch((error) => {
+        takeoverButton.disabled = false;
+        takeoverButton.textContent = originalText;
+        if (errorOutput) {
+          errorOutput.textContent = error.message;
+          errorOutput.hidden = false;
+        }
       });
     return;
   }
@@ -2268,7 +2334,22 @@ document.addEventListener("click", (event) => {
   selectCommand(command);
 });
 
-function initializeSessionView({ focus = true } = {}) {
+function restorePreservedConversationScroll(scrollSnapshot) {
+  if (!scrollSnapshot || scrollSnapshot.nearBottom || !conversationScroll) return false;
+
+  const anchor = scrollSnapshot.anchorFingerprint && [...conversationScroll.querySelectorAll("[data-message-fingerprint]")]
+    .find((message) => message.dataset.messageFingerprint === scrollSnapshot.anchorFingerprint);
+  if (anchor) {
+    const scrollTop = conversationScroll.getBoundingClientRect().top;
+    conversationScroll.scrollTop += anchor.getBoundingClientRect().top - scrollTop - scrollSnapshot.anchorOffset;
+  } else {
+    conversationScroll.scrollTop = Math.min(scrollSnapshot.top, Math.max(0, conversationScroll.scrollHeight - conversationScroll.clientHeight));
+  }
+  conversationController.stopAutoFollow();
+  return true;
+}
+
+function initializeSessionView({ focus = true, scrollSnapshot = null } = {}) {
   const generation = sessionViewGeneration;
   projectSelectController.initialize(document.querySelector('[data-modal="new-session-modal"]'));
   newSessionFormController.initialize();
@@ -2288,14 +2369,14 @@ function initializeSessionView({ focus = true } = {}) {
     if (initialComposerCompacting) liveMessageRenderer.appendPendingCompactionMessage(new Date(initialComposerStateSince || Date.now()));
     liveMessageRenderer.restoreActiveToolExecutions();
     scheduleNextEventPoll(0);
-    conversationController.positionInitialAtBottom();
+    if (!scrollSnapshot || scrollSnapshot.nearBottom) conversationController.positionInitialAtBottom();
     requestAnimationFrame(() => {
       if (generation !== sessionViewGeneration) return;
       loadStoredComposerDraft();
       updatePromptPlaceholder();
       resizePromptTextarea();
       if (focus) syncComposerFocus();
-      conversationController.forceInitialBottomFollow();
+      if (!restorePreservedConversationScroll(scrollSnapshot)) conversationController.forceInitialBottomFollow();
     });
   }
   sidebarController.scheduleRefresh();

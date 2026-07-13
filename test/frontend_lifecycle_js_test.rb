@@ -336,6 +336,67 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal false, results.fetch("suppressed")
   end
 
+  def test_session_sync_refreshes_external_updates_remote_takeover_and_retired_clients
+    app_source = File.read(File.join(ASSETS, "app.js"))
+    helper_source = app_source.match(/function sessionSyncRefreshRequired\(.*?(?=\nasync function pollEvents)/m).to_s
+
+    results = run_javascript(<<~JS)
+      let liveOutput = { dataset: { sessionSyncMode: "external_follow", sessionSyncRevision: "revision-1" } };
+      let composerState = { dataset: { state: "idle" } };
+      eval(#{(helper_source + "\nglobalThis.refreshRequired = sessionSyncRefreshRequired;").to_json});
+      const externalUpdate = globalThis.refreshRequired({ mode: "external_follow", revision: "revision-2" });
+      const remoteTakeover = globalThis.refreshRequired({ mode: "managed", revision: "revision-2" });
+      liveOutput.dataset.sessionSyncRevision = "revision-1";
+      composerState.dataset.state = "running";
+      const blockedTaskSettled = globalThis.refreshRequired({ mode: "external_follow", revision: "revision-1", gateway_busy: false });
+      composerState.dataset.state = "idle";
+      liveOutput.dataset.sessionSyncMode = "managed";
+      liveOutput.dataset.sessionSyncRevision = "revision-2";
+      const retiredClient = globalThis.refreshRequired({ mode: "available", revision: "revision-2" });
+      const unchangedManaged = globalThis.refreshRequired({ mode: "managed", revision: "revision-2" });
+      liveOutput.dataset.sessionSyncMode = "available";
+      const remoteManaged = globalThis.refreshRequired({ mode: "managed", revision: "revision-2" });
+      console.log(JSON.stringify({ externalUpdate, remoteTakeover, blockedTaskSettled, retiredClient, unchangedManaged, remoteManaged }));
+    JS
+
+    assert_equal true, results.fetch("externalUpdate")
+    assert_equal true, results.fetch("remoteTakeover")
+    assert_equal true, results.fetch("blockedTaskSettled")
+    assert_equal true, results.fetch("retiredClient")
+    assert_equal false, results.fetch("unchangedManaged")
+    assert_equal false, results.fetch("remoteManaged")
+  end
+
+  def test_external_refresh_restores_scrolled_up_position_and_disables_auto_follow
+    app_source = File.read(File.join(ASSETS, "app.js"))
+    helper_source = app_source.match(/function restorePreservedConversationScroll\(.*?(?=\nfunction initializeSessionView)/m).to_s
+
+    results = run_javascript(<<~JS)
+      let stopped = 0;
+      const anchor = { dataset: { messageFingerprint: "message-2" }, getBoundingClientRect: () => ({ top: 150 }) };
+      const conversationScroll = {
+        scrollTop: 0, scrollHeight: 1000, clientHeight: 200,
+        querySelectorAll: () => [anchor],
+        getBoundingClientRect: () => ({ top: 20 })
+      };
+      const conversationController = { stopAutoFollow() { stopped += 1; } };
+      eval(#{(helper_source + "\nglobalThis.restoreScroll = restorePreservedConversationScroll;").to_json});
+      const restored = globalThis.restoreScroll({ top: 320, nearBottom: false });
+      const restoredTop = conversationScroll.scrollTop;
+      const anchorRestored = globalThis.restoreScroll({ top: 700, nearBottom: false, anchorFingerprint: "message-2", anchorOffset: 40 });
+      const anchoredTop = conversationScroll.scrollTop;
+      const nearBottomRestored = globalThis.restoreScroll({ top: 700, nearBottom: true });
+      console.log(JSON.stringify({ restored, restoredTop, anchorRestored, anchoredTop, stopped, nearBottomRestored }));
+    JS
+
+    assert_equal true, results.fetch("restored")
+    assert_equal 320, results.fetch("restoredTop")
+    assert_equal true, results.fetch("anchorRestored")
+    assert_equal 410, results.fetch("anchoredTop")
+    assert_equal 2, results.fetch("stopped")
+    assert_equal false, results.fetch("nearBottomRestored")
+  end
+
   def test_page_keyboard_intent_listener_remains_page_lifetime_state
     script = File.read(File.join(ASSETS, "app.js"))
 

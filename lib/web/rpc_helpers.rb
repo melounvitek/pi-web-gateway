@@ -1,22 +1,78 @@
+require "json"
 require_relative "../pi_rpc_client_registry"
 require_relative "../pi_session_store"
+require_relative "../sessions/session_synchronizer"
 
 module Web
   module RpcHelpers
     private
 
     def rpc_clients
-      settings.rpc_client_registry ||= PiRpcClientRegistry.new(factory: settings.rpc_client_factory.first)
+      return settings.rpc_client_registry if settings.rpc_client_registry
+
+      settings.rpc_client_registry_mutex.synchronize do
+        settings.rpc_client_registry ||= PiRpcClientRegistry.new(factory: settings.rpc_client_factory.first)
+      end
     end
 
-    def cleanup_idle_rpc_clients
+    def session_synchronizer
+      registry = rpc_clients
+      synchronizer = settings.session_synchronizer
+      return synchronizer if synchronizer&.configured_for?(settings.sessions_root, registry)
+
+      settings.session_synchronizer_mutex.synchronize do
+        synchronizer = settings.session_synchronizer
+        unless synchronizer&.configured_for?(settings.sessions_root, registry)
+          synchronizer = Sessions::SessionSynchronizer.new(sessions_root: settings.sessions_root, rpc_clients: registry)
+          settings.session_synchronizer = synchronizer
+        end
+        synchronizer
+      end
+    end
+
+    def session_sync_state(session_path, include_position: false)
+      session_synchronizer.inspect(session_path, include_position: include_position)
+    end
+
+    def with_synchronized_rpc_client(session_path)
+      return with_rpc_client(session_path) { |client| yield client } unless File.exist?(session_path)
+
+      session_synchronizer.with_mutable_client(session_path) { |client| yield client }
+    rescue Sessions::SessionSynchronizer::BlockedError => error
+      halt_session_sync_error(error)
+    end
+
+    def halt_if_session_sync_blocked(session_path)
+      return unless File.exist?(session_path)
+
+      state = session_sync_state(session_path)
+      return unless state.blocked?
+
+      halt_session_sync_error(
+        Sessions::SessionSynchronizer::BlockedError.new(session_sync_error_message(state), mode: state.mode)
+      )
+    end
+
+    def halt_session_sync_error(error)
+      status 409
+      content_type :json
+      halt JSON.generate(error: error.message, session_sync_mode: error.mode)
+    end
+
+    def session_sync_error_message(state)
+      session_synchronizer.message_for(state)
+    end
+
+    def cleanup_idle_rpc_clients(except: [])
       timeout = settings.rpc_idle_timeout_seconds
       return unless timeout.positive?
 
       rpc_clients.close_idle_clients(
         idle_timeout: timeout,
-        except: pending_rpc_cwd_paths
-      )
+        except: pending_rpc_cwd_paths + except.compact
+      ) do |session_path|
+        session_synchronizer.inspect(session_path) if File.exist?(session_path)
+      end
     end
 
     def with_rpc_client(session_path)

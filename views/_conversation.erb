@@ -1,5 +1,6 @@
     <main class="conversation-panel">
       <% if @selected_session %>
+        <% session_sync_blocked = [:external_follow, :conflict].include?(@session_sync_mode) %>
         <header class="session-header">
           <% unless session_only? %>
             <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span><% if unread_sidebar_session_count.positive? %><span class="mobile-sessions-unread-badge" aria-label="<%= h unread_sidebar_session_aria_label %>" title="<%= h unread_sidebar_session_aria_label %>"><%= h unread_sidebar_session_count_label %></span><% end %></label>
@@ -60,7 +61,7 @@
           <% active_tool_context = @store.subagent_tool_call_context(@selected_session.path, active_tool_events.filter_map { |event| event["toolCallId"] }) %>
           <% active_tool_timestamps = active_tool_context.filter_map { |tool_call_id, details| [tool_call_id, details[:timestamp]] if details[:timestamp] }.to_h %>
           <% active_tool_prompts = active_tool_context.filter_map { |tool_call_id, details| [tool_call_id, details[:prompt]] unless details[:prompt].to_s.empty? }.to_h %>
-          <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>" data-events-after="<%= h live_snapshot.fetch(:event_sequence) %>" data-active-tool-events="<%= h JSON.generate(active_tool_events) %>" data-active-tool-timestamps="<%= h JSON.generate(active_tool_timestamps) %>" data-active-tool-prompts="<%= h JSON.generate(active_tool_prompts) %>" data-composer-state="<%= busy ? "running" : "idle" %>" data-composer-state-since="<%= h(composer_state_since ? (composer_state_since.to_f * 1000).to_i : "") %>" data-composer-busy-since="<%= h(busy_since ? (busy_since.to_f * 1000).to_i : "") %>" data-composer-compacting="<%= compacting ? "true" : "false" %>" data-agent-running="<%= live_snapshot.fetch(:agent_running, false) ? "true" : "false" %>"></section>
+          <section id="live-output" data-events-url="/events?session=<%= h Rack::Utils.escape(@selected_session.path) %>" data-events-after="<%= h live_snapshot.fetch(:event_sequence) %>" data-active-tool-events="<%= h JSON.generate(active_tool_events) %>" data-active-tool-timestamps="<%= h JSON.generate(active_tool_timestamps) %>" data-active-tool-prompts="<%= h JSON.generate(active_tool_prompts) %>" data-composer-state="<%= busy ? "running" : "idle" %>" data-composer-state-since="<%= h(composer_state_since ? (composer_state_since.to_f * 1000).to_i : "") %>" data-composer-busy-since="<%= h(busy_since ? (busy_since.to_f * 1000).to_i : "") %>" data-composer-compacting="<%= compacting ? "true" : "false" %>" data-agent-running="<%= live_snapshot.fetch(:agent_running, false) ? "true" : "false" %>" data-session-sync-mode="<%= h @session_sync_mode %>" data-session-sync-revision="<%= h @session_sync_revision %>"></section>
           <div class="jump-controls jump-controls--bottom">
             <button type="button" class="jump-button jump-to-latest" aria-label="Bottom">↓↓</button>
           </div>
@@ -68,7 +69,7 @@
 
         <div class="composer">
           <div class="composer-inner">
-            <details class="command-list" id="command-list" data-loaded="false" data-commands-url="/commands?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
+            <details class="command-list<%= " is-disabled" if session_sync_blocked %>" id="command-list" data-loaded="false" data-commands-url="/commands?session=<%= h Rack::Utils.escape(@selected_session.path) %>"<%= ' data-session-sync-blocked="true"' if session_sync_blocked %>>
               <summary>Slash commands</summary>
               <div class="command-list-message" data-queued-slash-message hidden>Slash commands are not supported in queued follow-up messages.</div>
             </details>
@@ -92,7 +93,21 @@
             </div>
 
             <form method="post" action="/prompt" class="prompt-form" enctype="multipart/form-data">
-              <% if @viewing_older_tree_leaf && @latest_tree_leaf_id %>
+              <% if session_sync_blocked %>
+                <div class="session-sync-banner<%= " session-sync-banner--conflict" if @session_sync_mode == :conflict %>" role="status" data-session-sync-banner>
+                  <div>
+                    <% if @session_sync_mode == :external_follow %>
+                      <strong>Session changed outside the gateway.</strong>
+                      <span>Following external activity. Finish using this session in Pi CLI before continuing here.</span>
+                    <% else %>
+                      <strong>Session synchronization needs attention.</strong>
+                      <span><%= h @session_sync_error %></span>
+                    <% end %>
+                    <span class="session-sync-error" data-session-sync-error hidden></span>
+                  </div>
+                  <button type="button" class="secondary" data-session-takeover<%= " disabled" if busy %>><%= busy ? "Waiting for gateway task…" : "Take over in gateway" %></button>
+                </div>
+              <% elsif @viewing_older_tree_leaf && @latest_tree_leaf_id %>
                 <div class="tree-position-banner" role="status">
                   <div>
                     <strong>Viewing earlier tree point.</strong>
@@ -114,16 +129,16 @@
               <span class="composer-state" data-state="idle" aria-live="polite"></span>
               <div class="attachment-tray" aria-live="polite"></div>
               <div class="composer-input-row">
-                <input class="image-input" id="image-input" type="file" accept="image/*" multiple>
-                <label for="image-input" class="attach-button" title="Attach images" aria-label="Attach images">＋</label>
-                <textarea name="message" rows="1" placeholder="Ask Pi… Enter to send, Shift+Enter for newline."></textarea>
-                <button type="submit" class="send-button">Send</button>
+                <input class="image-input" id="image-input" type="file" accept="image/*" multiple<%= " disabled" if session_sync_blocked %>>
+                <label for="image-input" class="attach-button<%= " is-disabled" if session_sync_blocked %>" title="Attach images" aria-label="Attach images"<%= ' aria-disabled="true"' if session_sync_blocked %>>＋</label>
+                <textarea name="message" rows="1" placeholder="<%= session_sync_blocked ? "Finish using this session in Pi CLI, then take over in the gateway." : "Ask Pi… Enter to send, Shift+Enter for newline." %>"<%= " disabled" if session_sync_blocked %>></textarea>
+                <button type="submit" class="send-button"<%= " disabled" if session_sync_blocked %>>Send</button>
               </div>
               <div class="composer-controls">
                 <div class="session-status-bar" id="session-status-bar" data-status-url="/status?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
                   <% session_status_items(@session_status).each do |label, value| %>
                     <% if label == "Model" %>
-                      <button type="button" class="session-status-item model-settings-chip" data-status-key="model" data-modal-open="model-settings-modal" aria-label="Open model and thinking settings" <%= "disabled" if busy %>><span class="session-status-label"><%= h label %></span> <span class="session-status-value"><%= h value %></span></button>
+                      <button type="button" class="session-status-item model-settings-chip" data-status-key="model" data-modal-open="model-settings-modal" aria-label="Open model and thinking settings" <%= "disabled" if busy || session_sync_blocked %>><span class="session-status-label"><%= h label %></span> <span class="session-status-value"><%= h value %></span></button>
                     <% else %>
                       <span class="session-status-item" data-status-key="<%= h label.downcase %>"><span class="session-status-label"><%= h label %></span> <span class="session-status-value"><%= h value %></span></span>
                     <% end %>

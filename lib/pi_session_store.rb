@@ -25,6 +25,11 @@ class PiSessionStore
   Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
   Conversation = Struct.new(:messages, :latest_leaf_id, :status, keyword_init: true)
+  FileSnapshot = Struct.new(:device, :inode, :size, :mtime_ns, :append_cursor, :persisted_leaf_id, :complete, keyword_init: true) do
+    def revision
+      [device, inode, size, mtime_ns, append_cursor, persisted_leaf_id, complete ? 1 : 0].join(":")
+    end
+  end
 
   @session_cache = {}
   @session_cache_mutex = Mutex.new
@@ -115,6 +120,48 @@ class PiSessionStore
 
   def latest_leaf_id(path)
     latest_leaf_id_from_entries(read_entries(path))
+  end
+
+  def file_snapshot(path)
+    3.times do
+      File.open(path, "rb") do |file|
+        before = file.stat
+        append_cursor, persisted_leaf_id, complete = last_append_cursor(file)
+        after = file.stat
+        current = File.stat(path)
+        next unless stable_file_stat?(before, after) && stable_file_stat?(after, current)
+
+        return FileSnapshot.new(
+          device: after.dev,
+          inode: after.ino,
+          size: after.size,
+          mtime_ns: stat_mtime_ns(after),
+          append_cursor: append_cursor,
+          persisted_leaf_id: persisted_leaf_id,
+          complete: complete
+        )
+      end
+    end
+    raise Errno::EAGAIN, "Session file kept changing while it was read: #{path}"
+  end
+
+  def appended_entry_ids(path, previous_snapshot, current_snapshot)
+    length = current_snapshot.size - previous_snapshot.size
+    return [] unless length.positive?
+
+    File.open(path, "rb") do |file|
+      stat = file.stat
+      unless stat.dev == current_snapshot.device && stat.ino == current_snapshot.inode && stat.size >= current_snapshot.size
+        raise Errno::EAGAIN, "Session file changed while appended entries were read: #{path}"
+      end
+
+      file.seek(previous_snapshot.size)
+      file.read(length).lines.filter_map do |line|
+        next if line.strip.empty?
+
+        JSON.parse(line)["id"]
+      end
+    end
   end
 
   def status(path)
@@ -526,6 +573,59 @@ class PiSessionStore
     rescue JSON::ParserError
       nil
     end
+  end
+
+  def last_append_cursor(file)
+    complete = true
+    fragments = []
+    position = file.size
+
+    while position.positive?
+      bytes = [8 * 1024, position].min
+      position -= bytes
+      file.seek(position)
+      chunk = file.read(bytes)
+      line_end = chunk.bytesize
+
+      while line_end.positive? && (newline = chunk.rindex("\n", line_end - 1))
+        fragment = chunk.byteslice(newline + 1, line_end - newline - 1)
+        line = fragments.empty? ? fragment : fragment + fragments.reverse.join
+        fragments.clear
+        result, valid = append_cursor_from_line(line)
+        complete &&= valid
+        return [result.fetch(:cursor), result.fetch(:leaf), complete] if result
+        line_end = newline
+      end
+
+      prefix = chunk.byteslice(0, line_end)
+      fragments << prefix unless prefix.empty?
+    end
+
+    line = fragments.reverse.join
+    result, valid = append_cursor_from_line(line)
+    complete &&= valid
+    return [result.fetch(:cursor), result.fetch(:leaf), complete] if result
+
+    [nil, nil, complete]
+  end
+
+  def append_cursor_from_line(line)
+    return [nil, true] if line.strip.empty?
+
+    entry = JSON.parse(line)
+    return [nil, true] unless tree_node_entry?(entry)
+
+    [{ cursor: entry["id"], leaf: leaf_id_after_entry(entry) }, true]
+  rescue JSON::ParserError
+    [nil, false]
+  end
+
+  def stable_file_stat?(left, right)
+    left.dev == right.dev && left.ino == right.ino && left.size == right.size && stat_mtime_ns(left) == stat_mtime_ns(right)
+  end
+
+  def stat_mtime_ns(stat)
+    (stat.mtime.to_i * 1_000_000_000) + stat.mtime.nsec
   end
 
   def compaction_message_from_entry(entry)

@@ -16,6 +16,37 @@ class PiRpcClientRegistryTest < Minitest::Test
     assert_equal [:close], calls
   end
 
+  def test_keeps_busy_clients_past_idle_timeout
+    now = Time.at(1_000)
+    calls = []
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeClient.new(calls) }, clock: -> { now })
+    client = registry.ensure_client("/tmp/session.jsonl")
+    client.busy = true
+
+    now = Time.at(2_801)
+    closed = registry.close_idle_clients(idle_timeout: 1_800)
+
+    assert_empty closed
+    assert registry.active?("/tmp/session.jsonl")
+    assert_empty calls
+  end
+
+  def test_keeps_settled_client_until_idle_timeout_after_settlement
+    now = Time.at(1_000)
+    calls = []
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeClient.new(calls) }, clock: -> { now })
+    client = registry.ensure_client("/tmp/session.jsonl")
+    client.settled_at = Time.at(2_800)
+
+    now = Time.at(2_801)
+    assert_empty registry.close_idle_clients(idle_timeout: 1_800)
+    assert registry.active?("/tmp/session.jsonl")
+
+    now = Time.at(4_601)
+    assert_equal ["/tmp/session.jsonl"], registry.close_idle_clients(idle_timeout: 1_800)
+    assert_equal [:close], calls
+  end
+
   def test_keeps_recent_clients
     now = Time.at(1_000)
     calls = []
@@ -56,6 +87,36 @@ class PiRpcClientRegistryTest < Minitest::Test
     assert_equal({ events: [{ "type" => "event" }], last_seq: 1, missed: false }, first)
     assert_equal first, second
     assert_equal [[:events_after, 0], [:events_after, 0]], calls
+  end
+
+  def test_event_polling_does_not_keep_idle_rpc_client_alive
+    now = Time.at(1_000)
+    calls = []
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeClient.new(calls) }, clock: -> { now })
+    registry.ensure_client("/tmp/session.jsonl")
+
+    now = Time.at(2_801)
+    registry.events_after("/tmp/session.jsonl", 0)
+    closed = registry.close_idle_clients(idle_timeout: 1_800)
+
+    assert_equal ["/tmp/session.jsonl"], closed
+    assert_equal [[:events_after, 0], :close], calls
+  end
+
+  def test_closes_specific_idle_client_but_not_busy_client
+    calls = []
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+    client = FakeClient.new(calls)
+    registry.register("/tmp/session.jsonl", client)
+
+    client.busy = true
+    refute registry.close_client_if_idle("/tmp/session.jsonl")
+    assert registry.active?("/tmp/session.jsonl")
+
+    client.busy = false
+    assert registry.close_client_if_idle("/tmp/session.jsonl")
+    refute registry.active?("/tmp/session.jsonl")
+    assert_equal [:close], calls
   end
 
   def test_reports_client_busy_state
@@ -133,7 +194,7 @@ class PiRpcClientRegistryTest < Minitest::Test
 
   class FakeClient
     attr_writer :busy
-    attr_accessor :busy_since
+    attr_accessor :busy_since, :settled_at
     attr_writer :agent_running
 
     def initialize(calls)
