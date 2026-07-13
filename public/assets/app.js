@@ -2252,7 +2252,6 @@ function initializeSessionView({ focus = true } = {}) {
     liveMessageRenderer.restoreActiveToolExecutions();
     scheduleNextEventPoll(0);
     conversationController.positionInitialAtBottom();
-    conversationController.loadOlderHistory().catch(() => {});
     requestAnimationFrame(() => {
       if (generation !== sessionViewGeneration) return;
       loadStoredComposerDraft();

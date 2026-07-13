@@ -355,7 +355,7 @@ class PiSessionStoreTest < Minitest::Test
       message = PiSessionStore.new(root: dir).messages(path).first
 
       assert_equal "✓ general\n\nDone", message.text
-      assert message.raw_details.valid_encoding?
+      refute_respond_to message, :raw_details
     end
   end
 

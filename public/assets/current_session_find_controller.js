@@ -10,6 +10,7 @@ export class CurrentSessionFindController {
     this.observer = null;
     this.refreshFrame = null;
     this.preparationPromise = null;
+    this.cancelHistoryOnClose = false;
     this.preparationEpoch = 0;
     this.historyStatus = "complete";
     this.expandedToolOutput = null;
@@ -275,6 +276,7 @@ export class CurrentSessionFindController {
     const bar = this.bar;
     const scroll = this.conversation.element;
     const conversationEpoch = this.conversation.bindingEpoch;
+    this.cancelHistoryOnClose = !this.conversation.olderHistoryLoading;
     const preparation = (async () => {
       const historyStatus = await this.conversation.loadOlderHistory();
       if (!this.open || epoch !== this.bindingEpoch || preparationEpoch !== this.preparationEpoch || conversationEpoch !== this.conversation.bindingEpoch || bar !== this.bar || scroll !== this.conversation.element) return;
@@ -294,12 +296,17 @@ export class CurrentSessionFindController {
     try {
       await preparation;
     } finally {
-      if (this.preparationPromise === preparation) this.preparationPromise = null;
+      if (this.preparationPromise === preparation) {
+        this.preparationPromise = null;
+        this.cancelHistoryOnClose = false;
+      }
     }
   }
 
   close({ restoreFocus = true } = {}) {
     this.observer?.disconnect();
+    if (this.preparationPromise && this.cancelHistoryOnClose) this.conversation.cancelOlderHistory?.();
+    this.cancelHistoryOnClose = false;
     if (this.refreshFrame) cancelAnimationFrame(this.refreshFrame);
     this.refreshFrame = null;
     this.preparationPromise = null;

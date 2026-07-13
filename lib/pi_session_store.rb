@@ -21,8 +21,9 @@ class PiSessionStore
     keyword_init: true
   )
 
-  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :expanded, :error, :tool_call_id, :tool_name, :raw_details, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, keyword_init: true)
+  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
+  Conversation = Struct.new(:messages, :latest_leaf_id, :status, keyword_init: true)
 
   @session_cache = {}
   @session_cache_mutex = Mutex.new
@@ -57,44 +58,18 @@ class PiSessionStore
     sessions.group_by(&:cwd)
   end
 
+  def conversation(path, current_leaf_id: nil)
+    entries = read_entries(path)
+    Conversation.new(
+      messages: messages_from_entries(session_entries(entries, current_leaf_id: current_leaf_id)),
+      latest_leaf_id: latest_leaf_id_from_entries(entries),
+      status: status_from_entries(entries)
+    )
+  end
+
   def messages(path, current_leaf_id: nil)
-    entries = session_entries(path, current_leaf_id: current_leaf_id)
-    subagent_tool_calls = subagent_tool_calls_from_entries(entries)
-    pending_tool_calls = {}
-    entries.each_with_object([]) do |entry, rendered_messages|
-      if entry["type"] == "compaction"
-        rendered_messages << compaction_message_from_entry(entry)
-        next
-      end
-
-      if (error_message = error_message_from_entry(entry))
-        rendered_messages << error_message
-        next
-      end
-
-      next unless entry["type"] == "message"
-
-      messages_from_entry(entry).each do |message|
-        if message.role == "toolResult" && message.tool_name == "subagent" && (tool_call = subagent_tool_calls[message.tool_call_id])
-          message.timestamp = tool_call[:timestamp] if tool_call[:timestamp]
-          message.tool_prompt = tool_call[:prompt] unless tool_call[:prompt].to_s.empty?
-        end
-
-        if message.role == "toolResult" && pending_tool_calls[message.tool_call_id]
-          call_message = pending_tool_calls.delete(message.tool_call_id)
-          call_message.text = paired_tool_text(call_message, message)
-          call_message.raw_details = [call_message.raw_details, message.raw_details].compact.reject(&:empty?).join("\n\n")
-          call_message.expanded ||= message.expanded
-          call_message.error ||= message.error
-          call_message.tool_preview = false unless message.error
-          call_message.images = [*call_message.images, *message.images]
-          next
-        end
-
-        rendered_messages << message
-        pending_tool_calls[message.tool_call_id] = message if message.tool_call_id && pair_tool_result?(message.tool_name)
-      end
-    end
+    entries = read_entries(path)
+    messages_from_entries(session_entries(entries, current_leaf_id: current_leaf_id))
   end
 
   def tool_call_timestamps(path, tool_call_ids)
@@ -138,14 +113,60 @@ class PiSessionStore
   end
 
   def latest_leaf_id(path)
-    read_entries(path).each_with_object({ leaf_id: nil }) do |entry, state|
+    latest_leaf_id_from_entries(read_entries(path))
+  end
+
+  def status(path)
+    status_from_entries(read_entries(path))
+  end
+
+  private
+
+  def messages_from_entries(entries)
+    subagent_tool_calls = subagent_tool_calls_from_entries(entries)
+    pending_tool_calls = {}
+    entries.each_with_object([]) do |entry, rendered_messages|
+      if entry["type"] == "compaction"
+        rendered_messages << compaction_message_from_entry(entry)
+        next
+      end
+
+      if (error_message = error_message_from_entry(entry))
+        rendered_messages << error_message
+        next
+      end
+
+      next unless entry["type"] == "message"
+
+      messages_from_entry(entry).each do |message|
+        if message.role == "toolResult" && message.tool_name == "subagent" && (tool_call = subagent_tool_calls[message.tool_call_id])
+          message.timestamp = tool_call[:timestamp] if tool_call[:timestamp]
+          message.tool_prompt = tool_call[:prompt] unless tool_call[:prompt].to_s.empty?
+        end
+
+        if message.role == "toolResult" && pending_tool_calls[message.tool_call_id]
+          call_message = pending_tool_calls.delete(message.tool_call_id)
+          call_message.text = paired_tool_text(call_message, message)
+          call_message.error ||= message.error
+          call_message.tool_preview = false unless message.error
+          call_message.images = [*call_message.images, *message.images]
+          next
+        end
+
+        rendered_messages << message
+        pending_tool_calls[message.tool_call_id] = message if message.tool_call_id && pair_tool_result?(message.tool_name)
+      end
+    end
+  end
+
+  def latest_leaf_id_from_entries(entries)
+    entries.each_with_object({ leaf_id: nil }) do |entry, state|
       state[:leaf_id] = leaf_id_after_entry(entry) if tree_node_entry?(entry)
     end.fetch(:leaf_id)
   end
 
-  def status(path)
+  def status_from_entries(entries)
     latest = Status.new
-    entries = read_entries(path)
     latest_usage_index = nil
     latest_compaction_index = nil
 
@@ -157,9 +178,7 @@ class PiSessionStore
       when "thinking_level_change"
         latest.thinking_level = entry["thinkingLevel"] || entry["thinking_level"] unless (entry["thinkingLevel"] || entry["thinking_level"]).to_s.empty?
       when "message"
-        if apply_usage(latest, entry["message"])
-          latest_usage_index = index
-        end
+        latest_usage_index = index if apply_usage(latest, entry["message"])
       when "compaction"
         latest_compaction_index = index
       end
@@ -171,8 +190,6 @@ class PiSessionStore
 
     latest
   end
-
-  private
 
   def subagent_tool_calls_from_entries(entries)
     entries.each_with_object({}) do |entry, tool_calls|
@@ -206,8 +223,7 @@ class PiSessionStore
     prompts.join("\n\n") unless prompts.empty?
   end
 
-  def session_entries(path, current_leaf_id: nil)
-    entries = read_entries(path)
+  def session_entries(entries, current_leaf_id: nil)
     return entries if current_leaf_id.to_s.empty?
 
     tree_path = tree_path_entry_ids(entries, current_leaf_id)
@@ -490,9 +506,7 @@ class PiSessionStore
       text: text,
       timestamp: parse_time(entry["timestamp"]),
       compact: true,
-      summary: "Conversation compacted",
-      expanded: false,
-      raw_details: JSON.pretty_generate(entry)
+      summary: "Conversation compacted"
     )
   end
 
@@ -507,9 +521,7 @@ class PiSessionStore
       text: text,
       timestamp: parse_time(entry["timestamp"]),
       compact: false,
-      expanded: true,
-      error: true,
-      raw_details: JSON.pretty_generate(entry)
+      error: true
     )
   end
 
@@ -548,11 +560,9 @@ class PiSessionStore
         entry_id: entry["id"],
         compact: compact_message?(message),
         summary: general_subagent ? "subagent general" : compact_summary(message),
-        expanded: role == "toolResult" ? false : message["isError"] == true,
         error: message["isError"] == true,
         tool_call_id: message["toolCallId"],
         tool_name: message["toolName"],
-        raw_details: compact_raw_details(message["content"]) || (compact_message?(message) ? safe_pretty_generate(message) : nil),
         images: images,
         tool_prompt: message["toolName"] == "subagent" ? subagent_prompt(message["details"]) : nil,
         tool_transcript: general_subagent || transcript_tool?(message["toolName"])
@@ -575,11 +585,9 @@ class PiSessionStore
         timestamp: timestamp,
         compact: compact,
         summary: compact ? compact_summary(message.merge("content" => parts)) : nil,
-        expanded: false,
         error: false,
         tool_call_id: tool_call_id,
         tool_name: tool_name,
-        raw_details: compact ? compact_raw_details(parts) : nil,
         thinking: parts.length == 1 && thinking_part?(parts.first),
         tool_summary_html: tool_summary_html(tool_call),
         tool_transcript: transcript_tool?(tool_name),
@@ -679,12 +687,6 @@ class PiSessionStore
 
   def safe_json_generate(value)
     JSON.generate(value)
-  rescue JSON::GeneratorError
-    value.inspect
-  end
-
-  def safe_pretty_generate(value)
-    JSON.pretty_generate(value)
   rescue JSON::GeneratorError
     value.inspect
   end
@@ -830,15 +832,6 @@ class PiSessionStore
       end
     end
     labels.uniq.join(" + ")
-  end
-
-  def compact_raw_details(content)
-    details = Array(content).select do |part|
-      part.is_a?(Hash) && ["toolCall", "toolResult"].include?(part["type"])
-    end
-    return nil if details.empty?
-
-    details.map { |part| safe_pretty_generate(part) }.join("\n\n")
   end
 
   def thinking_text(part)

@@ -28,7 +28,7 @@
           </div>
         </header>
 
-        <section class="conversation-scroll" id="conversation-scroll" tabindex="0" data-has-older-messages="<%= @conversation_has_older_messages ? "true" : "false" %>" data-older-message-count="<%= h @conversation_older_message_count.to_i %>" data-older-message-cursor="<%= h @conversation_start_index.to_i %>" data-older-messages-url="/conversation_older?session=<%= h Rack::Utils.escape(@selected_session.path) %>">
+        <section class="conversation-scroll" id="conversation-scroll" tabindex="0" data-has-older-messages="<%= @conversation_has_older_messages ? "true" : "false" %>" data-older-message-count="<%= h @conversation_older_message_count.to_i %>" data-older-message-cursor="<%= h @conversation_start_index.to_i %>" data-older-messages-url="/conversation_older?session=<%= h Rack::Utils.escape(@selected_session.path) %>&amp;tree_leaf=<%= h Rack::Utils.escape(@conversation_tree_leaf_id.to_s) %>">
           <div class="current-session-find" data-current-session-find hidden>
             <input type="search" data-current-session-find-input aria-label="Find in conversation" autocomplete="off" spellcheck="false">
             <output class="current-session-find-count" data-current-session-find-count aria-live="polite">0 / 0</output>
@@ -41,14 +41,14 @@
             <button type="button" class="jump-button jump-to-first" aria-label="Top">↑↑</button>
           </div>
           <% if @conversation_has_older_messages %>
-            <div class="conversation-history-status" data-conversation-history-status>Loading earlier messages…</div>
+            <button type="button" class="conversation-history-status" data-conversation-history-status>Earlier messages available</button>
           <% end %>
           <% if @messages.empty? %>
             <p class="empty">No messages in this session.</p>
           <% end %>
 
-          <% @messages.each.with_index(@conversation_start_index.to_i) do |message, message_index| %>
-            <%= erb :_message_article, layout: false, locals: { message: message, message_index: message_index, attachment_count: @attachment_counts[message.object_id], attachment_images: @attachment_images[message.object_id] } %>
+          <% @messages.each do |message| %>
+            <%= erb :_message_article, layout: false, locals: { message: message, attachment_count: @attachment_counts[message.object_id], attachment_images: @attachment_images[message.object_id] } %>
           <% end %>
 
           <% busy_since = rpc_clients.busy_since(@selected_session.path) %>

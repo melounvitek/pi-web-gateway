@@ -1467,6 +1467,7 @@ class AppTest < Minitest::Test
       assert_includes conversation_html, "First answer"
       assert_includes conversation_html, "Viewing earlier tree point"
       assert_includes conversation_html, "data-tree-latest-entry-id=\"assistant-2\""
+      assert_includes conversation_html, "tree_leaf=assistant-1"
       refute_includes conversation_html, "Later prompt"
       refute_includes conversation_html, "Later answer"
       assert_equal 200, page_response.status
@@ -3906,6 +3907,8 @@ class AppTest < Minitest::Test
       image = tool_card&.at_css(".message-images .message-image")
       assert image
       assert_equal "data:image/png;base64,#{image_data}", image["src"]
+      assert_equal "lazy", image["loading"]
+      assert_equal "async", image["decoding"]
     end
   end
 
@@ -4535,8 +4538,9 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes APP_JAVASCRIPT, "function contentSegments(content, message = {})"
-      assert_includes APP_JAVASCRIPT, "appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded"
-      assert_includes APP_JAVASCRIPT, "segment.rawDetails"
+      assert_includes APP_JAVASCRIPT, "appendCompactMessage(roleName, segment.summary, segment.text, true"
+      refute_includes APP_JAVASCRIPT, "segment.expanded"
+      refute_includes APP_JAVASCRIPT, "rawDetails"
       refute_includes response.body, "Raw details"
       assert_includes APP_JAVASCRIPT, "renderToolSummary(container, parts, fallback)"
       assert_includes APP_JAVASCRIPT, "message--tool-transcript"
@@ -4654,7 +4658,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "applyAutoScroll(behavior = \"auto\")"
       assert_includes APP_JAVASCRIPT, "positionInitialAtBottom()"
       assert_includes APP_JAVASCRIPT, "conversationController.positionInitialAtBottom();"
-      assert_includes APP_JAVASCRIPT, "conversationController.loadOlderHistory().catch(() => {});"
+      refute_includes APP_JAVASCRIPT, "conversationController.loadOlderHistory().catch(() => {});"
       assert_includes APP_JAVASCRIPT, "this.frame(() => this.frame"
       assert_includes APP_JAVASCRIPT, "latestReadableAssistantMessage()"
       assert_includes APP_JAVASCRIPT, "latestMessageElement()"
@@ -5455,8 +5459,8 @@ class AppTest < Minitest::Test
       assert_equal "30", scroll["data-older-message-count"]
       assert_equal "30", scroll["data-older-message-cursor"]
       assert_includes scroll["data-older-messages-url"], "/conversation_older"
-      status = scroll.at_css("[data-conversation-history-status]")
-      assert_equal "Loading earlier messages…", status.text.strip
+      status = scroll.at_css("button[data-conversation-history-status]")
+      assert_equal "Earlier messages available", status.text.strip
       assert_includes APP_STYLESHEET, ".conversation-history-status"
       assert_includes APP_JAVASCRIPT, "finishHistoryStatus()"
       assert_includes APP_JAVASCRIPT, "failHistoryStatus()"
@@ -5486,6 +5490,28 @@ class AppTest < Minitest::Test
       assert_includes payload.fetch("html"), "Message 1"
       assert_includes payload.fetch("html"), "Message 30"
       refute_includes payload.fetch("html"), "Message 31"
+    end
+  end
+
+  def test_serves_all_remaining_conversation_messages_for_explicit_full_history_load
+    Dir.mktmpdir do |dir|
+      messages = (1..220).map { |index| { role: "user", text: "Message #{index}" } }
+      path = write_session_with_messages(dir, messages)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(PiWebGateway).get(
+        "/conversation_older",
+        params: { "session" => path, "cursor" => "170", "all" => "1" }
+      )
+
+      assert_equal 200, response.status
+      payload = JSON.parse(response.body)
+      assert_equal 0, payload.fetch("next_cursor")
+      refute payload.fetch("has_older_messages")
+      assert_includes payload.fetch("html"), "Message 1"
+      assert_includes payload.fetch("html"), "Message 170"
+      refute_includes payload.fetch("html"), "Message 171"
     end
   end
 
@@ -5549,39 +5575,10 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_raw_details_endpoint_rejects_missing_and_outside_root_sessions
-    Dir.mktmpdir do |dir|
-      Dir.mktmpdir do |outside_dir|
-        valid_path = write_session_with_raw_messages(dir, [
-          { type: "compaction", timestamp: "2026-06-13T10:00:00Z", summary: "Compacted", raw: "raw" }
-        ])
-        outside_path = write_session_with_messages(outside_dir, [{ role: "assistant", text: "Outside" }])
-        PiWebGateway.set :sessions_root, dir
-        PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+  def test_raw_details_endpoint_is_not_exposed
+    response = Rack::MockRequest.new(PiWebGateway).get("/message_raw_details")
 
-        missing_response = Rack::MockRequest.new(PiWebGateway).get(
-          "/message_raw_details",
-          params: { "session" => File.join(dir, "missing.jsonl"), "message_index" => "0" }
-        )
-        outside_response = Rack::MockRequest.new(PiWebGateway).get(
-          "/message_raw_details",
-          params: { "session" => outside_path, "message_index" => "0" }
-        )
-        invalid_index_response = Rack::MockRequest.new(PiWebGateway).get(
-          "/message_raw_details",
-          params: { "session" => valid_path, "message_index" => "not-a-number" }
-        )
-        missing_token_response = Rack::MockRequest.new(PiWebGateway).get(
-          "/message_raw_details",
-          params: { "session" => valid_path, "message_index" => "0" }
-        )
-
-        assert_equal 404, missing_response.status
-        assert_equal 404, outside_response.status
-        assert_equal 404, invalid_index_response.status
-        assert_equal 404, missing_token_response.status
-      end
-    end
+    assert_equal 404, response.status
   end
 
   def test_older_conversation_window_handles_missing_session_silently

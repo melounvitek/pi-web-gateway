@@ -1,14 +1,12 @@
 require "digest"
 require "erb"
 require_relative "../rendering/markdown_renderer"
-require_relative "../sessions/session_view"
 require_relative "../sessions/sidebar"
 require_relative "../configured_session_cwds"
 require_relative "../time_formatter"
 
 module Web
   module ViewHelpers
-    RAW_DETAILS_INLINE_BYTE_LIMIT = 8 * 1024
     TOOL_OUTPUT_DESKTOP_TAIL_LINES = 18
     TOOL_OUTPUT_MOBILE_TAIL_LINES = 12
     PROJECT_IDENTITY_COLORS = [
@@ -295,7 +293,7 @@ module Web
         src = image[:src] || image["src"] || data_image_src(image)
         next if src.to_s.empty?
 
-        %(<img class="message-image" src="#{h(src)}" alt="Attached image">)
+        %(<img class="message-image" src="#{h(src)}" alt="Attached image" loading="lazy" decoding="async">)
       end.join
     end
 
@@ -358,19 +356,6 @@ module Web
         classes << "tool-output-tail-desktop-extra" if index < desktop_only_count
         %(<span class="#{h(classes.join(" "))}">#{h(display_tool_output_line(message, line))}</span>)
       end.join
-    end
-
-    def defer_raw_details?(message)
-      message.raw_details.to_s.bytesize > RAW_DETAILS_INLINE_BYTE_LIMIT
-    end
-
-    def raw_details_url(message_index, message)
-      query = {
-        "session" => @selected_session&.path || params["session"].to_s,
-        "message_index" => message_index,
-        "raw_details_token" => Sessions::SessionView.raw_details_token_for(message)
-      }
-      "/message_raw_details?#{Rack::Utils.build_nested_query(query)}"
     end
 
     def tool_diff_line_class(line, preview = false)

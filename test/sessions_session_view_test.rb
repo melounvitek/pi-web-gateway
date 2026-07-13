@@ -41,6 +41,30 @@ class SessionsSessionViewTest < Minitest::Test
     end
   end
 
+  def test_non_conversation_view_does_not_prepare_transcript_details
+    Dir.mktmpdir do |dir|
+      session_path = write_session(dir)
+
+      view = Sessions::SessionView.build(
+        sessions_root: dir,
+        params: { "session" => session_path },
+        include_conversation: false,
+        read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
+        rpc_clients: inactive_rpc_clients,
+        mark_selected_read: false,
+        pending_session_cwd: ->(_path) {}
+      )
+
+      assignments = view.to_instance_variables
+      assert_equal session_path, assignments.fetch(:@selected_session).path
+      assert_empty assignments.fetch(:@messages)
+      assert_nil assignments.fetch(:@latest_tree_leaf_id)
+      assert_nil assignments.fetch(:@session_status)
+      refute assignments.fetch(:@conversation_has_older_messages)
+    end
+  end
+
   def test_conversation_uses_latest_window_for_long_history
     Dir.mktmpdir do |dir|
       session_path = write_session_with_messages(dir, 180)
@@ -76,8 +100,8 @@ class SessionsSessionViewTest < Minitest::Test
         sessions_root: dir,
         session_path: session_path,
         cursor: 70,
-        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
-        rpc_clients: inactive_rpc_clients
+        current_leaf_id: nil,
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments"))
       )
 
       assert_equal (1..70).map { |index| "Message #{index}" }, view.fetch(:messages).map(&:text)
@@ -85,6 +109,31 @@ class SessionsSessionViewTest < Minitest::Test
       refute view.fetch(:has_older_messages)
       assert_equal 0, view.fetch(:older_message_count)
       assert_equal({}, view.fetch(:attachment_counts))
+    end
+  end
+
+  def test_older_conversation_window_stays_on_the_requested_tree_leaf
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session", cwd: dir },
+        { type: "message", id: "user-1", parentId: nil, message: { role: "user", content: [{ type: "text", text: "Root" }] } },
+        { type: "message", id: "assistant-1", parentId: "user-1", message: { role: "assistant", content: [{ type: "text", text: "Root answer" }] } },
+        { type: "message", id: "user-2", parentId: "assistant-1", message: { role: "user", content: [{ type: "text", text: "Selected branch" }] } },
+        { type: "message", id: "assistant-2", parentId: "user-2", message: { role: "assistant", content: [{ type: "text", text: "Selected answer" }] } },
+        { type: "message", id: "user-3", parentId: "assistant-1", message: { role: "user", content: [{ type: "text", text: "Other branch" }] } }
+      ]
+      File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
+
+      view = Sessions::SessionView.older_window(
+        sessions_root: dir,
+        session_path: path,
+        cursor: 4,
+        current_leaf_id: "assistant-2",
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments"))
+      )
+
+      assert_equal ["Root", "Root answer", "Selected branch", "Selected answer"], view.fetch(:messages).map(&:text)
     end
   end
 
@@ -110,31 +159,58 @@ class SessionsSessionViewTest < Minitest::Test
     end
   end
 
-  def test_conversation_keeps_floor_when_messages_exceed_byte_budget
+  def test_conversation_applies_byte_budget_after_retaining_the_latest_turn
     Dir.mktmpdir do |dir|
       session_path = write_session_with_messages(dir, 100, text_suffix: "x" * 10_000)
 
-      view = Sessions::SessionView.build(
-        sessions_root: dir,
-        params: { "session" => session_path },
-        include_conversation: true,
-        read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
-        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
-        rpc_clients: inactive_rpc_clients,
-        mark_selected_read: false,
-        pending_session_cwd: ->(_path) {}
-      )
-
-      assignments = view.to_instance_variables
+      assignments = build_conversation(dir, session_path).to_instance_variables
       rendered_text = assignments.fetch(:@messages).map(&:text)
-      assert_equal 50, rendered_text.length
-      assert_match(/\AMessage 51/, rendered_text.first)
+
+      assert_operator rendered_text.length, :<, 50
       assert_match(/\AMessage 100/, rendered_text.last)
-      assert_equal 50, assignments.fetch(:@conversation_older_message_count)
+      assert_equal 100 - rendered_text.length, assignments.fetch(:@conversation_older_message_count)
+    end
+  end
+
+  def test_conversation_window_accounts_for_inline_image_bytes
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [{ type: "session", id: "session", cwd: dir }] + (1..40).map do |index|
+        {
+          type: "message",
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: "Message #{index}" },
+              { type: "image", mimeType: "image/png", data: "x" * 20_000 }
+            ]
+          }
+        }
+      end
+      File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
+
+      assignments = build_conversation(dir, path).to_instance_variables
+
+      assert_operator assignments.fetch(:@messages).length, :<, 40
+      assert_equal "Message 40", assignments.fetch(:@messages).last.text
+      assert assignments.fetch(:@conversation_has_older_messages)
     end
   end
 
   private
+
+  def build_conversation(root, session_path)
+    Sessions::SessionView.build(
+      sessions_root: root,
+      params: { "session" => session_path },
+      include_conversation: true,
+      read_state_store: GatewayReadStateStore.new(path: File.join(root, "read-state.json")),
+      attachment_store: PiAttachmentStore.new(root: File.join(root, "attachments")),
+      rpc_clients: inactive_rpc_clients,
+      mark_selected_read: false,
+      pending_session_cwd: ->(_path) {}
+    )
+  end
 
   def inactive_rpc_clients
     Class.new do

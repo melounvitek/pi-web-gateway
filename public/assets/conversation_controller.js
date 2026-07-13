@@ -11,6 +11,8 @@ export class ConversationController {
     this.timers = new Set();
     this.frames = new Set();
     this.historyAbortController = null;
+    this.historyRequestGeneration = 0;
+    this.olderWindowPromise = null;
     this.olderHistoryPromise = null;
     this.autoScrollEnabled = true;
     this.forceBottomAutoScroll = false;
@@ -52,9 +54,10 @@ export class ConversationController {
       this.listen(this.element, type, () => this.recordScrollIntent("pointer"), { passive: true });
     });
     this.listen(this.element, "scroll", () => this.handleScroll(), { passive: true });
+    this.listen(this.historyStatus(), "click", () => this.loadOlderWindow().catch(() => {}));
     this.listen(this.jumpToFirstButton, "click", () => {
       if (this.jumpToFirstButton.dataset.jumpTarget === "message") this.scrollToMessageTop();
-      else this.scrollToTop();
+      else this.loadOlderHistory().then((status) => { if (status === "complete") this.scrollToTop(); }).catch(() => {});
     });
     this.listen(this.jumpToLatestButton, "click", () => {
       if (this.jumpToLatestButton.dataset.jumpTarget === "message") this.scrollToMessageBottom();
@@ -71,6 +74,7 @@ export class ConversationController {
     this.frames.clear();
     this.historyAbortController?.abort();
     this.historyAbortController = null;
+    this.olderWindowPromise = null;
     this.olderHistoryPromise = null;
     this.revealTimer = null;
     this.revealDelayTimer = null;
@@ -168,6 +172,7 @@ export class ConversationController {
     }
     this.lastScrollTop = currentScrollTop;
     this.updateJumpControls();
+    if (this.nearTop()) this.loadOlderWindow().catch(() => {});
   }
 
   updateJumpControlsReveal() {
@@ -262,9 +267,10 @@ export class ConversationController {
     return this.document.querySelector('.prompt-form input[name="session"]')?.value || new URLSearchParams(this.window.location.search).get("session") || "";
   }
 
-  olderConversationUrl(cursor, element = this.element) {
+  olderConversationUrl(cursor, element = this.element, loadAll = false) {
     const url = new URL(element.dataset.olderMessagesUrl, this.window.location.origin);
     url.searchParams.set("cursor", cursor);
+    if (loadAll) url.searchParams.set("all", "1");
     return url;
   }
 
@@ -272,16 +278,28 @@ export class ConversationController {
     return this.element?.querySelector("[data-conversation-history-status]");
   }
 
-  finishHistoryStatus() {
+  setHistoryStatus(text, hidden = false) {
     const status = this.historyStatus();
-    if (status) status.hidden = true;
+    if (!status) return;
+    status.hidden = hidden;
+    status.disabled = text === "Loading earlier messages…";
+    status.textContent = text;
+  }
+
+  finishHistoryStatus() {
+    this.setHistoryStatus("", true);
+  }
+
+  availableHistoryStatus() {
+    this.setHistoryStatus("Earlier messages available");
+  }
+
+  loadingHistoryStatus() {
+    this.setHistoryStatus("Loading earlier messages…");
   }
 
   failHistoryStatus() {
-    const status = this.historyStatus();
-    if (!status) return;
-    status.hidden = false;
-    status.textContent = "Earlier messages could not load.";
+    this.setHistoryStatus("Earlier messages could not load.");
   }
 
   prependOlderHtml(html) {
@@ -298,40 +316,45 @@ export class ConversationController {
     this.updateJumpControls();
   }
 
-  loadOlderHistory() {
+  loadOlderWindow({ loadAll = false } = {}) {
     if (!this.element) return Promise.resolve("cancelled");
-    if (this.olderHistoryPromise) return this.olderHistoryPromise;
-    let cursor = Number(this.element.dataset.olderMessageCursor || 0);
+    if (this.olderWindowPromise) return this.olderWindowPromise;
+    const cursor = Number(this.element.dataset.olderMessageCursor || 0);
     if (!cursor || this.element.dataset.hasOlderMessages !== "true") return Promise.resolve("complete");
 
     const epoch = this.bindingEpoch;
+    const historyGeneration = this.historyRequestGeneration;
     const scrollElement = this.element;
     const sessionPath = this.currentSessionPath();
     const abortController = new AbortController();
     this.historyAbortController = abortController;
-    const unchanged = () => epoch === this.bindingEpoch && scrollElement === this.element && sessionPath === this.currentSessionPath();
+    const unchanged = () => epoch === this.bindingEpoch && historyGeneration === this.historyRequestGeneration && scrollElement === this.element && sessionPath === this.currentSessionPath();
+    this.loadingHistoryStatus();
     const load = (async () => {
       try {
-        while (cursor > 0) {
-          if (!unchanged()) return "cancelled";
-          const response = await fetch(this.olderConversationUrl(cursor, scrollElement), { headers: { "Accept": "application/json" }, signal: abortController.signal });
-          if (!unchanged()) return "cancelled";
-          if (!response.ok) {
-            this.failHistoryStatus();
-            return "failed";
-          }
-          const payload = await response.json();
-          if (!unchanged()) return "cancelled";
-          this.prependOlderHtml(payload.html || "");
-          cursor = Number(payload.next_cursor || 0);
-          scrollElement.dataset.olderMessageCursor = String(cursor);
-          scrollElement.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
-          scrollElement.dataset.olderMessageCount = String(payload.older_message_count || 0);
-          if (!payload.has_older_messages) {
-            this.finishHistoryStatus();
-            break;
-          }
+        const response = await fetch(this.olderConversationUrl(cursor, scrollElement, loadAll), { headers: { "Accept": "application/json" }, signal: abortController.signal });
+        if (!unchanged()) return "cancelled";
+        if (!response.ok) {
+          this.failHistoryStatus();
+          return "failed";
         }
+        const payload = await response.json();
+        if (!unchanged()) return "cancelled";
+        const nextCursor = Number(payload.next_cursor || 0);
+        if (payload.has_older_messages && nextCursor >= cursor) {
+          this.failHistoryStatus();
+          return "failed";
+        }
+
+        this.prependOlderHtml(payload.html || "");
+        scrollElement.dataset.olderMessageCursor = String(nextCursor);
+        scrollElement.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
+        scrollElement.dataset.olderMessageCount = String(payload.older_message_count || 0);
+        if (payload.has_older_messages) {
+          this.availableHistoryStatus();
+          return "more";
+        }
+        this.finishHistoryStatus();
         return "complete";
       } catch (error) {
         if (!unchanged() || error?.name === "AbortError") return "cancelled";
@@ -340,8 +363,33 @@ export class ConversationController {
       }
     })();
     const shared = load.finally(() => {
-      if (this.olderHistoryPromise === shared) this.olderHistoryPromise = null;
+      if (this.olderWindowPromise === shared) this.olderWindowPromise = null;
       if (this.historyAbortController === abortController) this.historyAbortController = null;
+    });
+    this.olderWindowPromise = shared;
+    return shared;
+  }
+
+  cancelOlderHistory() {
+    this.historyRequestGeneration += 1;
+    this.historyAbortController?.abort();
+    this.historyAbortController = null;
+    this.olderWindowPromise = null;
+    this.olderHistoryPromise = null;
+    if (this.element?.dataset.hasOlderMessages === "true") this.availableHistoryStatus();
+  }
+
+  get olderHistoryLoading() {
+    return !!this.olderHistoryPromise;
+  }
+
+  loadOlderHistory() {
+    if (!this.element) return Promise.resolve("cancelled");
+    if (this.olderHistoryPromise) return this.olderHistoryPromise;
+    if (this.olderWindowPromise) this.cancelOlderHistory();
+    const load = this.loadOlderWindow({ loadAll: true });
+    const shared = load.finally(() => {
+      if (this.olderHistoryPromise === shared) this.olderHistoryPromise = null;
     });
     this.olderHistoryPromise = shared;
     return shared;

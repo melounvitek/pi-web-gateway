@@ -1,4 +1,3 @@
-require "digest"
 require_relative "../pi_session_store"
 require_relative "session_family"
 require_relative "sidebar"
@@ -6,10 +5,9 @@ require_relative "sidebar"
 module Sessions
   class SessionView
     PENDING_SESSION_DISPLAY_NAME = "New session (pending first assistant response)"
-    CONVERSATION_WINDOW_MIN_MESSAGES = 50
+    CONVERSATION_WINDOW_MIN_MESSAGES = 20
     CONVERSATION_WINDOW_MAX_MESSAGES = 150
-    CONVERSATION_WINDOW_BYTE_BUDGET = 256 * 1024
-    CONVERSATION_WINDOW_RAW_DETAILS_BYTE_CAP = 8 * 1024
+    CONVERSATION_WINDOW_BYTE_BUDGET = 128 * 1024
 
     attr_reader :store,
       :groups,
@@ -19,6 +17,7 @@ module Sessions
       :sidebar,
       :current_tree_leaf_known,
       :latest_tree_leaf_id,
+      :conversation_tree_leaf_id,
       :viewing_older_tree_leaf,
       :messages,
       :conversation_start_index,
@@ -32,18 +31,16 @@ module Sessions
       new(**kwargs).build
     end
 
-    def self.older_window(sessions_root:, session_path:, cursor:, attachment_store:, rpc_clients:)
+    def self.older_window(sessions_root:, session_path:, cursor:, current_leaf_id:, attachment_store:, load_all: false)
       return empty_older_window unless session_path_within_root?(session_path, sessions_root)
 
       store = PiSessionStore.new(root: sessions_root, delete_missing_cwds: true)
-      current_leaf_id = active_session_tree_leaf(rpc_clients, session_path) if rpc_clients.active?(session_path)
       all_messages = store.messages(session_path, current_leaf_id: current_leaf_id)
       cursor = [[cursor.to_i, 0].max, all_messages.length].min
-      messages = conversation_window_before(all_messages, cursor)
+      messages = load_all ? all_messages.first(cursor) : conversation_window_before(all_messages, cursor)
       next_cursor = cursor - messages.length
       {
         messages: messages,
-        start_index: next_cursor,
         next_cursor: next_cursor,
         has_older_messages: next_cursor.positive?,
         older_message_count: next_cursor,
@@ -57,38 +54,12 @@ module Sessions
     def self.empty_older_window
       {
         messages: [],
-        start_index: 0,
         next_cursor: 0,
         has_older_messages: false,
         older_message_count: 0,
         attachment_counts: {},
         attachment_images: {}
       }
-    end
-
-    def self.raw_details(sessions_root:, session_path:, message_index:, raw_details_token:, rpc_clients:)
-      return unless session_path_within_root?(session_path, sessions_root)
-
-      store = PiSessionStore.new(root: sessions_root, delete_missing_cwds: true)
-      current_leaf_id = active_session_tree_leaf(rpc_clients, session_path) if rpc_clients.active?(session_path)
-      messages = store.messages(session_path, current_leaf_id: current_leaf_id)
-      return if message_index.negative? || message_index >= messages.length
-
-      message = messages[message_index]
-      return unless raw_details_token.to_s == raw_details_token_for(message)
-
-      message.raw_details.to_s
-    rescue SystemCallError
-      nil
-    end
-
-    def self.raw_details_token_for(message)
-      Digest::SHA256.hexdigest([
-        message.role,
-        message.timestamp&.to_i,
-        message.text,
-        Digest::SHA256.hexdigest(message.raw_details.to_s)
-      ].join("\0"))
     end
 
     def self.session_path_within_root?(session_path, sessions_root)
@@ -152,6 +123,7 @@ module Sessions
         :@sidebar => @sidebar,
         :@current_tree_leaf_known => @current_tree_leaf_known,
         :@latest_tree_leaf_id => @latest_tree_leaf_id,
+        :@conversation_tree_leaf_id => @conversation_tree_leaf_id,
         :@viewing_older_tree_leaf => @viewing_older_tree_leaf,
         :@messages => @messages,
         :@conversation_start_index => @conversation_start_index,
@@ -215,20 +187,30 @@ module Sessions
     end
 
     def prepare_conversation
-      existing_session = selected_existing_session?
-      existing_conversation = @include_conversation && existing_session
-      current_leaf_id = current_leaf_id_for(existing_conversation)
+      @current_tree_leaf_known = false
+      @latest_tree_leaf_id = nil
+      @conversation_tree_leaf_id = nil
+      @viewing_older_tree_leaf = false
+      @messages = []
+      @conversation_start_index = 0
+      @conversation_older_message_count = 0
+      @conversation_has_older_messages = false
+      @attachment_counts = {}
+      @attachment_images = {}
+      @session_status = nil
+      return unless @include_conversation && selected_existing_session?
 
-      @latest_tree_leaf_id = existing_conversation ? @store.latest_leaf_id(@selected_session.path) : nil
-      @viewing_older_tree_leaf = @current_tree_leaf_known && current_leaf_id != @latest_tree_leaf_id
-      all_messages = existing_session ? @store.messages(@selected_session.path, current_leaf_id: current_leaf_id) : []
-      @messages = existing_conversation ? latest_conversation_window(all_messages) : all_messages
-      @conversation_start_index = all_messages.length - @messages.length
+      @conversation_tree_leaf_id = current_leaf_id_for(true)
+      conversation = @store.conversation(@selected_session.path, current_leaf_id: @conversation_tree_leaf_id)
+      @latest_tree_leaf_id = conversation.latest_leaf_id
+      @viewing_older_tree_leaf = @current_tree_leaf_known && @conversation_tree_leaf_id != @latest_tree_leaf_id
+      @messages = latest_conversation_window(conversation.messages)
+      @conversation_start_index = conversation.messages.length - @messages.length
       @conversation_older_message_count = @conversation_start_index
       @conversation_has_older_messages = @conversation_older_message_count.positive?
-      @attachment_counts = existing_conversation ? @attachment_store.counts_for_messages(@selected_session.path, @messages) : {}
-      @attachment_images = existing_conversation ? @attachment_store.images_for_messages(@selected_session.path, @messages) : {}
-      @session_status = existing_conversation ? @store.status(@selected_session.path) : nil
+      @attachment_counts = @attachment_store.counts_for_messages(@selected_session.path, @messages)
+      @attachment_images = @attachment_store.images_for_messages(@selected_session.path, @messages)
+      @session_status = conversation.status
     end
 
     def latest_conversation_window(messages)
@@ -236,23 +218,26 @@ module Sessions
     end
 
     def self.conversation_window_before(messages, cursor)
-      return messages.first(cursor) if cursor <= CONVERSATION_WINDOW_MIN_MESSAGES
-
       selected = []
       bytes = 0
+      has_user_message = false
       messages.first(cursor).reverse_each do |message|
         message_bytes = conversation_window_message_bytes(message)
+        enough_context = has_user_message || selected.length >= CONVERSATION_WINDOW_MIN_MESSAGES
         break if selected.length >= CONVERSATION_WINDOW_MAX_MESSAGES
-        break if selected.length >= CONVERSATION_WINDOW_MIN_MESSAGES && bytes + message_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
+        break if enough_context && bytes + message_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
 
         selected << message
         bytes += message_bytes
+        has_user_message ||= message.role == "user"
       end
       selected.reverse
     end
 
     def self.conversation_window_message_bytes(message)
-      [message.role, message.text, message.summary].compact.sum { |value| value.to_s.bytesize } + [message.raw_details.to_s.bytesize, CONVERSATION_WINDOW_RAW_DETAILS_BYTE_CAP].min
+      text_bytes = [message.role, message.text, message.summary].compact.sum { |value| value.to_s.bytesize }
+      image_bytes = Array(message.images).sum { |image| (image[:data] || image["data"]).to_s.bytesize }
+      (text_bytes * 2) + image_bytes
     end
 
     def current_leaf_id_for(existing_conversation)

@@ -69,7 +69,8 @@
     .current-session-find-conversation-only input { margin: 0; }
     .current-session-find-match { padding: 0; border-radius: 0.12rem; background: #f0c67447; color: inherit; }
     .current-session-find-match.is-active { background: var(--gold); color: #18181e; box-shadow: 0 0 0 2px #f0c67452; }
-    .conversation-history-status { margin: 0 0 0.85rem; color: var(--muted); font-family: var(--mono); font-size: 0.76rem; text-align: center; }
+    .conversation-history-status { display: block; justify-self: stretch; width: 100%; min-height: 0; margin: 0 0 0.85rem; padding: 0; border: 0; background: transparent; color: var(--muted); font-family: var(--mono); font-size: 0.76rem; font-weight: 400; letter-spacing: normal; text-align: center; text-transform: none; }
+    .conversation-history-status:disabled { cursor: default; opacity: 1; }
     .composer { position: sticky; bottom: 0; padding: 0.75rem 1.5rem 1rem; border-top: 1px solid var(--border); background: #1e1e24f0; backdrop-filter: blur(8px); }
     .composer-inner { display: grid; gap: 0.6rem; }
     .attachment-tray { display: none; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem; border: 1px dashed var(--border-strong); border-radius: 0.35rem; background: var(--panel-soft); }

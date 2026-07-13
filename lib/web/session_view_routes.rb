@@ -91,15 +91,15 @@ module Web
           sessions_root: settings.sessions_root,
           session_path: session_path,
           cursor: params["cursor"].to_i,
+          current_leaf_id: params["tree_leaf"].to_s.empty? ? nil : params["tree_leaf"].to_s,
           attachment_store: attachment_store,
-          rpc_clients: rpc_clients
+          load_all: params["all"].to_s == "1"
         )
         content_type :json
         JSON.generate(
-          html: result.fetch(:messages).map.with_index(result.fetch(:start_index)) { |message, message_index|
-            erb(:_message_article, layout: false, locals: { message: message, message_index: message_index, attachment_count: result.fetch(:attachment_counts)[message.object_id], attachment_images: result.fetch(:attachment_images)[message.object_id] })
+          html: result.fetch(:messages).map { |message|
+            erb(:_message_article, layout: false, locals: { message: message, attachment_count: result.fetch(:attachment_counts)[message.object_id], attachment_images: result.fetch(:attachment_images)[message.object_id] })
           }.join,
-          start_index: result.fetch(:start_index),
           next_cursor: result.fetch(:next_cursor),
           has_older_messages: result.fetch(:has_older_messages),
           older_message_count: result.fetch(:older_message_count)
@@ -119,24 +119,6 @@ module Web
         send_file real_path
       rescue SystemCallError
         halt 404
-      end
-
-      app.get "/message_raw_details" do
-        message_index = Integer(params["message_index"], exception: false)
-        halt 404 unless message_index
-
-        session_path = require_current_workspace_session!(params["session"].to_s)
-        raw_details = Sessions::SessionView.raw_details(
-          sessions_root: settings.sessions_root,
-          session_path: session_path,
-          message_index: message_index,
-          raw_details_token: params["raw_details_token"],
-          rpc_clients: rpc_clients
-        )
-        halt 404 if raw_details.nil? || raw_details.empty?
-
-        content_type :json
-        JSON.generate(raw_details: raw_details)
       end
     end
   end

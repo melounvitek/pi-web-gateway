@@ -68,6 +68,7 @@ export class LiveMessageRenderer {
       element.src = image.src;
       element.alt = image.alt || "Attached image";
       element.loading = "lazy";
+      element.decoding = "async";
       if (image.src.startsWith("blob:")) {
         const revoke = () => URL.revokeObjectURL(image.src);
         element.addEventListener("load", revoke, { once: true });
@@ -128,7 +129,7 @@ export class LiveMessageRenderer {
     return { article, body, compact: false };
   }
 
-  appendCompactMessage(roleName, summary, text, expanded = false, live = true, forceScroll = false, rawDetails = "", timestamp = null, options = {}) {
+  appendCompactMessage(roleName, summary, text, live = true, forceScroll = false, timestamp = null, options = {}) {
     const timestampKey = messageTimestampKey(timestamp);
     if (live && this.liveMessageAlreadyRendered(roleName, text, timestampKey)) return null;
 
@@ -462,7 +463,7 @@ export class LiveMessageRenderer {
     if (this.liveMessageAlreadyRendered(roleName, segment.text, messageTimestampKey(timestamp))) return null;
 
     const entry = segment.compact ?
-      this.appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error, images: segment.images }) :
+      this.appendCompactMessage(roleName, segment.summary, segment.text, true, shouldScroll, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error, images: segment.images }) :
       this.appendMessage("assistant", segment.text, true, shouldScroll, timestamp, { thinking: segment.thinking, finalAssistantResponse, images: segment.images });
     if (!entry) return null;
     entry.article.classList.toggle("message--streaming", streamingAssistantResponse);
@@ -507,7 +508,7 @@ export class LiveMessageRenderer {
       return;
     }
 
-    const entry = this.appendCompactMessage("tool", this.parser.toolExecutionSummary(event), this.parser.toolExecutionText(event), true, true, shouldScroll, this.parser.toolExecutionRawDetails(event), timestamp, { toolName: event.toolName, toolPrompt: event.toolName === "subagent" ? this.parser.subagentPromptFromEvent(event, restoredPrompt) : "", error: event.isError === true, timestampFallback });
+    const entry = this.appendCompactMessage("tool", this.parser.toolExecutionSummary(event), this.parser.toolExecutionText(event), true, shouldScroll, timestamp, { toolName: event.toolName, toolPrompt: event.toolName === "subagent" ? this.parser.subagentPromptFromEvent(event, restoredPrompt) : "", error: event.isError === true, timestampFallback });
     if (entry) {
       if (event.toolName === "subagent") this.retainSubagentDetails(entry, this.parser.subagentDetailsFromEvent(event));
       this.liveToolExecutions.set(event.toolCallId, entry);
@@ -539,14 +540,14 @@ export class LiveMessageRenderer {
 
   appendPendingCompactionMessage(timestamp = new Date()) {
     if (this.liveOutput?.querySelector('[data-pending-compaction="true"]')) return;
-    const entry = this.appendCompactMessage("status", "Compacting conversation…", "Pi is summarizing the conversation so the session can continue with less context.", true, true, true, "", timestamp);
+    const entry = this.appendCompactMessage("status", "Compacting conversation…", "Pi is summarizing the conversation so the session can continue with less context.", true, true, timestamp);
     if (entry?.article) entry.article.dataset.pendingCompaction = "true";
   }
 
   renderCompactionEvent(event) {
     this.removePendingCompactionMessage();
     this.liveCompactionRendered = true;
-    this.appendCompactMessage("status", "Conversation compacted", event.summary || "Compaction completed", false, true, true, JSON.stringify(event, null, 2), eventTimestamp(event));
+    this.appendCompactMessage("status", "Conversation compacted", event.summary || "Compaction completed", true, true, eventTimestamp(event));
   }
 
   renderMessageEvent(event) {
@@ -593,7 +594,7 @@ export class LiveMessageRenderer {
         } else if (roleName === "user" && !segment.compact) {
           this.upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);
         } else if (segment.compact) {
-          this.appendCompactMessage(roleName, segment.summary, segment.text, segment.expanded, true, shouldScroll, segment.rawDetails, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error, images: segment.images });
+          this.appendCompactMessage(roleName, segment.summary, segment.text, true, shouldScroll, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error, images: segment.images });
         } else {
           this.appendMessage(roleName, segment.text, true, shouldScroll, timestamp, { images: segment.images });
         }

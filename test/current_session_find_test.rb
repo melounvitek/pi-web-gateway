@@ -53,6 +53,110 @@ class CurrentSessionFindTest < Minitest::Test
     assert_equal({ "scrollTop" => 320, "lastScrollTop" => 320, "point" => "first-message" }, results)
   end
 
+  def test_older_window_fetches_only_one_chunk
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const scroll = { dataset: { olderMessageCursor: "300", hasOlderMessages: "true", olderMessagesUrl: "/older" }, querySelector: () => null };
+      const document = { querySelector: () => ({ value: "/session" }) };
+      const controller = new ConversationController(document, { location: { origin: "https://example.test", search: "" } });
+      controller.element = scroll; controller.bindingEpoch = 1; controller.prependOlderHtml = () => {}; controller.loadingHistoryStatus = () => {}; controller.availableHistoryStatus = () => {};
+      let fetchCount = 0;
+      globalThis.fetch = async () => { fetchCount += 1; return { ok: true, json: async () => ({ html: "older", next_cursor: 150, has_older_messages: true, older_message_count: 150 }) }; };
+      const status = await controller.loadOlderWindow();
+      console.log(JSON.stringify({ status, fetchCount, cursor: scroll.dataset.olderMessageCursor, hasOlder: scroll.dataset.hasOlderMessages }));
+    JS
+
+    assert_equal({ "status" => "more", "fetchCount" => 1, "cursor" => "150", "hasOlder" => "true" }, results)
+  end
+
+  def test_complete_history_load_fetches_all_remaining_messages_once
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const scroll = { dataset: { olderMessageCursor: "300", hasOlderMessages: "true", olderMessagesUrl: "/older" }, querySelector: () => null };
+      const document = { querySelector: () => ({ value: "/session" }) };
+      const controller = new ConversationController(document, { location: { origin: "https://example.test", search: "" } });
+      controller.element = scroll; controller.bindingEpoch = 1; controller.prependOlderHtml = () => {}; controller.loadingHistoryStatus = () => {}; controller.availableHistoryStatus = () => {}; controller.finishHistoryStatus = () => {};
+      let fetchCount = 0; const urls = [];
+      globalThis.fetch = async (url) => {
+        fetchCount += 1; urls.push(url.toString());
+        return { ok: true, json: async () => ({ html: "older", next_cursor: 0, has_older_messages: false, older_message_count: 0 }) };
+      };
+      const status = await controller.loadOlderHistory();
+      console.log(JSON.stringify({ status, fetchCount, cursor: scroll.dataset.olderMessageCursor, hasOlder: scroll.dataset.hasOlderMessages, loadAll: urls[0].includes("all=1") }));
+    JS
+
+    assert_equal({ "status" => "complete", "fetchCount" => 1, "cursor" => "0", "hasOlder" => "false", "loadAll" => true }, results)
+  end
+
+  def test_complete_history_load_replaces_an_in_flight_window_request
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const statusElement = { hidden: false, disabled: false, textContent: "" };
+      const scroll = { dataset: { olderMessageCursor: "300", hasOlderMessages: "true", olderMessagesUrl: "/older" }, querySelector: () => statusElement };
+      const document = { querySelector: () => ({ value: "/session" }) };
+      const controller = new ConversationController(document, { location: { origin: "https://example.test", search: "" } });
+      controller.element = scroll; controller.bindingEpoch = 1; controller.prependOlderHtml = () => {};
+      let fetchCount = 0; let firstAborted = false; const urls = [];
+      globalThis.fetch = (url, options) => {
+        fetchCount += 1; urls.push(url.toString());
+        if (fetchCount === 1) return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => { firstAborted = true; reject({ name: "AbortError" }); }));
+        return Promise.resolve({ ok: true, json: async () => ({ html: "older", next_cursor: 0, has_older_messages: false, older_message_count: 0 }) });
+      };
+      const windowLoad = controller.loadOlderWindow();
+      const historyLoad = controller.loadOlderHistory();
+      console.log(JSON.stringify({ statuses: await Promise.all([windowLoad, historyLoad]), fetchCount, firstAborted, loadAll: urls[1].includes("all=1") }));
+    JS
+
+    assert_equal({ "statuses" => ["cancelled", "complete"], "fetchCount" => 2, "firstAborted" => true, "loadAll" => true }, results)
+  end
+
+  def test_scrolling_near_top_requests_one_older_window
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const controller = new ConversationController({ body: { classList: { contains: () => false } } }, {});
+      controller.element = { scrollTop: 40 };
+      controller.lastScrollTop = 80;
+      controller.nearBottom = () => false;
+      controller.updateJumpControlsReveal = () => {};
+      controller.updateJumpControls = () => {};
+      let calls = 0;
+      controller.loadOlderWindow = async () => { calls += 1; return "more"; };
+      controller.handleScroll();
+      await Promise.resolve();
+      console.log(JSON.stringify({ calls, direction: controller.scrollDirection }));
+    JS
+
+    assert_equal({ "calls" => 1, "direction" => "up" }, results)
+  end
+
+  def test_history_status_can_load_an_underfilled_conversation
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      class Target {
+        constructor() { this.listeners = {}; this.dataset = {}; this.scrollTop = 0; }
+        addEventListener(type, listener) { this.listeners[type] = listener; }
+        removeEventListener() {}
+        querySelector(selector) { return selector.includes("history-status") ? status : null; }
+      }
+      const status = new Target();
+      const scroll = new Target();
+      const document = {
+        body: { classList: { remove() {} } },
+        getElementById: (id) => id === "conversation-scroll" ? scroll : null,
+        querySelector: (selector) => selector.includes("input") ? { value: "/session" } : null
+      };
+      const controller = new ConversationController(document, { matchMedia: () => ({ matches: false }) });
+      let calls = 0;
+      controller.loadOlderWindow = async () => { calls += 1; return "more"; };
+      controller.bind();
+      status.listeners.click();
+      await Promise.resolve();
+      console.log(JSON.stringify({ calls, clickable: typeof status.listeners.click === "function" }));
+    JS
+
+    assert_equal({ "calls" => 1, "clickable" => true }, results)
+  end
+
   def test_stale_history_response_is_ignored_after_rebinding
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
@@ -137,6 +241,36 @@ class CurrentSessionFindTest < Minitest::Test
     assert_equal "refreshed", results.fetch("afterNew")
     assert_equal "0 / 0", results.fetch("firstCount")
     assert_equal 2, results.fetch("epoch")
+  end
+
+  def test_closing_find_cancels_its_full_history_load
+    results = run_javascript(<<~JS)
+      const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
+      let cancellations = 0;
+      const conversation = { element: { querySelectorAll: () => [], focus() {} }, cancelOlderHistory: () => { cancellations += 1; } };
+      const controller = new CurrentSessionFindController({}, conversation);
+      controller.preparationPromise = Promise.resolve();
+      controller.cancelHistoryOnClose = true;
+      controller.close({ restoreFocus: false });
+      console.log(JSON.stringify({ cancellations, pending: controller.preparationPromise !== null }));
+    JS
+
+    assert_equal({ "cancellations" => 1, "pending" => false }, results)
+  end
+
+  def test_closing_find_keeps_a_shared_full_history_load_running
+    results = run_javascript(<<~JS)
+      const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
+      let cancellations = 0;
+      const conversation = { element: { querySelectorAll: () => [], focus() {} }, cancelOlderHistory: () => { cancellations += 1; } };
+      const controller = new CurrentSessionFindController({}, conversation);
+      controller.preparationPromise = Promise.resolve();
+      controller.cancelHistoryOnClose = false;
+      controller.close({ restoreFocus: false });
+      console.log(JSON.stringify({ cancellations, pending: controller.preparationPromise !== null }));
+    JS
+
+    assert_equal({ "cancellations" => 0, "pending" => false }, results)
   end
 
   def test_find_temporarily_reveals_only_selected_collapsed_tool_output

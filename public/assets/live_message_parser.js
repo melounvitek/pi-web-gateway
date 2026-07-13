@@ -140,17 +140,12 @@ export class LiveMessageParser {
         const toolPart = group.parts.find((part) => part && typeof part === "object" && ["toolCall", "toolResult"].includes(part.type));
         const toolName = message.toolName || toolPart?.name || toolPart?.toolName;
         const summaryParts = toolSummaryParts(toolName, toolPart?.arguments || {});
-        const rawDetails = group.parts
-          .filter((part) => part && typeof part === "object" && ["toolCall", "toolResult"].includes(part.type))
-          .map((part) => JSON.stringify(part, null, 2))
-          .join("\n\n") || (message.role === "toolResult" ? JSON.stringify(message, null, 2) : "");
         return {
           text,
           compact: group.compact,
           thinking: group.parts.length === 1 && thinkingPart(group.parts[0]) && message.role !== "toolResult",
           summary: message.toolName || [...new Set(labels)].join(" + ") || "tool output",
           summaryParts,
-          expanded: false,
           error: message.isError === true,
           startIndex: group.startIndex,
           endIndex: group.endIndex,
@@ -160,7 +155,6 @@ export class LiveMessageParser {
           toolTranscript: ["read", "edit", "write"].includes(toolName),
           toolPreview: toolPart?.type === "toolCall" && toolName === "edit",
           toolPrompt: toolName === "subagent" ? subagentPromptFromDetails(message.details) : "",
-          rawDetails,
           images
         };
       }).filter((segment) => segment.text || segment.compact || segment.images.length > 0);
@@ -400,11 +394,6 @@ export class LiveMessageParser {
       return `${event.toolName || "tool"} ${status}`;
     }
 
-    function toolExecutionRawDetails(event) {
-      const result = toolExecutionResult(event);
-      return result ? JSON.stringify(result, null, 2) : JSON.stringify({ args: event.args || {} }, null, 2);
-    }
-
 
     function finalAssistantReplySegments(message) {
       const segments = message?.content ? contentSegments(message.content, message) : [{ text: messageText(message), compact: false }];
@@ -430,6 +419,5 @@ export class LiveMessageParser {
     this.toolExecutionContentText = toolExecutionContentText;
     this.toolExecutionText = toolExecutionText;
     this.toolExecutionSummary = toolExecutionSummary;
-    this.toolExecutionRawDetails = toolExecutionRawDetails;
   }
 }
