@@ -21,7 +21,7 @@ module Sessions
     end
 
     def sorted_sessions
-      @sorted_sessions ||= @groups.values.flatten.sort_by { |session| session.modified_at || Time.at(0) }.reverse
+      @sorted_sessions ||= @groups.values.flatten.sort_by { |session| session.conversation_activity_at || Time.at(0) }.reverse
     end
 
     def unread_session_count
@@ -83,7 +83,7 @@ module Sessions
 
     def known_session_cwds
       @known_session_cwds ||= @groups.keys.sort_by do |cwd|
-        latest = @groups.fetch(cwd).map { |session| session.modified_at || Time.at(0) }.max || Time.at(0)
+        latest = @groups.fetch(cwd).map { |session| session.conversation_activity_at || Time.at(0) }.max || Time.at(0)
         [-latest.to_f, File.basename(cwd).downcase]
       end
     end

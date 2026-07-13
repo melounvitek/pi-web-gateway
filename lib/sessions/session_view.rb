@@ -152,7 +152,8 @@ module Sessions
 
       cwd = @pending_session_cwd.call(pending_path)
       return unless cwd
-      return if @session_filter && !@session_filter.call(PiSessionStore::Session.new(
+
+      pending_session = PiSessionStore::Session.new(
         path: pending_path,
         cwd: cwd,
         id: File.basename(pending_path, ".jsonl"),
@@ -160,20 +161,13 @@ module Sessions
         first_user_message: nil,
         message_count: 0,
         created_at: nil,
-        modified_at: @now
-      ))
+        modified_at: @now,
+        conversation_activity_at: @now
+      )
+      return if @session_filter && !@session_filter.call(pending_session)
 
       @groups[cwd] ||= []
-      @groups[cwd].unshift(PiSessionStore::Session.new(
-        path: pending_path,
-        cwd: cwd,
-        id: File.basename(pending_path, ".jsonl"),
-        display_name: PENDING_SESSION_DISPLAY_NAME,
-        first_user_message: nil,
-        message_count: 0,
-        created_at: nil,
-        modified_at: @now
-      ))
+      @groups[cwd].unshift(pending_session)
     end
 
     def selected_session_path

@@ -30,6 +30,103 @@ class PiSessionStoreTest < Minitest::Test
       assert_equal 2, session.message_count
       assert session.created_at
       assert session.modified_at
+      assert_equal Time.iso8601("2026-06-13T10:00:00Z"), session.conversation_activity_at
+    end
+  end
+
+  def test_conversation_activity_ignores_non_conversation_session_writes
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+        { type: "message", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Please investigate" }] } },
+        { type: "message", timestamp: "2026-06-13T10:02:00Z", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Final reply" }] } },
+        { type: "message", timestamp: "2026-06-13T10:03:00Z", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "I will inspect it" }, { type: "toolCall", name: "read" }] } },
+        { type: "message", timestamp: "2026-06-13T10:04:00Z", message: { role: "toolResult", content: [{ type: "text", text: "Result" }] } },
+        { type: "compaction", timestamp: "2026-06-13T10:05:00Z", summary: "Summary" },
+        { type: "session_info", timestamp: "2026-06-13T10:06:00Z", name: "Renamed" },
+        { type: "custom", timestamp: "2026-06-13T10:07:00Z", customType: "extension", data: {} }
+      ])
+      FileUtils.touch(path, mtime: Time.local(2026, 6, 13, 12, 0, 0))
+
+      session = PiSessionStore.new(root: dir).sessions.first
+
+      assert_equal Time.iso8601("2026-06-13T10:02:00Z"), session.conversation_activity_at
+      assert_equal Time.local(2026, 6, 13, 12, 0, 0), session.modified_at
+    end
+  end
+
+  def test_conversation_activity_accepts_completed_length_limited_and_legacy_assistant_replies
+    Dir.mktmpdir do |dir|
+      expected_time = Time.iso8601("2026-06-13T10:01:00Z")
+
+      ["stop", "length", nil].each_with_index do |stop_reason, index|
+        path = File.join(dir, "accepted-#{index}.jsonl")
+        message = { role: "assistant", content: [{ type: "text", text: "Visible reply" }] }
+        message[:stopReason] = stop_reason if stop_reason
+        write_jsonl(path, [
+          { type: "session", id: "accepted-#{index}", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+          { type: "message", timestamp: "2026-06-13T10:01:00Z", message: message }
+        ])
+      end
+
+      assert_equal [expected_time], PiSessionStore.new(root: dir).sessions.map(&:conversation_activity_at).uniq
+    end
+  end
+
+  def test_conversation_activity_excludes_unfinished_or_non_text_assistant_messages
+    Dir.mktmpdir do |dir|
+      header_time = Time.iso8601("2026-06-13T10:00:00Z")
+      messages = [
+        { role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "Progress" }] },
+        { role: "assistant", stopReason: "aborted", content: [{ type: "text", text: "Partial reply" }] },
+        { role: "assistant", stopReason: "error", content: [{ type: "text", text: "Failed reply" }] },
+        { role: "assistant", stopReason: "stop", content: [{ type: "thinking", thinking: "Private" }] }
+      ]
+
+      messages.each_with_index do |message, index|
+        write_jsonl(File.join(dir, "excluded-#{index}.jsonl"), [
+          { type: "session", id: "excluded-#{index}", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+          { type: "message", timestamp: "2026-06-13T10:01:00Z", message: message }
+        ])
+      end
+
+      assert_equal [header_time], PiSessionStore.new(root: dir).sessions.map(&:conversation_activity_at).uniq
+    end
+  end
+
+  def test_image_only_user_message_counts_as_conversation_activity
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+        { type: "message", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "image", data: "abc", mimeType: "image/png" }] } }
+      ])
+
+      session = PiSessionStore.new(root: dir).sessions.first
+
+      assert_equal Time.iso8601("2026-06-13T10:01:00Z"), session.conversation_activity_at
+    end
+  end
+
+  def test_lists_sessions_by_conversation_activity_instead_of_file_modification
+    Dir.mktmpdir do |dir|
+      older_conversation = File.join(dir, "older-conversation.jsonl")
+      newer_conversation = File.join(dir, "newer-conversation.jsonl")
+      write_jsonl(older_conversation, [
+        { type: "session", id: "older", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+        { type: "message", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Older" }] } }
+      ])
+      write_jsonl(newer_conversation, [
+        { type: "session", id: "newer", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+        { type: "message", timestamp: "2026-06-13T10:02:00Z", message: { role: "user", content: [{ type: "text", text: "Newer" }] } }
+      ])
+      FileUtils.touch(older_conversation, mtime: Time.local(2026, 6, 13, 12, 0, 0))
+      FileUtils.touch(newer_conversation, mtime: Time.local(2026, 6, 13, 11, 0, 0))
+
+      sessions = PiSessionStore.new(root: dir).sessions
+
+      assert_equal [newer_conversation, older_conversation], sessions.map(&:path)
     end
   end
 

@@ -2462,11 +2462,11 @@ class AppTest < Minitest::Test
       path_a = File.join(session_dir_a, "session-a.jsonl")
       path_b = File.join(session_dir_b, "session-b.jsonl")
       File.write(path_a, [
-        JSON.generate({ type: "session", id: "session-a", cwd: project_a }),
+        JSON.generate({ type: "session", id: "session-a", timestamp: (Time.now - 60).utc.iso8601(3), cwd: project_a }),
         JSON.generate({ type: "session_info", name: "Alpha work" })
       ].join("\n") + "\n")
       File.write(path_b, [
-        JSON.generate({ type: "session", id: "session-b", cwd: project_b }),
+        JSON.generate({ type: "session", id: "session-b", timestamp: Time.now.utc.iso8601(3), cwd: project_b }),
         JSON.generate({ type: "session_info", name: "Beta work" })
       ].join("\n") + "\n")
       FileUtils.touch(path_a, mtime: Time.now - 60)
@@ -2806,16 +2806,19 @@ class AppTest < Minitest::Test
       FileUtils.mkdir_p(session_dir)
       older_path = File.join(session_dir, "older.jsonl")
       newer_path = File.join(session_dir, "newer.jsonl")
+      now = Time.now
       File.write(older_path, [
-        JSON.generate({ type: "session", id: "older", cwd: older_cwd }),
-        JSON.generate({ type: "session_info", name: "Older work" })
+        JSON.generate({ type: "session", id: "older", timestamp: (now - 120).utc.iso8601(3), cwd: older_cwd }),
+        JSON.generate({ type: "message", timestamp: (now - 60).utc.iso8601(3), message: { role: "user", content: [{ type: "text", text: "Older prompt" }] } }),
+        JSON.generate({ type: "session_info", timestamp: now.utc.iso8601(3), name: "Older work" })
       ].join("\n") + "\n")
       File.write(newer_path, [
-        JSON.generate({ type: "session", id: "newer", cwd: newer_cwd }),
+        JSON.generate({ type: "session", id: "newer", timestamp: (now - 120).utc.iso8601(3), cwd: newer_cwd }),
+        JSON.generate({ type: "message", timestamp: (now - 30).utc.iso8601(3), message: { role: "user", content: [{ type: "text", text: "Newer prompt" }] } }),
         JSON.generate({ type: "session_info", name: "Newer work" })
       ].join("\n") + "\n")
-      FileUtils.touch(older_path, mtime: Time.now - 60)
-      FileUtils.touch(newer_path, mtime: Time.now)
+      FileUtils.touch(older_path, mtime: now)
+      FileUtils.touch(newer_path, mtime: now - 120)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
@@ -2926,12 +2929,11 @@ class AppTest < Minitest::Test
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
-      FileUtils.touch(path, mtime: Time.now)
       response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => path })
 
       assert_equal 200, response.status
-      assert_includes response.body, "updated just now"
-      refute_includes response.body, "updated 20"
+      assert_equal "just now", Nokogiri::HTML(response.body).at_css(".session-meta").text.strip
+      refute_includes response.body, "updated"
     end
   end
 
@@ -3086,8 +3088,8 @@ class AppTest < Minitest::Test
       FileUtils.mkdir_p(session_dir)
       older_path = File.join(session_dir, "older.jsonl")
       newer_path = File.join(session_dir, "newer.jsonl")
-      File.write(older_path, JSON.generate({ type: "session", id: "older", cwd: older_cwd }) + "\n")
-      File.write(newer_path, JSON.generate({ type: "session", id: "newer", cwd: newer_cwd }) + "\n")
+      File.write(older_path, JSON.generate({ type: "session", id: "older", timestamp: (Time.now - 60).utc.iso8601(3), cwd: older_cwd }) + "\n")
+      File.write(newer_path, JSON.generate({ type: "session", id: "newer", timestamp: Time.now.utc.iso8601(3), cwd: newer_cwd }) + "\n")
       FileUtils.touch(older_path, mtime: Time.now - 60)
       FileUtils.touch(newer_path, mtime: Time.now)
       PiWebGateway.set :sessions_root, dir
@@ -3119,9 +3121,9 @@ class AppTest < Minitest::Test
       current_path = File.join(session_dir, "current.jsonl")
       filtered_path = File.join(session_dir, "filtered.jsonl")
       newer_path = File.join(session_dir, "newer.jsonl")
-      File.write(current_path, JSON.generate({ type: "session", id: "current", cwd: current_cwd }) + "\n")
-      File.write(filtered_path, JSON.generate({ type: "session", id: "filtered", cwd: filtered_cwd }) + "\n")
-      File.write(newer_path, JSON.generate({ type: "session", id: "newer", cwd: newer_cwd }) + "\n")
+      File.write(current_path, JSON.generate({ type: "session", id: "current", timestamp: (Time.now - 60).utc.iso8601(3), cwd: current_cwd }) + "\n")
+      File.write(filtered_path, JSON.generate({ type: "session", id: "filtered", timestamp: (Time.now - 30).utc.iso8601(3), cwd: filtered_cwd }) + "\n")
+      File.write(newer_path, JSON.generate({ type: "session", id: "newer", timestamp: Time.now.utc.iso8601(3), cwd: newer_cwd }) + "\n")
       FileUtils.touch(current_path, mtime: Time.now - 60)
       FileUtils.touch(filtered_path, mtime: Time.now - 30)
       FileUtils.touch(newer_path, mtime: Time.now)
@@ -3329,11 +3331,11 @@ class AppTest < Minitest::Test
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
 
       Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => paths.first })
-      File.write(paths[1], JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Unread done" }] } }) + "\n", mode: "a")
-      File.write(paths.first, JSON.generate({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Current done" }] } }) + "\n", mode: "a")
-      [paths[3], paths[1], paths[2], paths[0]].each_with_index do |path, index|
-        FileUtils.touch(path, mtime: Time.now - (index + 1) * 10)
-      end
+      now = Time.now
+      File.write(paths[3], JSON.generate({ type: "message", timestamp: (now - 10).utc.iso8601(3), message: { role: "user", content: [{ type: "text", text: "Newest" }] } }) + "\n", mode: "a")
+      File.write(paths[1], JSON.generate({ type: "message", timestamp: (now - 20).utc.iso8601(3), message: { role: "assistant", content: [{ type: "text", text: "Unread done" }] } }) + "\n", mode: "a")
+      File.write(paths[2], JSON.generate({ type: "message", timestamp: (now - 30).utc.iso8601(3), message: { role: "user", content: [{ type: "text", text: "Older" }] } }) + "\n", mode: "a")
+      File.write(paths.first, JSON.generate({ type: "message", timestamp: (now - 40).utc.iso8601(3), message: { role: "assistant", content: [{ type: "text", text: "Current done" }] } }) + "\n", mode: "a")
 
       response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => paths.first })
 
@@ -6486,7 +6488,7 @@ class AppTest < Minitest::Test
     FileUtils.mkdir_p(session_dir)
     FileUtils.mkdir_p(project_cwd(root))
     path = File.join(session_dir, "session.jsonl")
-    File.write(path, JSON.generate({ type: "session", id: "session-1", cwd: project_cwd(root) }) + "\n")
+    File.write(path, JSON.generate({ type: "session", id: "session-1", timestamp: Time.now.utc.iso8601(3), cwd: project_cwd(root) }) + "\n")
     path
   end
 
@@ -6498,10 +6500,9 @@ class AppTest < Minitest::Test
     (1..count).map do |index|
       path = File.join(session_dir, "session-#{index}.jsonl")
       File.write(path, [
-        JSON.generate({ type: "session", id: "session-#{index}", cwd: project_cwd(root) }),
+        JSON.generate({ type: "session", id: "session-#{index}", timestamp: Time.at(index).utc.iso8601(3), cwd: project_cwd(root) }),
         JSON.generate({ type: "session_info", name: "Session #{index}" })
       ].join("\n") + "\n")
-      FileUtils.touch(path, mtime: Time.at(index))
       path
     end
   end

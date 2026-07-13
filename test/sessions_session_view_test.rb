@@ -159,6 +159,27 @@ class SessionsSessionViewTest < Minitest::Test
     end
   end
 
+  def test_pending_session_uses_current_time_for_conversation_activity
+    Dir.mktmpdir do |dir|
+      pending_path = File.join(dir, "pending.jsonl")
+      now = Time.iso8601("2026-06-13T10:00:00Z")
+
+      view = Sessions::SessionView.build(
+        sessions_root: dir,
+        params: { "session" => pending_path },
+        include_conversation: false,
+        read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
+        rpc_clients: inactive_rpc_clients,
+        mark_selected_read: false,
+        pending_session_cwd: ->(_path) { dir },
+        now: now
+      )
+
+      assert_equal now, view.selected_session.conversation_activity_at
+    end
+  end
+
   def test_conversation_applies_byte_budget_after_retaining_the_latest_turn
     Dir.mktmpdir do |dir|
       session_path = write_session_with_messages(dir, 100, text_suffix: "x" * 10_000)

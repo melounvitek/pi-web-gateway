@@ -10,7 +10,7 @@
                   <span class="session-project-label"><%= h project_label(session) %></span>
                 </div>
                 <div class="session-meta">
-                  updated <%= h format_relative_time(session.modified_at) %>
+                  <%= h format_relative_time(session.conversation_activity_at) %>
                 </div>
               </div>
               <div class="session-indicators">

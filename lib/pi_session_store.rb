@@ -18,6 +18,7 @@ class PiSessionStore
     :parent_session_path,
     :created_at,
     :modified_at,
+    :conversation_activity_at,
     keyword_init: true
   )
 
@@ -50,7 +51,7 @@ class PiSessionStore
 
   def sessions
     Dir.glob(File.join(@root, "**", "*.jsonl")).filter_map { |path| parse_session(path) }
-       .sort_by { |session| session.modified_at || Time.at(0) }
+       .sort_by { |session| session.conversation_activity_at || Time.at(0) }
        .reverse
   end
 
@@ -401,6 +402,7 @@ class PiSessionStore
     latest_activity_kind = nil
     latest_activity_title = nil
     latest_activity_preview = nil
+    conversation_activity_at = nil
 
     read_entries(path).each do |entry|
       case entry["type"]
@@ -411,6 +413,10 @@ class PiSessionStore
       when "message"
         message = entry["message"] || {}
         message_count += 1 unless message["role"] == "toolResult"
+        if conversation_activity_message?(message)
+          entry_time = parse_time(entry["timestamp"])
+          conversation_activity_at = entry_time if entry_time && (!conversation_activity_at || entry_time > conversation_activity_at)
+        end
         if final_assistant_response?(message)
           assistant_response_count += 1
           latest_assistant_response_preview = response_preview(final_assistant_response_text(message))
@@ -432,6 +438,7 @@ class PiSessionStore
     return if delete_session_with_missing_cwd?(path, session_entry["cwd"])
 
     display_name = latest_name || first_user_message || File.basename(path, ".jsonl")
+    conversation_activity_at ||= parse_time(session_entry["timestamp"])
 
     session = Session.new(
       path: path,
@@ -447,10 +454,19 @@ class PiSessionStore
       latest_activity_preview: latest_activity_preview,
       parent_session_path: session_entry["parentSession"],
       created_at: parse_time(session_entry["timestamp"]) || stat.ctime,
-      modified_at: stat.mtime
+      modified_at: stat.mtime,
+      conversation_activity_at: conversation_activity_at
     )
     self.class.cache_session(path, signature, session)
     session
+  end
+
+  def conversation_activity_message?(message)
+    return true if message["role"] == "user"
+    return false unless message["role"] == "assistant"
+    return false unless [nil, "stop", "length"].include?(message["stopReason"])
+
+    !final_assistant_response_text(message).empty?
   end
 
   def final_assistant_response?(message)

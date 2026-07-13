@@ -3,7 +3,7 @@ require "set"
 require_relative "../lib/sessions/sidebar"
 
 class SessionsSidebarTest < Minitest::Test
-  Session = Struct.new(:path, :cwd, :display_name, :first_user_message, :modified_at, keyword_init: true)
+  Session = Struct.new(:path, :cwd, :display_name, :first_user_message, :modified_at, :conversation_activity_at, keyword_init: true)
 
   def test_keeps_filtered_sessions_strict_while_exposing_filtered_out_current_session
     current = session("current", "current-project", "Current work", 10)
@@ -21,6 +21,15 @@ class SessionsSidebarTest < Minitest::Test
     assert_equal [matching], sidebar.sessions
     assert_equal current, sidebar.separate_current_session
     assert_equal 1, sidebar.unread_session_count
+  end
+
+  def test_orders_sessions_by_conversation_activity_instead_of_file_modification
+    newer_conversation = session("newer-conversation", "project", "Newer conversation", 20, modified_at: 10)
+    newer_file = session("newer-file", "project", "Newer file", 10, modified_at: 30)
+
+    sidebar = build_sidebar(groups: groups(newer_file, newer_conversation), selected_session: newer_file)
+
+    assert_equal [newer_conversation, newer_file], sidebar.sorted_sessions
   end
 
   def test_paginates_filtered_sessions_including_matching_current_session_in_counts
@@ -67,9 +76,9 @@ class SessionsSidebarTest < Minitest::Test
   end
 
   def test_lists_known_projects_by_recent_activity_then_name
-    alpha = session("alpha", "alpha-project", "Alpha", 10)
-    beta = session("beta", "beta-project", "Beta", 20)
-    gamma = session("gamma", "gamma-project", "Gamma", 20)
+    alpha = session("alpha", "alpha-project", "Alpha", 10, modified_at: 30)
+    beta = session("beta", "beta-project", "Beta", 20, modified_at: 10)
+    gamma = session("gamma", "gamma-project", "Gamma", 20, modified_at: 20)
     sidebar = build_sidebar(groups: groups(alpha, beta, gamma), selected_session: alpha)
 
     assert_equal ["beta-project", "gamma-project", "alpha-project"], sidebar.known_session_cwds
@@ -103,13 +112,14 @@ class SessionsSidebarTest < Minitest::Test
     sessions.group_by(&:cwd)
   end
 
-  def session(id, cwd, name, modified_at, first_user_message: nil)
+  def session(id, cwd, name, activity_at, first_user_message: nil, modified_at: activity_at)
     Session.new(
       path: "/sessions/#{id}.jsonl",
       cwd: cwd,
       display_name: name,
       first_user_message: first_user_message,
-      modified_at: Time.at(modified_at)
+      modified_at: Time.at(modified_at),
+      conversation_activity_at: Time.at(activity_at)
     )
   end
 
