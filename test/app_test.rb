@@ -2274,6 +2274,43 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_sidebar_keeps_active_pending_session_visible_after_switching_away
+    Dir.mktmpdir do |dir|
+      selected_path = write_session(dir)
+      pending_path = File.join(File.dirname(selected_path), "pending-session.jsonl")
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      client = FakeRpcClient.new([], [], pending_path)
+      client.define_singleton_method(:busy?) { true }
+      registry.register(pending_path, client)
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_session_registry, Rpc::PendingSessionRegistry.new(pending_path => project_cwd(dir))
+      request = Rack::MockRequest.new(PiWebGateway)
+
+      fragment_response = request.get("/session_fragment", params: { "session" => selected_path })
+
+      assert_equal 200, fragment_response.status
+      pending_document = Nokogiri::HTML.fragment(JSON.parse(fragment_response.body).fetch("sidebar_html"))
+      pending_link = pending_document.at_css("a.session[data-session-path='#{pending_path}']")
+      assert pending_link
+      assert_equal "New session (pending first assistant response)", pending_link.at_css(".session-title").text
+      assert pending_link.at_css(".session-running-indicator")
+
+      File.write(pending_path, [
+        JSON.generate({ type: "session", id: "persisted", timestamp: Time.now.utc.iso8601(3), cwd: project_cwd(dir) }),
+        JSON.generate({ type: "session_info", name: "Persisted session" })
+      ].join("\n") + "\n")
+
+      sidebar_response = request.get("/sidebar", params: { "session" => selected_path })
+
+      assert_equal 200, sidebar_response.status
+      persisted_document = Nokogiri::HTML(sidebar_response.body)
+      persisted_links = persisted_document.css("a.session[data-session-path='#{pending_path}']")
+      assert_equal 1, persisted_links.length
+      assert_equal "Persisted session", persisted_links.first.at_css(".session-title").text
+    end
+  end
+
   def test_session_view_remaps_active_pending_session_after_pi_persists_the_file
     Dir.mktmpdir do |dir|
       real_path = write_session(dir)
@@ -6323,6 +6360,36 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(PiWebGateway).get("/attachments/#{other_hash}/#{"a" * 64}.png", "HTTP_COOKIE" => cookie)
 
       assert_equal 404, response.status
+    end
+  end
+
+  def test_multi_user_sidebar_hides_other_workspace_active_pending_session
+    Dir.mktmpdir do |dir|
+      own_path = write_session(dir)
+      own_pending_path = File.join(dir, "own-pending-session.jsonl")
+      other_pending_path = File.join(dir, "other-pending-session.jsonl")
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(own_pending_path, FakeRpcClient.new([]))
+      registry.register(other_pending_path, FakeRpcClient.new([]))
+      PiWebGateway.set :sessions_root, dir
+      PiWebGateway.set :rpc_client_registry, registry
+      PiWebGateway.set :pending_session_registry, Rpc::PendingSessionRegistry.new(
+        own_pending_path => project_cwd(dir),
+        other_pending_path => project_cwd(dir)
+      )
+      PiWebGateway.set :multi_user_mode, true
+      own_cookie = workspace_cookie_for("Correct Horse 42")
+      store = WorkspaceSessionOwnershipStore.new(path: PiWebGateway.settings.workspace_ownership_path)
+      store.claim(own_path, workspace_id_from_cookie(own_cookie))
+      store.claim(own_pending_path, workspace_id_from_cookie(own_cookie))
+      store.claim(other_pending_path, workspace_id_for("Different Horse 42"))
+
+      response = Rack::MockRequest.new(PiWebGateway).get("/sidebar", params: { "session" => own_path }, "HTTP_COOKIE" => own_cookie)
+
+      assert_equal 200, response.status
+      assert_includes response.body, own_path
+      assert_includes response.body, own_pending_path
+      refute_includes response.body, other_pending_path
     end
   end
 

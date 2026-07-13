@@ -22,8 +22,7 @@ class SessionsSessionViewTest < Minitest::Test
         read_state_store: read_state,
         attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
         rpc_clients: inactive_rpc_clients,
-        mark_selected_read: true,
-        pending_session_cwd: ->(_path) {}
+        mark_selected_read: true
       )
 
       assignments = view.to_instance_variables
@@ -52,8 +51,7 @@ class SessionsSessionViewTest < Minitest::Test
         read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
         attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
         rpc_clients: inactive_rpc_clients,
-        mark_selected_read: false,
-        pending_session_cwd: ->(_path) {}
+        mark_selected_read: false
       )
 
       assignments = view.to_instance_variables
@@ -76,8 +74,7 @@ class SessionsSessionViewTest < Minitest::Test
         read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
         attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
         rpc_clients: inactive_rpc_clients,
-        mark_selected_read: false,
-        pending_session_cwd: ->(_path) {}
+        mark_selected_read: false
       )
 
       assignments = view.to_instance_variables
@@ -148,8 +145,7 @@ class SessionsSessionViewTest < Minitest::Test
         read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
         attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
         rpc_clients: inactive_rpc_clients,
-        mark_selected_read: false,
-        pending_session_cwd: ->(_path) {}
+        mark_selected_read: false
       )
 
       assignments = view.to_instance_variables
@@ -172,11 +168,31 @@ class SessionsSessionViewTest < Minitest::Test
         attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
         rpc_clients: inactive_rpc_clients,
         mark_selected_read: false,
-        pending_session_cwd: ->(_path) { dir },
+        pending_sessions: [[pending_path, dir]],
         now: now
       )
 
       assert_equal now, view.selected_session.conversation_activity_at
+    end
+  end
+
+  def test_inactive_pending_background_session_is_not_listed
+    Dir.mktmpdir do |dir|
+      session_path = write_session(dir)
+      pending_path = File.join(dir, "pending.jsonl")
+
+      view = Sessions::SessionView.build(
+        sessions_root: dir,
+        params: { "session" => session_path },
+        include_conversation: false,
+        read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
+        rpc_clients: inactive_rpc_clients,
+        mark_selected_read: false,
+        pending_sessions: [[pending_path, dir]]
+      )
+
+      assert_equal [session_path], view.to_instance_variables.fetch(:@all_sessions).map(&:path)
     end
   end
 
@@ -228,8 +244,7 @@ class SessionsSessionViewTest < Minitest::Test
       read_state_store: GatewayReadStateStore.new(path: File.join(root, "read-state.json")),
       attachment_store: PiAttachmentStore.new(root: File.join(root, "attachments")),
       rpc_clients: inactive_rpc_clients,
-      mark_selected_read: false,
-      pending_session_cwd: ->(_path) {}
+      mark_selected_read: false
     )
   end
 

@@ -78,7 +78,7 @@ module Sessions
       attachment_store:,
       rpc_clients:,
       mark_selected_read:,
-      pending_session_cwd:,
+      pending_sessions: [],
       session_filter: nil,
       now: Time.now
     )
@@ -89,15 +89,16 @@ module Sessions
       @attachment_store = attachment_store
       @rpc_clients = rpc_clients
       @mark_selected_read = mark_selected_read
-      @pending_session_cwd = pending_session_cwd
+      @pending_sessions = pending_sessions
       @session_filter = session_filter
       @now = now
     end
 
     def build
       @store = PiSessionStore.new(root: @sessions_root, delete_missing_cwds: true)
-      @groups = filtered_groups(@store.grouped_sessions)
-      append_pending_active_session
+      @groups = @store.grouped_sessions
+      merge_pending_sessions
+      @groups = filtered_groups(@groups)
       @all_sessions = @groups.values.flatten
       @read_state_store.observe_sessions(@all_sessions)
       @selected_session = find_selected_session
@@ -146,28 +147,27 @@ module Sessions
       end
     end
 
-    def append_pending_active_session
-      pending_path = selected_session_path
-      return if pending_path.empty? || File.exist?(pending_path)
+    def merge_pending_sessions
+      known_paths = @groups.values.flatten.to_h { |session| [session.path, true] }
 
-      cwd = @pending_session_cwd.call(pending_path)
-      return unless cwd
+      @pending_sessions.each do |path, cwd|
+        next unless path == selected_session_path || @rpc_clients.active?(path)
+        next if known_paths[path]
 
-      pending_session = PiSessionStore::Session.new(
-        path: pending_path,
-        cwd: cwd,
-        id: File.basename(pending_path, ".jsonl"),
-        display_name: PENDING_SESSION_DISPLAY_NAME,
-        first_user_message: nil,
-        message_count: 0,
-        created_at: nil,
-        modified_at: @now,
-        conversation_activity_at: @now
-      )
-      return if @session_filter && !@session_filter.call(pending_session)
-
-      @groups[cwd] ||= []
-      @groups[cwd].unshift(pending_session)
+        pending_session = PiSessionStore::Session.new(
+          path: path,
+          cwd: cwd,
+          id: File.basename(path, ".jsonl"),
+          display_name: PENDING_SESSION_DISPLAY_NAME,
+          first_user_message: nil,
+          message_count: 0,
+          created_at: nil,
+          modified_at: @now,
+          conversation_activity_at: @now
+        )
+        @groups[cwd] ||= []
+        @groups[cwd].unshift(pending_session)
+      end
     end
 
     def selected_session_path

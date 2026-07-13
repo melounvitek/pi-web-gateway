@@ -8,6 +8,7 @@ module Web
 
       def prepare_session_view(include_conversation: false)
         remap_selected_pending_session
+        pending_sessions = pending_rpc_cwd_entries
         Sessions::SessionView.build(
           sessions_root: settings.sessions_root,
           params: params,
@@ -16,7 +17,7 @@ module Web
           attachment_store: attachment_store,
           rpc_clients: rpc_clients,
           mark_selected_read: should_mark_selected_session_read?,
-          pending_session_cwd: ->(path) { pending_rpc_cwd(path) },
+          pending_sessions: pending_sessions,
           session_filter: workspace_session_filter
         ).to_instance_variables.each do |name, value|
           instance_variable_set(name, value)
