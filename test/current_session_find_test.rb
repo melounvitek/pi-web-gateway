@@ -175,21 +175,23 @@ class CurrentSessionFindTest < Minitest::Test
         removeAttribute(name) { delete this.attributes[name]; }
         querySelector() { return null; }
       }
-      const scroll = new Target(); const button = new Target(); const topControls = new Target();
+      const scroll = new Target(); const button = new Target(); const bottomButton = new Target(); const topControls = new Target();
       const document = {
         body: { classList: new Classes() },
         getElementById: (id) => id === "conversation-scroll" ? scroll : null,
         querySelector(selector) {
           if (selector === ".jump-controls--top") return topControls;
           if (selector === ".jump-to-first") return button;
+          if (selector === ".jump-to-latest") return bottomButton;
           if (selector.includes("input")) return { value: "/session" };
           return null;
         }
       };
       const controller = new ConversationController(document, { matchMedia: () => ({ matches: false }) });
-      let finish; let scrolls = 0;
+      let finish; let topBehavior; let bottomJump;
       controller.loadOlderHistory = () => new Promise((resolve) => { finish = resolve; });
-      controller.scrollToTop = () => { scrolls += 1; };
+      controller.scrollToTop = (behavior) => { topBehavior = behavior; };
+      controller.scrollToBottom = (behavior, options) => { bottomJump = { behavior, force: options.force }; };
       controller.bind();
       let messageTarget = true;
       controller.updateJumpControls = () => controller.setJumpButton(button, messageTarget ? "message" : "conversation", messageTarget ? "↑" : "↑↑", messageTarget ? "Message top" : "Top");
@@ -201,14 +203,17 @@ class CurrentSessionFindTest < Minitest::Test
       finish("complete");
       await new Promise((resolve) => setTimeout(resolve, 0));
       const restored = { button: !button.classList.contains("is-loading"), controls: !topControls.classList.contains("is-loading"), enabled: !button.disabled, busy: button.attributes["aria-busy"] === undefined, label: button.attributes["aria-label"] };
-      console.log(JSON.stringify({ loading, restored, scrolls }));
+      bottomButton.dataset.jumpTarget = "conversation";
+      bottomButton.listeners.click();
+      console.log(JSON.stringify({ loading, restored, topBehavior, bottomJump }));
     JS
 
     assert_equal(
       {
         "loading" => { "button" => true, "controls" => true, "disabled" => true, "busy" => "true", "label" => "Loading earlier messages" },
         "restored" => { "button" => true, "controls" => true, "enabled" => true, "busy" => true, "label" => "Top" },
-        "scrolls" => 1
+        "topBehavior" => "auto",
+        "bottomJump" => { "behavior" => "auto", "force" => true }
       },
       results
     )

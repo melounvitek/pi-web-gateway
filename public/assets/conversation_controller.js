@@ -66,7 +66,7 @@ export class ConversationController {
       button.setAttribute("aria-busy", "true");
       button.setAttribute("aria-label", "Loading earlier messages");
       this.loadOlderHistory()
-        .then((status) => { if (status === "complete") this.scrollToTop(); })
+        .then((status) => { if (status === "complete") this.scrollToTop("auto"); })
         .catch(() => {})
         .finally(() => {
           button.classList.remove("is-loading");
