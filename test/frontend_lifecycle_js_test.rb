@@ -79,6 +79,7 @@ class FrontendLifecycleJsTest < Minitest::Test
       const focused = [];
       const focusTarget = (name) => ({ focus(options) { focused.push([name, options]); } });
       const window = { matchMedia: () => ({ matches: true }) };
+      const document = { activeElement: null };
       const modalIsOpen = () => modalOpen;
       const conversationController = { nearBottom: () => nearBottom };
       const promptTextarea = focusTarget("prompt");
@@ -107,6 +108,27 @@ class FrontendLifecycleJsTest < Minitest::Test
     ], results
   end
 
+  def test_composer_focus_does_not_interrupt_expanded_tool_output
+    app_source = File.read(File.join(ASSETS, "app.js"))
+    focus_source = app_source.match(/function automaticComposerFocusEnabled\(\).*?(?=\nfunction desktopConversationFocusEnabled)/m).to_s
+
+    results = run_javascript(<<~JS)
+      let focusCount = 0;
+      const expandedOutput = { matches: (selector) => selector === '[data-tool-output-body][role="region"]' };
+      const document = { activeElement: expandedOutput };
+      const window = { matchMedia: () => ({ matches: true }) };
+      const modalIsOpen = () => false;
+      const promptTextarea = { focus() { focusCount += 1; } };
+      const conversationScroll = { focus() { focusCount += 1; } };
+      const composerState = { dataset: { state: "running" } };
+      eval(#{(focus_source + "\nglobalThis.syncComposerFocusUnderTest = syncComposerFocus;").to_json});
+      globalThis.syncComposerFocusUnderTest("done");
+      console.log(JSON.stringify({ focusCount }));
+    JS
+
+    assert_equal 0, results.fetch("focusCount")
+  end
+
   def test_composer_focus_remains_automatic_only_for_fine_pointers
     app_source = File.read(File.join(ASSETS, "app.js"))
     focus_source = app_source.match(/function automaticComposerFocusEnabled\(\).*?(?=\nfunction desktopConversationFocusEnabled)/m).to_s
@@ -114,6 +136,7 @@ class FrontendLifecycleJsTest < Minitest::Test
     results = run_javascript(<<~JS)
       let focusCount = 0;
       const window = { matchMedia: () => ({ matches: false }) };
+      const document = { activeElement: null };
       const modalIsOpen = () => false;
       const promptTextarea = { focus() { focusCount += 1; } };
       const conversationScroll = { focus() { focusCount += 1; } };
@@ -205,93 +228,6 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal false, results.fetch("staleResult")
     assert_empty results.fetch("navigations")
     assert_equal 2, results.fetch("generation")
-  end
-
-  def test_tool_output_expansion_immediately_reveals_oversized_message_bottom_jump
-    results = run_javascript(<<~JS)
-      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
-      const classes = () => {
-        const values = new Set();
-        return {
-          add(name) { values.add(name); },
-          remove(name) { values.delete(name); },
-          toggle(name, enabled) { enabled ? values.add(name) : values.delete(name); },
-          contains(name) { return values.has(name); }
-        };
-      };
-      const fittingMessage = { offsetHeight: 80, getBoundingClientRect: () => ({ top: 10, bottom: 90 }) };
-      const oversizedMessage = { offsetHeight: 220, getBoundingClientRect: () => ({ top: 10, bottom: 230 }) };
-      let messages = [fittingMessage];
-      const scroll = {
-        scrollTop: 190, scrollHeight: 400, clientHeight: 100, dataset: {},
-        addEventListener() {}, removeEventListener() {},
-        contains: (message) => messages.includes(message),
-        querySelector: () => null,
-        querySelectorAll: (selector) => selector === ".message" ? messages : [],
-        getBoundingClientRect: () => ({ top: 0, bottom: 100 })
-      };
-      const jumpButton = {
-        textContent: "↓↓", dataset: {}, classList: classes(),
-        addEventListener() {}, removeEventListener() {},
-        setAttribute(name, value) { this[name] = value; }
-      };
-      const bottomControls = { classList: classes() };
-      const bodyClasses = classes();
-      const document = {
-        body: { classList: bodyClasses },
-        getElementById: (id) => id === "conversation-scroll" ? scroll : null,
-        querySelector(selector) {
-          if (selector === ".jump-controls--bottom") return bottomControls;
-          if (selector === ".jump-to-latest") return jumpButton;
-          return null;
-        }
-      };
-      const window = { location: { search: "", origin: "https://example.test" }, matchMedia: () => ({ matches: false }) };
-      globalThis.setTimeout = () => 1;
-      globalThis.clearTimeout = () => {};
-      let frameCount = 0;
-      globalThis.requestAnimationFrame = () => ++frameCount;
-      globalThis.cancelAnimationFrame = () => {};
-
-      const controller = new ConversationController(document, window);
-      controller.bind();
-      controller.revealExpandedMessageBottom(fittingMessage);
-      const fittingVisible = jumpButton.classList.contains("is-visible");
-      messages = [oversizedMessage];
-      controller.revealExpandedMessageBottom(oversizedMessage);
-      controller.handleScroll();
-      const shouldScrollLiveUpdate = controller.followLiveOutput();
-      controller.afterLiveOutputChange(shouldScrollLiveUpdate);
-
-      console.log(JSON.stringify({
-        fittingVisible,
-        buttonVisible: jumpButton.classList.contains("is-visible"),
-        controlsVisible: bottomControls.classList.contains("is-visible"),
-        label: jumpButton.textContent,
-        ariaLabel: jumpButton["aria-label"],
-        target: jumpButton.dataset.jumpTarget,
-        revealedImmediately: bodyClasses.contains("is-conversation-scrolling"),
-        nearBottom: controller.nearBottom(),
-        autoScrollEnabled: controller.autoScrollEnabled,
-        shouldScrollLiveUpdate,
-        scheduledFrames: frameCount
-      }));
-    JS
-
-    assert_equal false, results.fetch("fittingVisible")
-    assert_equal true, results.fetch("buttonVisible")
-    assert_equal true, results.fetch("controlsVisible")
-    assert_equal "↓", results.fetch("label")
-    assert_equal "Message bottom", results.fetch("ariaLabel")
-    assert_equal "message", results.fetch("target")
-    assert_equal true, results.fetch("revealedImmediately")
-    assert_equal true, results.fetch("nearBottom")
-    assert_equal false, results.fetch("autoScrollEnabled")
-    assert_equal false, results.fetch("shouldScrollLiveUpdate")
-    assert_equal 0, results.fetch("scheduledFrames")
-
-    app_source = File.read(File.join(ASSETS, "app.js"))
-    assert_includes app_source, 'conversationController.revealExpandedMessageBottom(collapse.closest(".message"));'
   end
 
   def test_scrollend_release_listener_is_replaced_and_removed

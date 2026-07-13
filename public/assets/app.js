@@ -36,7 +36,7 @@ import { CurrentSessionFindController } from "./current_session_find_controller.
 import { LiveMessageParser } from "./live_message_parser.js";
 import { LiveMessageRenderer } from "./live_message_renderer.js";
 import { ServerMarkdownRenderer } from "./server_markdown_renderer.js";
-import { enhanceMarkdownCodeBlocks } from "./dom.js";
+import { activateToolOutputRegion, enhanceMarkdownCodeBlocks } from "./dom.js";
 import { eventPollingDelay } from "./polling.js";
 
 const gatewayUpdateController = new GatewayUpdateController(document, window);
@@ -193,6 +193,7 @@ function automaticComposerFocusEnabled() {
 
 function syncComposerFocus(state = composerState?.dataset.state) {
   if (!automaticComposerFocusEnabled() || modalIsOpen()) return;
+  if (document.activeElement?.matches?.('[data-tool-output-body][role="region"]')) return;
 
   const agentBusy = ["running", "sending"].includes(state);
   if (!agentBusy && !conversationController.nearBottom()) return;
@@ -2239,7 +2240,7 @@ document.addEventListener("click", (event) => {
   button.setAttribute("aria-expanded", "true");
   control.hidden = true;
   body.replaceChildren(...Array.from(fullTemplate.content.cloneNode(true).childNodes));
-  conversationController.revealExpandedMessageBottom(collapse.closest(".message"));
+  activateToolOutputRegion(body, { focus: true });
 });
 
 document.addEventListener("click", async (event) => {

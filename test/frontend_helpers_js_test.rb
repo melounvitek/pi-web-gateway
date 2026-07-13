@@ -60,6 +60,29 @@ class FrontendHelpersJsTest < Minitest::Test
     assert_equal [true, true, true, false], results
   end
 
+  def test_tool_output_region_helpers_manage_keyboard_access
+    results = run_javascript(<<~JS)
+      const { activateToolOutputRegion, deactivateToolOutputRegion } = await import(#{module_url("dom.js").to_json});
+      const attributes = {};
+      let focusOptions = null;
+      const body = {
+        setAttribute(name, value) { attributes[name] = value; },
+        removeAttribute(name) { delete attributes[name]; },
+        focus(options) { focusOptions = options; }
+      };
+      activateToolOutputRegion(body, { focus: true });
+      const active = { tabIndex: body.tabIndex, attributes: { ...attributes }, focusOptions };
+      deactivateToolOutputRegion(body);
+      console.log(JSON.stringify({ active, inactive: { tabIndex: body.tabIndex, attributes } }));
+    JS
+
+    assert_equal 0, results.dig("active", "tabIndex")
+    assert_equal({ "role" => "region", "aria-label" => "Expanded tool output" }, results.dig("active", "attributes"))
+    assert_equal({ "preventScroll" => true }, results.dig("active", "focusOptions"))
+    assert_equal(-1, results.dig("inactive", "tabIndex"))
+    assert_empty results.dig("inactive", "attributes")
+  end
+
   def test_url_helpers_preserve_query_parameters_without_browser_globals
     results = run_javascript(<<~JS)
       const helpers = await import(#{module_url("urls.js").to_json});

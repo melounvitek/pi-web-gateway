@@ -1,4 +1,5 @@
 import { TOOL_OUTPUT_DESKTOP_TAIL_LINES } from "./constants.js";
+import { activateToolOutputRegion, deactivateToolOutputRegion } from "./dom.js";
 
 export class CurrentSessionFindController {
   constructor(document, conversation) {
@@ -115,6 +116,7 @@ export class CurrentSessionFindController {
     this.expandedToolOutput = null;
     const { collapse, body, tailTemplate, control, button } = expanded;
     if (!collapse.isConnected || !body.isConnected) return;
+    deactivateToolOutputRegion(body);
     if (body.dataset.rawText !== undefined) {
       const lines = String(body.dataset.rawText).split("\n");
       if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
@@ -143,6 +145,7 @@ export class CurrentSessionFindController {
     const control = collapse.querySelector("[data-tool-output-collapse-control]");
     const button = collapse.querySelector("[data-tool-output-toggle]");
     if (!body) return false;
+    activateToolOutputRegion(body);
     this.expandedToolOutput = {
       collapse, body, tailTemplate, control, button,
       originalExpanded: collapse.dataset.expanded,
@@ -225,6 +228,16 @@ export class CurrentSessionFindController {
     const element = this.matches[this.index]?.elements[0];
     const scroll = this.conversation.element;
     if (!scroll || !element) return;
+
+    const toolOutput = element.closest?.("[data-tool-output-body]");
+    if (toolOutput && toolOutput.scrollHeight > toolOutput.clientHeight) {
+      const outputRect = toolOutput.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const top = toolOutput.scrollTop + elementRect.top - outputRect.top - ((toolOutput.clientHeight - elementRect.height) / 2);
+      const maximumTop = toolOutput.scrollHeight - toolOutput.clientHeight;
+      toolOutput.scrollTo({ top: Math.min(Math.max(top, 0), maximumTop), behavior: "auto" });
+    }
+
     const scrollRect = scroll.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
     const top = scroll.scrollTop + elementRect.top - scrollRect.top - ((scroll.clientHeight - elementRect.height) / 2);

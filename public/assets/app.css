@@ -228,12 +228,15 @@
     .subagent-prompt-action::before { content: "Show"; }
     .subagent-prompt[open] .subagent-prompt-action::before { content: "Hide"; }
     .tool-output-collapse { display: grid; gap: 0.4rem; }
+    .tool-output-collapse[data-expanded="true"] [data-tool-output-body] { max-height: min(50dvh, 24rem); overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #8abeb733 transparent; }
+    .tool-output-collapse[data-expanded="true"] [data-tool-output-body]:focus-visible { outline: 2px solid var(--accent-line-55); outline-offset: -2px; }
     .tool-output-collapse-control { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.76rem; font-family: var(--mono); }
     .tool-output-toggle { justify-self: start; min-height: 0; padding: 0.18rem 0.45rem; border: 1px solid var(--accent-line-35); background: transparent; color: var(--accent); font-size: 0.66rem; }
     .tool-output-toggle:hover { background: var(--accent-tint-08); color: var(--text); transform: none; }
     .tool-output-hidden-count--mobile { display: none; }
     .tool-output-line { display: block; min-height: 1.4em; }
     @media (max-width: 720px) {
+      .tool-output-collapse[data-expanded="true"] [data-tool-output-body] { max-height: min(45dvh, 18rem); }
       .tool-output-hidden-count--desktop, .tool-output-tail-desktop-extra { display: none; }
       .tool-output-hidden-count--mobile { display: inline; }
     }

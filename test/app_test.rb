@@ -2371,12 +2371,18 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "}, 300);"
       assert_includes APP_JAVASCRIPT, "this.updateJumpControlsReveal();"
       assert_includes APP_JAVASCRIPT, 'this.scrollDirection === "up" && !this.autoScrollEnabled && !this.nearTop()'
-      assert_includes APP_JAVASCRIPT, 'expandedMessageBottom || (!this.nearBottom()'
+      assert_includes APP_JAVASCRIPT, 'this.scrollDirection === "down" && !this.nearBottom()'
+      refute_includes APP_JAVASCRIPT, "expandedMessageAutoFollowPaused"
+      refute_includes APP_JAVASCRIPT, "revealExpandedMessageBottom"
+      assert_includes APP_JAVASCRIPT, "activateToolOutputRegion(body, { focus: true });"
       assert_includes APP_STYLESHEET, ".message--tool .message-details-summary, .message--tool-transcript .message-details-summary { max-width: 100%; overflow-x: auto; white-space: nowrap; font-family: var(--mono); font-size: 0.84rem; }"
       assert_includes APP_STYLESHEET, ".message--compact .message-details-summary:last-child { margin-bottom: 0; }"
       assert_includes APP_STYLESHEET, ".message--tool .message-body, .message--tool-transcript .message-body { max-width: 100%; overflow-x: auto; }"
       assert_includes APP_STYLESHEET, ".message--tool-transcript .message-body { display: grid; grid-template-columns: minmax(100%, max-content); font-size: 0.84rem; line-height: 1.4; tab-size: 2; white-space: pre; overflow-wrap: normal; word-break: normal; }"
       assert_includes APP_STYLESHEET, ".tool-diff-line { display: block; margin: 0 -0.25rem;"
+      assert_includes APP_STYLESHEET, '.tool-output-collapse[data-expanded="true"] [data-tool-output-body] { max-height: min(50dvh, 24rem); overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin;'
+      assert_includes APP_STYLESHEET, '.tool-output-collapse[data-expanded="true"] [data-tool-output-body] { max-height: min(45dvh, 18rem); }'
+      assert_includes APP_STYLESHEET, '.tool-output-collapse[data-expanded="true"] [data-tool-output-body]:focus-visible {'
       assert_includes APP_STYLESHEET, "scrollbar-width: none"
       assert_includes APP_STYLESHEET, ".message--user { margin-left: 10%; background: var(--user-msg); border-color: #ffffff14; color: var(--text); }"
       assert_includes APP_STYLESHEET, ".message--assistant { margin-right: 10%; background: var(--panel); border-color: var(--border); color: var(--copy); }"
@@ -4665,7 +4671,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "latestReadableAssistantMessage()"
       assert_includes APP_JAVASCRIPT, "latestMessageElement()"
       assert_includes APP_JAVASCRIPT, "if (!this.forceBottomAutoScroll && !this.followOversizedMessageBottom && latestAssistant && latestAssistant === this.latestMessageElement() && latestAssistant.offsetHeight > this.element.clientHeight)"
-      assert_includes APP_JAVASCRIPT, "this.autoScrollEnabled = !this.expandedMessageAutoFollowPaused && this.nearBottom();"
+      assert_includes APP_JAVASCRIPT, "this.autoScrollEnabled = this.nearBottom();"
       assert_includes APP_JAVASCRIPT, "if (this.conversationController.autoScrollEnabled && job.body.closest(\".message\") === this.conversationController.latestReadableAssistantMessage())"
       assert_includes APP_JAVASCRIPT, "if (shouldScroll && this.autoScrollEnabled) this.scheduleAutoScroll();"
       assert_includes APP_JAVASCRIPT, "forceInitialBottomFollow()"

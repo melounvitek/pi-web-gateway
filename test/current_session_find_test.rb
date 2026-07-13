@@ -341,7 +341,7 @@ class CurrentSessionFindTest < Minitest::Test
       const controller = new CurrentSessionFindController({}, {});
       const makeNode = (name) => ({ name, cloneNode() { return makeNode(this.name); } });
       function makeCollapse(name) {
-        const body = { dataset: {}, childNodes: [makeNode(`${name}-tail`)], isConnected: true, replaceChildren(...nodes) { this.childNodes = nodes; } };
+        const body = { dataset: {}, childNodes: [makeNode(`${name}-tail`)], isConnected: true, attributes: {}, replaceChildren(...nodes) { this.childNodes = nodes; }, setAttribute(key, value) { this.attributes[key] = value; }, removeAttribute(key) { delete this.attributes[key]; } };
         const content = (suffix) => ({ childNodes: [makeNode(`${name}-${suffix}`)], cloneNode() { return { childNodes: this.childNodes.map((node) => node.cloneNode()) }; } });
         const control = { hidden: false }; const button = { value: "false", getAttribute() { return this.value; }, setAttribute(_name, value) { this.value = value; } };
         const elements = { "[data-tool-output-body]": body, "[data-tool-output-full]": { content: content("full") }, "[data-tool-output-tail]": { content: content("tail") }, "[data-tool-output-collapse-control]": control, "[data-tool-output-toggle]": button };
@@ -352,12 +352,52 @@ class CurrentSessionFindTest < Minitest::Test
       controller.revealToolOutput({ collapse: first.collapse });
       controller.restoreToolOutput(second.collapse);
       controller.revealToolOutput({ collapse: second.collapse });
-      const moved = [first.collapse.dataset.collapsed, first.body.childNodes[0].name, second.collapse.dataset.collapsed, second.body.childNodes[0].name];
+      const moved = [first.collapse.dataset.collapsed, first.body.childNodes[0].name, second.collapse.dataset.collapsed, second.body.childNodes[0].name, second.body.tabIndex, second.body.attributes.role];
       controller.restoreToolOutput();
-      console.log(JSON.stringify([moved, second.collapse.dataset.collapsed, second.body.childNodes[0].name]));
+      console.log(JSON.stringify([moved, second.collapse.dataset.collapsed, second.body.childNodes[0].name, second.body.tabIndex, second.body.attributes.role || null]));
     JS
 
-    assert_equal [["true", "first-tail", "false", "second-full"], "true", "second-tail"], results
+    assert_equal [["true", "first-tail", "false", "second-full", 0, "region"], "true", "second-tail", -1, nil], results
+  end
+
+  def test_selected_match_is_revealed_inside_expanded_tool_output
+    results = run_javascript(<<~JS)
+      const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
+      let innerScroll = null;
+      let outerScroll = null;
+      const body = {
+        scrollTop: 20, clientHeight: 100, scrollHeight: 400,
+        getBoundingClientRect: () => ({ top: 100, bottom: 200 }),
+        scrollTo(options) { innerScroll = options; this.scrollTop = options.top; }
+      };
+      const mark = {
+        closest: (selector) => selector === "[data-tool-output-body]" ? body : null,
+        getBoundingClientRect: () => ({ top: 240 - (body.scrollTop - 20), bottom: 250 - (body.scrollTop - 20), height: 10 })
+      };
+      const scroll = {
+        scrollTop: 50, clientHeight: 500,
+        getBoundingClientRect: () => ({ top: 0, bottom: 500 }),
+        scrollTo(options) { outerScroll = options; }
+      };
+      let stopped = false;
+      const conversation = {
+        element: scroll,
+        stopAutoFollow() { stopped = true; },
+        withProgrammaticScroll(callback) { callback(); }
+      };
+      const controller = new CurrentSessionFindController({}, conversation);
+      controller.matches = [{ elements: [mark] }];
+      controller.index = 0;
+      controller.scrollMatchIntoView();
+      const markRect = mark.getBoundingClientRect();
+      console.log(JSON.stringify({ innerScroll, outerScroll, stopped, markTop: markRect.top, markBottom: markRect.bottom }));
+    JS
+
+    assert_equal({ "top" => 115, "behavior" => "auto" }, results["innerScroll"])
+    assert_equal "smooth", results.dig("outerScroll", "behavior")
+    assert_equal true, results["stopped"]
+    assert_operator results["markTop"], :>=, 100
+    assert_operator results["markBottom"], :<=, 200
   end
 
   private
