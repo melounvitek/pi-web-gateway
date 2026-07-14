@@ -4730,7 +4730,8 @@ class AppTest < Minitest::Test
       assert_equal "Review the diff", subagent_cards.first.at_css("[data-subagent-prompt-preview]").text
       assert_nil subagent_cards.first.at_css("[data-subagent-prompt-body]")
       assert_nil subagent_cards.first.at_css("[data-subagent-prompt]")["open"]
-      assert_equal "No findings.", subagent_cards.first.at_css(".message-body").text
+      assert_nil subagent_cards.first.at_css("[data-tool-output-body]")
+      assert_equal "No findings.", subagent_cards.first.at_css("[data-subagent-answer]").text.strip
       assert_equal Time.parse("2026-06-13T10:00:00Z").localtime.strftime("%Y-%m-%d %H:%M"), subagent_cards.first.at_css(".message-meta").text
       refute_includes response.body, "[tool: subagent]"
     end
@@ -4746,7 +4747,7 @@ class AppTest < Minitest::Test
             role: "toolResult",
             toolCallId: "call-1",
             toolName: "subagent",
-            content: [{ type: "text", text: "Largest: `/home/vitek/.hermes` — **7.4G**." }],
+            content: [{ type: "text", text: "Largest: `/home/vitek/.hermes`…" }],
             details: {
               task: "Find the largest directory",
               cwd: "/home/vitek",
@@ -4778,9 +4779,18 @@ class AppTest < Minitest::Test
       refute_nil card
       assert_equal "Find the largest directory", card.at_css("[data-subagent-prompt-preview]").text
       assert_nil card.at_css("[data-subagent-prompt-body]")
-      assert_includes card.at_css(".message-body").text, "✓ general"
-      assert_includes card.at_css(".message-body").text, "$ du -shx ~/.hermes"
-      assert_includes card.at_css(".message-body").text, "3 turns ↑6.5k ↓332 R1.5k $0.0433 ctx:2.9k openai-codex/gpt-5.6-sol"
+      transcript = card.at_css("[data-tool-output-body]")
+      answer = card.at_css("[data-subagent-answer]")
+      usage = card.at_css("[data-subagent-usage]")
+      assert_includes transcript.text, "✓ general"
+      assert_includes transcript.text, "$ du -shx ~/.hermes"
+      refute_includes transcript.text, "Largest:"
+      assert_equal "Largest: /home/vitek/.hermes — 7.4G.", answer.text.strip
+      assert answer.at_css("code")
+      assert answer.at_css("strong")
+      assert_equal "3 turns ↑6.5k ↓332 R1.5k $0.0433 ctx:2.9k openai-codex/gpt-5.6-sol", usage.text
+      detail_children = card.at_css(".message-details").element_children
+      assert_operator detail_children.index(answer), :>, detail_children.index(transcript)
     end
   end
 
@@ -4875,8 +4885,8 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes APP_JAVASCRIPT, "function subagentDetailsFromEvent(event)"
-      assert_includes APP_JAVASCRIPT, "function subagentDisplayText(details, fallback, running = false, preferFallback = false)"
-      assert_includes APP_JAVASCRIPT, 'function generalSubagentDisplayText(details, fallback = "", preferFallback = false)'
+      assert_includes APP_JAVASCRIPT, "function subagentDisplayParts(details, fallback = \"\", running = false, preferFallback = false)"
+      assert_includes APP_JAVASCRIPT, 'function generalSubagentDisplayParts(details, fallback = "", preferFallback = false)'
       assert_includes APP_JAVASCRIPT, "function generalSubagentDetails(details)"
       assert_includes APP_JAVASCRIPT, "function subagentResultRunning(details, result, index, running)"
       assert_includes APP_JAVASCRIPT, 'if (result.stopReason === "stop") return false;'
@@ -4884,15 +4894,15 @@ class AppTest < Minitest::Test
       refute_includes APP_JAVASCRIPT, 'entry.details.open = subagentRunning(event);'
       refute_includes APP_JAVASCRIPT, 'open: event.toolName === "subagent" && subagentRunning(event)'
       assert_includes APP_JAVASCRIPT, 'if (event.toolName === "subagent") return subagentSummary(subagentDetailsFromEvent(event), subagentRunning(event));'
-      assert_includes APP_JAVASCRIPT, 'if (generalSubagentDetails(details)) return generalSubagentDisplayText(details, running ? "" : fallback, preferFallback);'
+      assert_includes APP_JAVASCRIPT, 'if (generalSubagentDetails(details)) return generalSubagentDisplayParts(details, running ? "" : fallback, preferFallback);'
       assert_includes APP_JAVASCRIPT, 'if (generalSubagentDetails(details)) return "subagent general";'
       assert_includes APP_JAVASCRIPT, 'const freshSubagentDetails = segment.toolName === "subagent" && this.parser.richSubagentDetails(message.details);'
       assert_includes APP_JAVASCRIPT, 'const subagentDetails = segment.toolName === "subagent" ? this.retainSubagentDetails(toolExecutionEntry, message.details, message.isError ? "error" : "done") : null;'
-      assert_includes APP_JAVASCRIPT, 'const resultText = subagentDetails ? this.parser.subagentDisplayText(subagentDetails, segment.text, false, !freshSubagentDetails) : segment.text;'
+      assert_includes APP_JAVASCRIPT, 'const subagentDisplay = segment.toolName === "subagent" ? this.parser.subagentDisplayParts(subagentDetails, segment.text, false, !freshSubagentDetails) : null;'
       assert_includes APP_JAVASCRIPT, 'const resultSummary = subagentDetails ? this.parser.subagentSummary(subagentDetails, false) : segment.summary;'
       assert_includes APP_JAVASCRIPT, "retainSubagentDetails(entry, details, finalStatus = null)"
       assert_includes APP_JAVASCRIPT, "entry.subagentDetails"
-      assert_includes APP_JAVASCRIPT, 'if (part.type === "toolCall") return items.push(`→ ${formatToolCallPlain(part.name, part.arguments || {})}`);'
+      assert_includes APP_JAVASCRIPT, 'if (part.type === "toolCall") return items.push(`→ ${generalSubagentToolCall({ name: part.name, args: part.arguments || {} })}`);'
     end
   end
 
@@ -4923,7 +4933,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "latestMessageElement()"
       assert_includes APP_JAVASCRIPT, "if (!this.forceBottomAutoScroll && !this.followOversizedMessageBottom && latestAssistant && latestAssistant === this.latestMessageElement() && latestAssistant.offsetHeight > this.element.clientHeight)"
       assert_includes APP_JAVASCRIPT, "this.autoScrollEnabled = this.nearBottom();"
-      assert_includes APP_JAVASCRIPT, "if (this.conversationController.autoScrollEnabled && job.body.closest(\".message\") === this.conversationController.latestReadableAssistantMessage())"
+      assert_includes APP_JAVASCRIPT, 'if (this.conversationController.autoScrollEnabled && (latestAssistant || job.body.matches?.("[data-subagent-answer]")))'
       assert_includes APP_JAVASCRIPT, "if (shouldScroll && this.autoScrollEnabled) this.scheduleAutoScroll();"
       assert_includes APP_JAVASCRIPT, "forceInitialBottomFollow()"
       assert_includes APP_JAVASCRIPT, "scrollToTop"
