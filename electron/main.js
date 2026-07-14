@@ -13,6 +13,7 @@ const { gatewayUrl } = require("./gateway_url");
 const PRELOAD_PATH = path.join(__dirname, "preload.js");
 const GATEWAY_PRELOAD_PATH = path.join(__dirname, "gateway_preload.js");
 const SHELL_PAGE_PATH = path.join(__dirname, "shell.html");
+const WINDOW_ICON_PATH = path.join(__dirname, "assets", "icons", "1024x1024.png");
 const popupWindows = new Set();
 const gatewayWebContents = new Map();
 
@@ -28,6 +29,7 @@ function createWindow() {
     width: 1400,
     height: 900,
     title: "GRIPi",
+    icon: WINDOW_ICON_PATH,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -309,7 +311,7 @@ function showGatewayNotification(event, payload) {
   const title = stringPayloadValue(payload?.title) || "GRIPi";
   const body = stringPayloadValue(payload?.body) || "Notification from GRIPi.";
   const url = resolveSameOriginUrl(payload?.url || "/", gateway.allowedOrigin);
-  const notification = new Notification({ title, body, icon: path.join(__dirname, "assets", "icons", "1024x1024.png") });
+  const notification = new Notification({ title, body, icon: WINDOW_ICON_PATH });
   notification.on("click", () => {
     if (mainWindow) {
       if (gateway.gatewayId) mainWindow.webContents.send("gateway:activate-requested", gateway.gatewayId);
@@ -358,6 +360,7 @@ function openSameOriginPopupWindow(url, allowedOrigin, partition) {
   const popupWindow = new BrowserWindow({
     width: 1100,
     height: 800,
+    icon: WINDOW_ICON_PATH,
     autoHideMenuBar: true,
     webPreferences
   });
