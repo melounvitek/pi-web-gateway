@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/gripi-wordmark-dark.svg">
+    <img src="branding/gripi-wordmark.svg" alt="" width="350">
+  </picture>
+</p>
+
 # GRIPi
 
 Use your Pi sessions from the desktop app or a browser, locally or from another machine. Pi runs on the gateway machine with access to its filesystem, repositories, and credentials.
