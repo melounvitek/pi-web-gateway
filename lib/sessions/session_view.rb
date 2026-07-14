@@ -37,7 +37,7 @@ module Sessions
     def self.older_window(sessions_root:, session_path:, cursor:, current_leaf_id:, attachment_store:, load_all: false)
       return empty_older_window unless session_path_within_root?(session_path, sessions_root)
 
-      store = PiSessionStore.new(root: sessions_root, delete_missing_cwds: true)
+      store = PiSessionStore.new(root: sessions_root)
       all_messages = store.messages(session_path, current_leaf_id: current_leaf_id)
       cursor = [[cursor.to_i, 0].max, all_messages.length].min
       messages = load_all ? all_messages.first(cursor) : conversation_window_before(all_messages, cursor)
@@ -100,7 +100,7 @@ module Sessions
     end
 
     def build
-      @store = PiSessionStore.new(root: @sessions_root, delete_missing_cwds: true)
+      @store = PiSessionStore.new(root: @sessions_root, hide_missing_cwds: true)
       @groups = @store.grouped_sessions
       merge_pending_sessions
       @groups = filtered_groups(@groups)
@@ -159,8 +159,8 @@ module Sessions
       known_paths = @groups.values.flatten.to_h { |session| [session.path, true] }
 
       @pending_sessions.each do |path, cwd|
+        next if known_paths[path] || File.exist?(path)
         next unless path == selected_session_path || @rpc_clients.active?(path)
-        next if known_paths[path]
 
         pending_session = PiSessionStore::Session.new(
           path: path,

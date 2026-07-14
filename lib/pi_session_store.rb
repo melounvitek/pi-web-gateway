@@ -49,9 +49,9 @@ class PiSessionStore
     end
   end
 
-  def initialize(root: File.expand_path("~/.pi/agent/sessions"), delete_missing_cwds: false)
+  def initialize(root: File.expand_path("~/.pi/agent/sessions"), hide_missing_cwds: false)
     @root = root
-    @delete_missing_cwds = delete_missing_cwds
+    @hide_missing_cwds = hide_missing_cwds
   end
 
   def sessions
@@ -435,7 +435,7 @@ class PiSessionStore
     signature = [stat.size, stat.mtime.to_f]
     cached_session = self.class.cached_session(path, signature)
     if cached_session
-      return if delete_session_with_missing_cwd?(path, cached_session.cwd)
+      return if hide_session_with_missing_cwd?(cached_session.cwd)
 
       return cached_session
     end
@@ -482,7 +482,6 @@ class PiSessionStore
     end
 
     return unless session_entry
-    return if delete_session_with_missing_cwd?(path, session_entry["cwd"])
 
     display_name = latest_name || first_user_message || File.basename(path, ".jsonl")
     conversation_activity_at ||= parse_time(session_entry["timestamp"])
@@ -505,6 +504,8 @@ class PiSessionStore
       conversation_activity_at: conversation_activity_at
     )
     self.class.cache_session(path, signature, session)
+    return if hide_session_with_missing_cwd?(session.cwd)
+
     session
   end
 
@@ -556,13 +557,8 @@ class PiSessionStore
     preview.length > 180 ? "#{preview[0, 177]}…" : preview
   end
 
-  def delete_session_with_missing_cwd?(path, cwd)
-    return false unless @delete_missing_cwds && !cwd.to_s.empty? && !Dir.exist?(cwd)
-
-    File.delete(path)
-    true
-  rescue SystemCallError
-    false
+  def hide_session_with_missing_cwd?(cwd)
+    @hide_missing_cwds && !cwd.to_s.empty? && !Dir.exist?(cwd)
   end
 
   def read_entries(path)

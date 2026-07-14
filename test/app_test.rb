@@ -2053,22 +2053,33 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_deletes_sessions_whose_cwd_no_longer_exists
+  def test_hides_sessions_whose_cwd_no_longer_exists_without_deleting_them
     Dir.mktmpdir do |dir|
       stale_dir = File.join(dir, "--stale--")
+      stale_cwd = File.join(dir, "deleted-worktree")
       FileUtils.mkdir_p(stale_dir)
       stale_path = File.join(stale_dir, "stale.jsonl")
-      File.write(stale_path, JSON.generate({ type: "session", id: "stale", cwd: File.join(dir, "deleted-worktree") }) + "\n")
+      File.write(stale_path, JSON.generate({ type: "session", id: "stale", cwd: stale_cwd }) + "\n")
       path = write_session(dir)
       PiWebGateway.set :sessions_root, dir
       PiWebGateway.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+      request = Rack::MockRequest.new(PiWebGateway)
 
-      response = Rack::MockRequest.new(PiWebGateway).get("/")
+      response = request.get("/")
+      search_response = request.get("/sidebar", params: { "session_search" => "stale" })
+      selected_response = request.get("/session_fragment", params: { "session" => stale_path })
 
       assert_equal 200, response.status
-      refute File.exist?(stale_path)
+      assert File.exist?(stale_path)
       assert_includes response.body, path
       refute_includes response.body, "stale.jsonl"
+      refute_includes search_response.body, "stale.jsonl"
+      assert_equal path, JSON.parse(selected_response.body).fetch("session")
+
+      FileUtils.mkdir_p(stale_cwd)
+      restored_response = request.get("/sidebar", params: { "session_search" => "stale" })
+
+      assert_includes restored_response.body, "stale.jsonl"
     end
   end
 

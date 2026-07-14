@@ -176,6 +176,34 @@ class SessionsSessionViewTest < Minitest::Test
     end
   end
 
+  def test_hidden_persisted_session_is_not_reintroduced_from_pending_sessions
+    Dir.mktmpdir do |dir|
+      missing_cwd = File.join(dir, "missing-project")
+      session_path = File.join(dir, "session.jsonl")
+      File.write(session_path, JSON.generate({ type: "session", id: "session", cwd: missing_cwd }) + "\n")
+      active_rpc_clients = Class.new do
+        def active?(_path)
+          true
+        end
+      end.new
+
+      view = Sessions::SessionView.build(
+        sessions_root: dir,
+        params: { "session" => session_path },
+        include_conversation: false,
+        read_state_store: GatewayReadStateStore.new(path: File.join(dir, "read-state.json")),
+        attachment_store: PiAttachmentStore.new(root: File.join(dir, "attachments")),
+        rpc_clients: active_rpc_clients,
+        mark_selected_read: false,
+        pending_sessions: [[session_path, missing_cwd]]
+      )
+
+      assert_empty view.all_sessions
+      assert_nil view.selected_session
+      assert File.exist?(session_path)
+    end
+  end
+
   def test_inactive_pending_background_session_is_not_listed
     Dir.mktmpdir do |dir|
       session_path = write_session(dir)

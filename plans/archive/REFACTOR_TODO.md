@@ -110,12 +110,12 @@ Relevant files:
 
 Checklist:
 
-- [ ] Confirm the current deletion behavior and why it was added.
-- [ ] Change normal page rendering to not delete session files.
-- [ ] If cleanup is still desired, move it to an explicit task/action or clearly named method.
-- [ ] Add regression tests that missing-cwd sessions are not deleted by ordinary view preparation.
-- [ ] Verify focused and full tests.
-- [ ] Note whether a gateway restart is needed.
+- [x] Confirm the current deletion behavior and why it was added.
+- [x] Change normal page rendering to not delete session files.
+- [x] Remove implicit cleanup; no explicit cleanup action is desired.
+- [x] Add regression tests that missing-cwd sessions are not deleted by ordinary view preparation.
+- [x] Verify focused and full tests.
+- [x] Note whether a gateway restart is needed.
 
 ### 5. Extract CSS from `views/index.erb`
 

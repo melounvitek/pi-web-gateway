@@ -130,6 +130,24 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_hides_sessions_with_missing_cwds_without_deleting_them
+    Dir.mktmpdir do |dir|
+      missing_cwd = File.join(dir, "missing-project")
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: missing_cwd }
+      ])
+      store = PiSessionStore.new(root: dir, hide_missing_cwds: true)
+
+      assert_empty store.sessions
+      assert File.exist?(path)
+
+      FileUtils.mkdir_p(missing_cwd)
+
+      assert_equal [path], store.sessions.map(&:path)
+    end
+  end
+
   def test_preserves_image_blocks_and_image_only_user_messages
     Dir.mktmpdir do |dir|
       session_dir = File.join(dir, "--project--")
