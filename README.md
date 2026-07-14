@@ -5,8 +5,6 @@
   </picture>
 </p>
 
-# GRIPi
-
 Use your Pi sessions from the desktop app or a browser, locally or from another machine. Pi runs on the gateway machine with access to its filesystem, repositories, and credentials.
 
 <img width="1467" height="956" alt="GRIPi desktop app showing Pi sessions and a project overview" src="docs/images/gripi-desktop-screenshot.png" />
