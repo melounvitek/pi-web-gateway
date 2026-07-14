@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 400">
+  <!-- G R I drawn on pi's own 4-row pixel grid (cell = 100), brand orange -->
+  <g fill="#F24405">
+    <path d="M0 0H300V100H100V300H200V200H300V400H0Z"/>
+    <path fill-rule="evenodd" d="M400 0H700V200H600V300H500V400H400ZM500 100V200H600V100Z"/>
+    <path d="M600 300H700V400H600Z"/>
+    <path d="M800 0H900V400H800Z"/>
+  </g>
+  <!-- pi, verbatim from the pi CLI logo, follows currentColor -->
+  <g fill="currentColor" transform="translate(1000 0)">
+    <path fill-rule="evenodd" d="M0 0H300V200H200V300H100V400H0ZM100 100V200H200V100Z"/>
+    <path d="M300 200H400V400H300Z"/>
+  </g>
+</svg>
