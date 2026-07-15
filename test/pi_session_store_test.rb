@@ -753,6 +753,43 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_displays_expanded_skill_prompts_as_commands
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      expanded_skill = <<~TEXT.chomp
+        <skill name="diffx" location="/home/tester/.pi/agent/skills/diffx/SKILL.md">
+        References are relative to /home/tester/.pi/agent/skills/diffx.
+
+        # diffx
+
+        Start a review.
+        </skill>
+      TEXT
+      skill_directory = "/home/tester/.pi/agent/skills/diffx"
+      invalid_skills = [
+        expanded_skill.sub("relative to #{skill_directory}.", "relative to /tmp/other."),
+        expanded_skill.gsub(skill_directory, "skills/diffx"),
+        expanded_skill.gsub(skill_directory, "/home/tester/.pi/agent/skills/../diffx"),
+        expanded_skill.gsub(skill_directory, "/home/tester/.pi/agent/skills/./diffx"),
+        expanded_skill.gsub(skill_directory, "/home/tester/.pi/agent/skills//diffx"),
+        expanded_skill.sub("location=\"#{skill_directory}/SKILL.md\"", "location=\"#{skill_directory}/\"")
+      ]
+      ordinary_xml = "<skill name=\"diffx\">not a Pi skill expansion</skill>"
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", message: { role: "user", content: [{ type: "text", text: expanded_skill }] } },
+        { type: "message", message: { role: "user", content: [{ type: "text", text: "#{expanded_skill}\n\ncomments" }] } }
+      ]
+      entries.concat(invalid_skills.map { |text| { type: "message", message: { role: "user", content: [{ type: "text", text: text }] } } })
+      entries << { type: "message", message: { role: "user", content: [{ type: "text", text: ordinary_xml }] } }
+      write_jsonl(path, entries)
+
+      messages = PiSessionStore.new(root: dir).messages(path)
+
+      assert_equal ["/skill:diffx", "/skill:diffx comments", *invalid_skills, ordinary_xml], messages.map(&:text)
+    end
+  end
+
   def test_estimates_latest_status_from_newer_compaction_entry
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")
