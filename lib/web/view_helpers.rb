@@ -36,6 +36,10 @@ module Web
       @sidebar.unread?(session)
     end
 
+    def pinned?(session)
+      @sidebar.pinned?(session)
+    end
+
     def session_classes(session, *classes)
       (classes + [selected?(session) ? "selected" : nil, unread?(session) ? "unread" : nil]).compact.join(" ")
     end
@@ -58,6 +62,10 @@ module Web
 
     def sidebar_sessions
       @sidebar.sessions
+    end
+
+    def sidebar_pinned_sessions
+      @sidebar.pinned_sessions
     end
 
     def sidebar_separate_current_session

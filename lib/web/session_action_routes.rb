@@ -454,6 +454,20 @@ module Web
         JSON.generate(ok: true, session: session_path, session_sync: { mode: sync_state.mode, revision: sync_state.revision })
       end
 
+      app.post "/sessions/pin" do
+        session_path = require_current_workspace_session!(params.fetch("session"))
+        halt 404 unless known_session_path?(session_path)
+        pinned = case params.fetch("pinned")
+        when "true" then true
+        when "false" then false
+        else halt 400, "Invalid pinned state"
+        end
+
+        pinned ? pinned_session_store.pin(session_path) : pinned_session_store.unpin(session_path)
+        content_type :json
+        JSON.generate(session: session_path, pinned: pinned)
+      end
+
       app.post "/sessions/mark_read" do
         session_path = require_current_workspace_session!(params.fetch("session"))
         session = PiSessionStore.new(root: settings.sessions_root).sessions.find { |candidate| candidate.path == session_path }

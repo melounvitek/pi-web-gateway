@@ -62,6 +62,13 @@ export class SidebarController {
     this.document.addEventListener("click", (event) => {
       if (event.target.closest?.("[data-sidebar-filters-clear]")) this.setFiltering(true);
 
+      const pinButton = event.target.closest?.("[data-session-pin-toggle]");
+      if (pinButton) {
+        event.preventDefault();
+        this.togglePin(pinButton).catch(() => {});
+        return;
+      }
+
       const searchButton = event.target.closest?.("[data-sidebar-search-toggle]");
       if (searchButton) this.toggleSearch(searchButton);
 
@@ -162,6 +169,7 @@ export class SidebarController {
     const previousSearchForm = oldElement.querySelector(".sidebar-session-search");
     const previousSearchQuery = previousSearchForm?.querySelector('input[name="session_search"]')?.value;
     const previousSearchOpen = previousSearchForm?.classList.contains("is-open");
+    const focusedPinPath = this.document.activeElement?.closest?.("[data-session-pin-toggle]")?.dataset.sessionPath;
     this.projectSelectController.destroy(oldElement);
     oldElement.outerHTML = html;
     this.bind(this.document.querySelector(".session-sidebar"));
@@ -173,6 +181,10 @@ export class SidebarController {
     if (replacementSearchInput && previousSearchQuery !== undefined) replacementSearchInput.value = previousSearchQuery;
     if (previousSearchOpen !== undefined) this.setSearchOpen(replacementSearchForm, replacementSearchButton, previousSearchOpen);
     if (notificationToggle) this.element.querySelector("[data-notification-toggle]")?.replaceWith(notificationToggle);
+    if (focusedPinPath) {
+      const focusedPin = [...this.element.querySelectorAll("[data-session-pin-toggle]")].find((button) => button.dataset.sessionPath === focusedPinPath);
+      (focusedPin || this.element.querySelector("[data-sidebar-search-toggle]"))?.focus({ preventScroll: true });
+    }
     if (notify) this.notifyBackgroundFinalReplies(previousAssistantCounts);
     const refreshedScrollContainer = this.scrollContainer();
     if (refreshedScrollContainer) refreshedScrollContainer.scrollTop = scrollTop;
@@ -265,6 +277,38 @@ export class SidebarController {
         const currentLabel = button.querySelector(".sidebar-load-more-label");
         if (currentLabel) currentLabel.textContent = originalLabel;
       }
+    }
+  }
+
+  async togglePin(button) {
+    if (!button || button.disabled) return null;
+
+    this.invalidate();
+    const epoch = this.asyncEpoch;
+    const boundElement = this.element;
+    button.disabled = true;
+    try {
+      const body = new URLSearchParams({
+        session: button.dataset.sessionPath,
+        pinned: button.dataset.pinned === "true" ? "false" : "true"
+      });
+      const response = await fetch("/sessions/pin", {
+        method: "POST",
+        body,
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) throw new Error("Could not update pinned session");
+      if (!this.current(epoch, boundElement)) return null;
+
+      const payload = await response.json();
+      if (!this.current(epoch, boundElement)) return null;
+      this.requestRefresh();
+      return payload;
+    } catch (error) {
+      if (this.current(epoch, boundElement)) this.scheduleRefresh();
+      throw error;
+    } finally {
+      button.disabled = false;
     }
   }
 
