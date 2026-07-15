@@ -22,7 +22,7 @@ class PiSessionStore
     keyword_init: true
   )
 
-  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, keyword_init: true)
+  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
   Conversation = Struct.new(:messages, :latest_leaf_id, :status, keyword_init: true)
   FileSnapshot = Struct.new(:device, :inode, :size, :mtime_ns, :append_cursor, :persisted_leaf_id, :complete, keyword_init: true) do
@@ -181,6 +181,11 @@ class PiSessionStore
 
       if (error_message = error_message_from_entry(entry))
         rendered_messages << error_message
+        next
+      end
+
+      if entry["type"] == "custom_message"
+        rendered_messages << custom_message_from_entry(entry) if entry["display"] == true
         next
       end
 
@@ -633,6 +638,18 @@ class PiSessionStore
       timestamp: parse_time(entry["timestamp"]),
       compact: true,
       summary: "Conversation compacted"
+    )
+  end
+
+  def custom_message_from_entry(entry)
+    Message.new(
+      role: "custom",
+      text: content_text(entry["content"]),
+      timestamp: parse_time(entry["timestamp"]),
+      entry_id: entry["id"],
+      compact: false,
+      images: content_images(entry["content"]),
+      custom_type: entry["customType"]
     )
   end
 

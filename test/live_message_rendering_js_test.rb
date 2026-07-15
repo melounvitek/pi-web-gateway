@@ -159,6 +159,53 @@ class LiveMessageRenderingJsTest < Minitest::Test
     assert_equal false, result.dig("final", "streamingOption")
   end
 
+  def test_custom_message_lifecycle_renders_once_and_respects_display
+    result = run_javascript(<<~JS)
+      const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      renderer.parser = new LiveMessageParser();
+      renderer.conversationController = { followLiveOutput: () => true };
+      renderer.liveAssistantSegments = new Map();
+      renderer.livePairedToolCalls = new Map();
+      renderer.liveToolExecutions = new Map();
+      renderer.liveUserMessages = new Map();
+      renderer.liveCustomMessages = new Map();
+      renderer.liveMessageAlreadyRendered = () => false;
+      renderer.updateLiveSegment = (entry, _role, segment) => { entry.text = segment.text; return entry; };
+      const appended = [];
+      renderer.appendMessage = (role, text, _live, _scroll, _timestamp, options) => {
+        const entry = { role, text, customType: options.customType, article: { dataset: {}, classList: { toggle() {} } } };
+        appended.push(entry);
+        return entry;
+      };
+
+      const visible = {
+        role: "custom",
+        customType: "session-title-update",
+        content: "Session renamed",
+        display: true,
+        timestamp: 1781344860100
+      };
+      renderer.renderMessageEvent({ type: "message_start", message: visible });
+      renderer.renderMessageEvent({ type: "message_end", message: visible });
+      renderer.renderMessageEvent({
+        type: "message_end",
+        message: { ...visible, timestamp: 1781344860200 }
+      });
+      renderer.renderMessageEvent({
+        type: "message_end",
+        message: { ...visible, content: "Hidden context", display: false, timestamp: 1781344860300 }
+      });
+      console.log(JSON.stringify(appended.map(({ role, text, customType }) => ({ role, text, customType }))));
+    JS
+
+    assert_equal [
+      { "role" => "custom", "text" => "Session renamed", "customType" => "session-title-update" },
+      { "role" => "custom", "text" => "Session renamed", "customType" => "session-title-update" }
+    ], result
+  end
+
   def test_parser_semantics_cover_representative_ssr_message_shapes
     result = run_javascript(<<~JS)
       const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});

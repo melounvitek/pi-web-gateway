@@ -148,6 +148,46 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_reads_only_displayed_custom_messages
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      image_data = Base64.strict_encode64("fake image data")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "custom_message",
+          id: "custom-1",
+          timestamp: "2026-06-13T10:01:00Z",
+          customType: "session-title-update",
+          content: [
+            { type: "text", text: "Session renamed" },
+            { type: "image", data: image_data, mimeType: "image/png" }
+          ],
+          display: true
+        },
+        {
+          type: "custom_message",
+          id: "custom-2",
+          timestamp: "2026-06-13T10:02:00Z",
+          customType: "hidden-context",
+          content: "Do not display",
+          display: false
+        }
+      ])
+
+      messages = PiSessionStore.new(root: dir).messages(path)
+
+      assert_equal 1, messages.length
+      message = messages.first
+      assert_equal "custom", message.role
+      assert_equal "Session renamed", message.text
+      assert_equal "custom-1", message.entry_id
+      assert_equal "session-title-update", message.custom_type
+      assert_equal Time.iso8601("2026-06-13T10:01:00Z"), message.timestamp
+      assert_equal [{ data: image_data, mime_type: "image/png" }], message.images
+    end
+  end
+
   def test_preserves_image_blocks_and_image_only_user_messages
     Dir.mktmpdir do |dir|
       session_dir = File.join(dir, "--project--")

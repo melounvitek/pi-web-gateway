@@ -42,7 +42,7 @@
                   <% end %>
                 </div>
               <% else %>
-                <% if message.role == "assistant" %>
+                <% if ["assistant", "custom"].include?(message.role) %>
                   <div class="message-body message-body--markdown"><%= render_message_body(message) %></div>
                 <% else %>
                   <pre class="message-body"><%= render_message_body(message) %></pre>

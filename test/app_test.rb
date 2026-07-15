@@ -3897,6 +3897,42 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_displayed_custom_messages_once_after_reload
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "custom_message",
+          id: "custom-1",
+          timestamp: "2026-06-13T10:01:00Z",
+          customType: "session-title-update",
+          content: "**Session** renamed",
+          display: true
+        },
+        {
+          type: "custom_message",
+          id: "custom-2",
+          timestamp: "2026-06-13T10:02:00Z",
+          customType: "hidden-context",
+          content: "Do not display",
+          display: false
+        }
+      ])
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      messages = Nokogiri::HTML(response.body).css('.message[data-role="custom"]')
+      assert_equal 1, messages.length
+      message = messages.first
+      assert_equal "[session-title-update]", message.at_css(".role").text
+      assert_equal "Session renamed", message.at_css(".message-body").text.strip
+      assert_equal "Session", message.at_css(".message-body strong").text
+      refute_includes response.body, "Do not display"
+    end
+  end
+
   def test_renders_compaction_entries_as_compact_status_messages
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [

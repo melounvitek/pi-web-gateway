@@ -104,11 +104,12 @@ export class LiveMessageRenderer {
 
     const role = this.document.createElement("div");
     role.className = "role";
-    role.textContent = messageRoleLabel(roleName);
+    role.textContent = options.customType ? `[${options.customType}]` : messageRoleLabel(roleName);
 
-    const body = this.document.createElement(roleName === "assistant" ? "div" : "pre");
-    body.className = options.thinking ? "message-body message-body--thinking message-body--markdown" : (roleName === "assistant" ? "message-body message-body--markdown" : "message-body");
-    if (roleName === "assistant") {
+    const markdownMessage = ["assistant", "custom"].includes(roleName);
+    const body = this.document.createElement(markdownMessage ? "div" : "pre");
+    body.className = options.thinking ? "message-body message-body--thinking message-body--markdown" : (markdownMessage ? "message-body message-body--markdown" : "message-body");
+    if (markdownMessage) {
       this.markdownRenderer.render(body, text);
     } else {
       body.textContent = text;
@@ -345,6 +346,7 @@ export class LiveMessageRenderer {
     this.livePairedToolCalls = new Map();
     this.liveToolExecutions = new Map();
     this.liveUserMessages = new Map();
+    this.liveCustomMessages = new Map();
     this.liveAssistantSeen = false;
   }
 
@@ -377,6 +379,9 @@ export class LiveMessageRenderer {
     this.liveUserMessages.forEach((storedEntry, key) => {
       if (storedEntry === entry) this.liveUserMessages.delete(key);
     });
+    this.liveCustomMessages.forEach((storedEntry, key) => {
+      if (storedEntry === entry) this.liveCustomMessages.delete(key);
+    });
   }
 
   markLiveEntryRendered(entry, roleName, text, timestamp = null) {
@@ -399,7 +404,7 @@ export class LiveMessageRenderer {
       this.renderToolSummary(entry.summaryText, segment.summaryParts, segment.summary);
       this.renderToolTranscriptBody(entry.body, segment.text, segment.toolName || entry.toolName, { preview: segment.toolPreview === true });
     } else {
-      if (roleName === "assistant") {
+      if (["assistant", "custom"].includes(roleName)) {
         this.markdownRenderer.render(entry.body, segment.text);
       } else {
         entry.body.textContent = displayText;
@@ -421,6 +426,26 @@ export class LiveMessageRenderer {
     const timestampKey = messageTimestampKey(timestamp);
     const textHash = stableTextHash(normalizedMessageText(segment.text));
     return `${timestampKey || "untimed"}-${textHash}-${index}`;
+  }
+
+  liveCustomIdentity(message, segment, fallbackIndex) {
+    const id = message?.id || message?.messageId;
+    const index = segment.startIndex ?? fallbackIndex;
+    if (id) return `${id}-${index}`;
+
+    const milliseconds = new Date(message?.timestamp).getTime();
+    if (!Number.isFinite(milliseconds)) return null;
+    return `${milliseconds}-${message.customType || "custom"}-${stableTextHash(normalizedMessageText(segment.text))}-${index}`;
+  }
+
+  upsertLiveCustomSegment(message, segment, fallbackIndex, shouldScroll, timestamp) {
+    const key = this.liveCustomIdentity(message, segment, fallbackIndex);
+    const existing = key && this.liveCustomMessages.get(key);
+    if (existing) return this.updateLiveSegment(existing, "custom", segment, shouldScroll, timestamp);
+
+    const entry = this.appendMessage("custom", segment.text, true, shouldScroll, timestamp, { customType: message.customType, images: segment.images });
+    if (entry && key) this.liveCustomMessages.set(key, entry);
+    return entry;
   }
 
   optimisticUserEntry(segment, timestamp) {
@@ -561,8 +586,9 @@ export class LiveMessageRenderer {
     const message = this.parser.eventMessage(event);
     const segments = message?.content ? this.parser.contentSegments(message.content, message) : [{ text: this.parser.messageText(message), compact: false, summary: "", startIndex: 0, endIndex: 0, finalAssistantResponse: true, images: [] }].filter((segment) => segment.text);
     const roleName = this.parser.liveEventRole(event, message);
+    const customMessage = message?.role === "custom";
     const assistantEnded = roleName === "assistant" && event.type === "message_end";
-    const outcome = { roleName, assistantEnded, finalAssistantEnded: assistantEnded && this.parser.eventHasFinalAssistantText(event), rendered: segments.length > 0 };
+    const outcome = { roleName, assistantEnded, finalAssistantEnded: assistantEnded && this.parser.eventHasFinalAssistantText(event), rendered: segments.length > 0 && (!customMessage || message.display === true) };
 
     if (roleName === "assistant" && event.type === "message_start") {
       this.conversationController.resetOversizedFollow();
@@ -570,7 +596,7 @@ export class LiveMessageRenderer {
       this.resetLiveAssistantTracking();
     }
     if (outcome.assistantEnded) this.clearLiveAssistantStreaming();
-    if (segments.length === 0) return outcome;
+    if (segments.length === 0 || (customMessage && message.display !== true)) return outcome;
 
     const shouldScroll = this.conversationController.followLiveOutput();
     const timestamp = eventTimestamp(event);
@@ -601,6 +627,8 @@ export class LiveMessageRenderer {
           this.conversationController.afterLiveOutputChange(shouldScroll);
         } else if (roleName === "user" && !segment.compact) {
           this.upsertLiveUserSegment(event, segment, index, shouldScroll, timestamp);
+        } else if (customMessage && !segment.compact) {
+          this.upsertLiveCustomSegment(message, segment, index, shouldScroll, timestamp);
         } else if (segment.compact) {
           this.appendCompactMessage(roleName, segment.summary, segment.text, true, shouldScroll, timestamp, { summaryParts: segment.summaryParts, toolTranscript: segment.toolTranscript, toolName: segment.toolName, toolPreview: segment.toolPreview, toolPrompt: segment.toolPrompt, error: segment.error, images: segment.images });
         } else {

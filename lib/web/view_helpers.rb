@@ -240,6 +240,7 @@ module Web
 
     def message_display_role_label(message)
       return "tool" if message.compact && message.role == "assistant" && !message.tool_name.to_s.empty?
+      return "[#{message.custom_type}]" if message.role == "custom" && !message.custom_type.to_s.empty?
 
       message_role_label(message.role)
     end
@@ -283,7 +284,7 @@ module Web
 
     def render_message_body(message)
       return markdown_renderer.render(message.text) if message.thinking
-      return h(message.text) unless message.role == "assistant" && !message.compact
+      return h(message.text) unless ["assistant", "custom"].include?(message.role) && !message.compact
 
       markdown_renderer.render(message.text)
     end
