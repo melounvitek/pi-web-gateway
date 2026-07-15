@@ -15,8 +15,6 @@ Requirements:
 
 - [mise](https://mise.jdx.dev/)
 - [Pi CLI](https://pi.dev/) available on `PATH`
-- Node.js 22.12 or newer for the desktop app
-- FUSE 2 for the Linux desktop app (`fuse2` on Arch Linux)
 
 ```sh
 git clone https://github.com/melounvitek/gripi.git
@@ -25,23 +23,25 @@ mise install
 mise run setup
 ```
 
-On first setup, save the generated admin password printed by the command.
-
-Install the recommended desktop app on macOS or Linux:
-
-```sh
-mise run desktop-install
-```
-
-Start the gateway:
+Setup stores an admin password in `~/.config/gripi/env` and prints it. Start the gateway:
 
 ```sh
 GRIPI_HOST=127.0.0.1 mise run start
 ```
 
-The app `GRIPi` gets installed. It connects to the running gateway and can switch between multiple gateway servers. You can also use the gateway directly in browser at <http://localhost:4567>.
+Open <http://localhost:4567> and use the admin password to approve your browser.
 
-<img width="1470" height="929" alt="Screenshot 2026-07-15 at 17 38 32" src="https://github.com/user-attachments/assets/aa294528-0795-4a64-b04d-5fc923ad2f5d" />
+### Desktop app
+
+The recommended desktop app is available on macOS and Linux. Installing it requires Node.js 22.12 or newer and, on Linux, FUSE 2 (`fuse2` on Arch Linux).
+
+```sh
+mise run desktop-install
+```
+
+The desktop app connects to the running gateway and can store and switch between multiple gateways.
+
+<img width="1470" height="929" alt="GRIPi desktop app showing Pi sessions and a project overview" src="https://github.com/user-attachments/assets/aa294528-0795-4a64-b04d-5fc923ad2f5d" />
 
 There is no mobile app, but on iPhone, adding the gateway to the Home Screen with Apple's [Open as Web App](https://support.apple.com/guide/iphone/open-as-web-app-iphea86e5236/ios) flow works nicely:
 
@@ -51,13 +51,13 @@ There is no mobile app, but on iPhone, adding the gateway to the Home Screen wit
 
 ## Usage modes
 
-By default, the gateway runs in single-user mode and shows all Pi sessions to one trusted user. Optional multi-user mode gives each user a personal session key and shows only the sessions associated with that key.
+By default, the gateway runs in single-user mode and shows all Pi sessions to one trusted user. Optional multi-user mode gives each user a private user token and shows only the sessions associated with that token.
 
-Multi-user mode is intended for trusted users. It does not provide OS-level process, filesystem, or credential isolation, and settings such as the selected model and thinking effort are currently shared between users. See [configuration](docs/configuration.md#common-options) to enable it.
+Multi-user mode is intended for trusted users. It does not provide OS-level process, filesystem, or credential isolation, and settings such as the selected model and thinking effort are currently shared between users. See [configuration](docs/configuration.md#multi-user-mode) to enable it.
 
 ## Remote access and configuration
 
-Do not expose the gateway directly to the public internet. Anyone with access can view sessions and start Pi processes with the gateway's filesystem and credential access.
+Do not expose the gateway directly to the public internet. Anyone who can use it can start Pi processes with the gateway machine's filesystem and credentials.
 
 - [Example local and remote setups](docs/examples.md)
 - [Configuration options](docs/configuration.md)

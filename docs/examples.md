@@ -1,44 +1,63 @@
-# Example setups
+# Local and remote setups
 
-GRIPi gives browser access to local Pi processes. Do not expose it directly to the public internet.
+GRIPi lets a desktop app or web browser use Pi running on the gateway machine. Pi has access to that machine's files, repositories, and credentials, so do not expose GRIPi directly to the public internet.
 
-For remote access, use a private network such as [Tailscale](https://tailscale.com/). It is free for personal use, reliable, and a common default for this kind of setup.
+For remote access, use a VPN such as [Tailscale](https://tailscale.com/). It is free for personal use and a common default for this kind of setup.
 
-## 1. Local only
+## Local gateway
 
-Use this when GRIPi and your browser run on the same machine.
+Use this when GRIPi and your browser or desktop app run on the same machine:
 
 ```sh
 GRIPI_HOST=127.0.0.1 mise run start
 ```
 
-Open <http://localhost:4567>.
+Open <http://localhost:4567>. This is the simplest and safest setup.
 
-This is the simplest and safest setup.
+## Remote gateway over Tailscale
 
-## 2. Gateway server on an always-on computer, app as client
+Use this when Pi should run on an always-on desktop, spare laptop, or home server while you connect from another device.
 
-Use this when GRIPi runs as the server on another computer, and your browser, mobile web app, or desktop app connects as the client.
+1. Install GRIPi and Pi CLI on the gateway machine.
+2. Put the gateway machine and client devices on the same Tailscale network.
+3. Choose one of the connection options below.
 
-The server computer can be a spare laptop, desktop, home server, or VPS. A VPS is riskier: only use one if you know how to lock it down at the network level.
+### Direct VPN connection
 
-Recommended shape:
+Bind GRIPi to the gateway machine's Tailscale address:
 
-1. Install GRIPi and Pi CLI on the server computer.
-2. Put the server computer and your client device on the same Tailscale network.
-3. Bind the gateway to the server computer's Tailscale address:
+```sh
+GRIPI_HOST=100.x.y.z mise run start
+```
 
-   ```sh
-   GRIPI_HOST=100.x.y.z mise run start
-   ```
+Open `http://100.x.y.z:4567` in a browser, or add it from the desktop app's **Add Server…** menu.
 
-4. Open `http://100.x.y.z:4567` from your browser, mobile web app, or the desktop app's “Add Server…” menu.
+### HTTPS through Tailscale Serve
 
-Do not bind the gateway to a public interface unless you have added your own strong network-level protection.
+Keep GRIPi bound to the gateway machine itself:
 
-### Tailscale HTTPS with a systemd user service
+```sh
+GRIPI_HOST=127.0.0.1 mise run start
+```
 
-To keep the gateway running after login, create `~/.config/systemd/user/gripi.service`:
+In another terminal, expose it within your Tailscale network over HTTPS:
+
+```sh
+tailscale serve --bg --yes 4567
+tailscale serve status
+```
+
+Open the `https://…ts.net` URL shown by `tailscale serve status`, or add it to the desktop app.
+
+If Tailscale requires elevated permissions, run this once and retry:
+
+```sh
+sudo tailscale set --operator=$USER
+```
+
+### Optional: keep the gateway running with systemd
+
+Create `~/.config/systemd/user/gripi.service` on the gateway machine:
 
 ```ini
 [Unit]
@@ -53,7 +72,7 @@ EnvironmentFile=-%h/.config/gripi/env
 Environment=GRIPI_HOST=127.0.0.1
 Environment=GRIPI_PORT=4567
 Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=%h/.local/bin/mise exec -- bin/start
+ExecStart=/absolute/path/to/mise exec -- bin/start
 Restart=on-failure
 RestartSec=3
 
@@ -61,25 +80,21 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-Use the real checkout path for `WorkingDirectory`. The explicit `PATH` is important when `pi` is installed in `~/.local/bin`; systemd user services do not always inherit the same shell environment as your terminal.
+Replace `WorkingDirectory` with the GRIPi checkout and `ExecStart` with the path reported by `command -v mise`. The unit above is configured for Tailscale Serve; for a direct VPN connection, replace `127.0.0.1` with the gateway machine's Tailscale address.
 
-Enable and start the gateway:
+The explicit `PATH` includes common Pi installation locations. If `command -v pi` reports another directory, add that directory to `PATH` or configure the [custom Pi runtime](configuration.md#custom-pi-runtime).
+
+Enable the service:
 
 ```sh
 systemctl --user daemon-reload
 systemctl --user enable --now gripi.service
 ```
 
-Then expose the local gateway over Tailscale HTTPS:
+A user service normally starts after login. To keep it running after logout and start it at boot, enable lingering for that user:
 
 ```sh
-tailscale serve --bg --yes 4567
-```
-
-If Tailscale requires elevated permissions, run this once and retry:
-
-```sh
-sudo tailscale set --operator=$USER
+sudo loginctl enable-linger "$USER"
 ```
 
 Useful checks:
@@ -90,29 +105,6 @@ journalctl --user -u gripi.service -f
 tailscale serve status
 ```
 
-## 3. Local gateway and remote gateway
+## Multiple gateways
 
-Use this when you want one gateway server on your laptop and another gateway server on an always-on computer.
-
-Run the local gateway server:
-
-```sh
-GRIPI_HOST=127.0.0.1 mise run start
-```
-
-Run the remote gateway server on the always-on computer's Tailscale address:
-
-```sh
-GRIPI_HOST=100.x.y.z mise run start
-```
-
-Then choose the gateway you want to use.
-
-You can open either server directly in the browser:
-
-- Local: <http://localhost:4567>
-- Remote: `http://100.x.y.z:4567`
-
-Or add both servers to the desktop app and switch between them from the app menu.
-
-Each server runs Pi where that server is installed, with that server's filesystem, repositories, and credentials.
+The desktop app can store a local gateway and one or more remote gateways and switch between them. Pi always runs on the selected gateway machine with access to that machine's filesystem, repositories, and credentials.
