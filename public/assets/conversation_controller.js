@@ -46,6 +46,11 @@ export class ConversationController {
     if (!this.element) return;
 
     this.listen(this.element, "keydown", (event) => {
+      if (event.key === "Home" && this.jumpToFirstButton && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.target.closest?.("input, textarea, select, [contenteditable]")) {
+        event.preventDefault();
+        this.jumpToConversationTop();
+        return;
+      }
       if (event.key !== "Tab" || !this.promptTextarea || this.window.matchMedia?.("(max-width: 760px)").matches === true) return;
       event.preventDefault();
       this.promptTextarea.focus({ preventScroll: true });
@@ -58,23 +63,7 @@ export class ConversationController {
     this.listen(this.jumpToFirstButton, "click", () => {
       if (this.jumpToFirstButton.dataset.jumpTarget === "message") return this.scrollToMessageTop();
 
-      const button = this.jumpToFirstButton;
-      const controls = this.topJumpControls;
-      button.classList.add("is-loading");
-      controls?.classList.add("is-loading");
-      button.disabled = true;
-      button.setAttribute("aria-busy", "true");
-      button.setAttribute("aria-label", "Loading earlier messages");
-      this.loadOlderHistory()
-        .then((status) => { if (status === "complete") this.scrollToTop("auto"); })
-        .catch(() => {})
-        .finally(() => {
-          button.classList.remove("is-loading");
-          controls?.classList.remove("is-loading");
-          button.disabled = false;
-          button.removeAttribute("aria-busy");
-          if (button === this.jumpToFirstButton) this.updateJumpControls();
-        });
+      this.jumpToConversationTop();
     });
     this.listen(this.jumpToLatestButton, "click", () => {
       if (this.jumpToLatestButton.dataset.jumpTarget === "message") this.scrollToMessageBottom();
@@ -430,6 +419,27 @@ export class ConversationController {
     this.frames.forEach((frame) => cancelAnimationFrame(frame));
     this.frames.clear();
     this.frame(() => this.frame(() => this.applyAutoScroll(behavior)));
+  }
+
+  jumpToConversationTop() {
+    const button = this.jumpToFirstButton;
+    if (!button) return Promise.resolve();
+    const controls = this.topJumpControls;
+    button.classList.add("is-loading");
+    controls?.classList.add("is-loading");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-label", "Loading earlier messages");
+    return this.loadOlderHistory()
+      .then((status) => { if (status === "complete") this.scrollToTop("auto"); })
+      .catch(() => {})
+      .finally(() => {
+        button.classList.remove("is-loading");
+        controls?.classList.remove("is-loading");
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+        if (button === this.jumpToFirstButton) this.updateJumpControls();
+      });
   }
 
   scrollToTop(behavior = "smooth") {

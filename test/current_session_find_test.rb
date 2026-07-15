@@ -433,6 +433,71 @@ class CurrentSessionFindTest < Minitest::Test
     )
   end
 
+  def test_home_loads_complete_history_before_jumping_to_conversation_top
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      class Classes {
+        constructor() { this.values = new Set(); }
+        add(value) { this.values.add(value); }
+        remove(value) { this.values.delete(value); }
+        contains(value) { return this.values.has(value); }
+        toggle(value, enabled) { enabled ? this.add(value) : this.remove(value); }
+      }
+      class Target {
+        constructor() { this.listeners = {}; this.dataset = {}; this.classList = new Classes(); this.attributes = {}; this.disabled = false; this.scrollTop = 100; }
+        addEventListener(type, listener) { this.listeners[type] = listener; }
+        removeEventListener() {}
+        setAttribute(name, value) { this.attributes[name] = String(value); }
+        removeAttribute(name) { delete this.attributes[name]; }
+        querySelector() { return null; }
+      }
+      const scroll = new Target(); const button = new Target(); const bottomButton = new Target(); const topControls = new Target();
+      const document = {
+        body: { classList: new Classes() },
+        getElementById: (id) => id === "conversation-scroll" ? scroll : null,
+        querySelector(selector) {
+          if (selector === ".jump-controls--top") return topControls;
+          if (selector === ".jump-to-first") return button;
+          if (selector === ".jump-to-latest") return bottomButton;
+          if (selector.includes("input")) return { value: "/session" };
+          return null;
+        }
+      };
+      const controller = new ConversationController(document, { matchMedia: () => ({ matches: false }) });
+      let finish; let loads = 0; let topBehavior; let prevented = false; let editablePrevented = false;
+      controller.loadOlderHistory = () => { loads += 1; return new Promise((resolve) => { finish = resolve; }); };
+      controller.scrollToTop = (behavior) => { topBehavior = behavior; };
+      controller.bind();
+      scroll.listeners.keydown({ key: "Home", target: { closest: () => ({}) }, preventDefault: () => { editablePrevented = true; } });
+      scroll.listeners.keydown({ key: "Home", target: scroll, preventDefault: () => { prevented = true; } });
+      const loading = { button: button.classList.contains("is-loading"), controls: topControls.classList.contains("is-loading"), disabled: button.disabled };
+      finish("complete");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const welcomeScroll = new Target();
+      const welcomeController = new ConversationController({
+        body: { classList: new Classes() },
+        getElementById: (id) => id === "conversation-scroll" ? welcomeScroll : null,
+        querySelector: () => null
+      }, { matchMedia: () => ({ matches: false }) });
+      let welcomePrevented = false;
+      welcomeController.bind();
+      welcomeScroll.listeners.keydown({ key: "Home", target: welcomeScroll, preventDefault: () => { welcomePrevented = true; } });
+      console.log(JSON.stringify({ loads, prevented, editablePrevented, welcomePrevented, loading, topBehavior }));
+    JS
+
+    assert_equal(
+      {
+        "loads" => 1,
+        "prevented" => true,
+        "editablePrevented" => false,
+        "welcomePrevented" => false,
+        "loading" => { "button" => true, "controls" => true, "disabled" => true },
+        "topBehavior" => "auto"
+      },
+      results
+    )
+  end
+
   def test_stale_history_response_is_ignored_after_rebinding
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
