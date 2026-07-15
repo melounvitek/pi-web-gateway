@@ -230,10 +230,13 @@ class TreeSessionControllerJsTest < Minitest::Test
       const browser = { hidden: false };
       const summary = { hidden: true };
       const radio = { focused: false, focus() { this.focused = true; } };
+      const summaryClasses = new Set();
+      const card = { classList: { toggle(name, active) { active ? summaryClasses.add(name) : summaryClasses.delete(name); } } };
       const modal = {
         hidden: false,
         querySelector(selector) {
           return {
+            ".tree-session-card": card,
             "[data-tree-browser-step]": browser,
             "[data-tree-summary-step]": summary,
             'input[name="summary_mode"]:checked': radio
@@ -248,15 +251,18 @@ class TreeSessionControllerJsTest < Minitest::Test
 
       controller.settings = { branchSummary: { skipPrompt: false } };
       controller.requestNavigation();
-      const prompted = { browserHidden: browser.hidden, summaryHidden: summary.hidden, focused: radio.focused };
+      const prompted = { browserHidden: browser.hidden, summaryHidden: summary.hidden, focused: radio.focused, summaryLayout: summaryClasses.has("is-summary-step") };
       controller.showTreeStep();
+      const returned = { browserHidden: browser.hidden, summaryHidden: summary.hidden, summaryLayout: summaryClasses.has("is-summary-step") };
       controller.settings = { branchSummary: { skipPrompt: true } };
       controller.requestNavigation();
-      console.log(JSON.stringify({ prompted, direct }));
+      console.log(JSON.stringify({ prompted, returned, direct, summaryLayout: summaryClasses.has("is-summary-step") }));
     JS
 
-    assert_equal({ "browserHidden" => true, "summaryHidden" => false, "focused" => true }, result.fetch("prompted"))
+    assert_equal({ "browserHidden" => true, "summaryHidden" => false, "focused" => true, "summaryLayout" => true }, result.fetch("prompted"))
+    assert_equal({ "browserHidden" => false, "summaryHidden" => true, "summaryLayout" => false }, result.fetch("returned"))
     assert_equal [["none", ""]], result.fetch("direct")
+    assert_equal false, result.fetch("summaryLayout")
   end
 
   def test_navigation_posts_selected_summary_and_custom_instructions
@@ -301,7 +307,10 @@ class TreeSessionControllerJsTest < Minitest::Test
       const status = { textContent: "", classList: { toggle(_name, active) { this.error = active; } } };
       const submit = { disabled: false };
       const navigateButton = { disabled: false };
+      const summaryClasses = new Set(["is-summary-step"]);
+      const card = { classList: { toggle(name, active) { active ? summaryClasses.add(name) : summaryClasses.delete(name); } } };
       const controls = {
+        ".tree-session-card": card,
         "[data-tree-browser-step]": browser,
         "[data-tree-summary-step]": summary,
         "[data-tree-custom-instructions]": instructions,
@@ -323,7 +332,7 @@ class TreeSessionControllerJsTest < Minitest::Test
       const validation = { message: status.textContent, focused: instructions.focused, requests };
       status.textContent = "";
       await controller.navigate("none", "");
-      console.log(JSON.stringify({ validation, failure: { message: status.textContent, error: status.classList.error, browserHidden: browser.hidden, summaryHidden: summary.hidden, submitDisabled: submit.disabled, navigateDisabled: navigateButton.disabled }, requests }));
+      console.log(JSON.stringify({ validation, failure: { message: status.textContent, error: status.classList.error, browserHidden: browser.hidden, summaryHidden: summary.hidden, summaryLayout: summaryClasses.has("is-summary-step"), submitDisabled: submit.disabled, navigateDisabled: navigateButton.disabled }, requests }));
     JS
 
     assert_equal({ "message" => "Custom summary instructions cannot be empty.", "focused" => true, "requests" => 0 }, result.fetch("validation"))
@@ -331,6 +340,7 @@ class TreeSessionControllerJsTest < Minitest::Test
     assert_equal true, result.dig("failure", "error")
     assert_equal false, result.dig("failure", "browserHidden")
     assert_equal true, result.dig("failure", "summaryHidden")
+    assert_equal false, result.dig("failure", "summaryLayout")
     assert_equal false, result.dig("failure", "submitDisabled")
     assert_equal false, result.dig("failure", "navigateDisabled")
     assert_equal 1, result.fetch("requests")
@@ -509,7 +519,10 @@ class TreeSessionControllerJsTest < Minitest::Test
       const labelTimestamps = { checked: true };
       const browser = { hidden: true };
       const summary = { hidden: false };
+      const summaryClasses = new Set(["is-summary-step"]);
+      const card = { classList: { toggle(name, active) { active ? summaryClasses.add(name) : summaryClasses.delete(name); } } };
       const controls = {
+        ".tree-session-card": card,
         "[data-tree-options]": options,
         "[data-tree-search]": search,
         "[data-tree-label-timestamps]": labelTimestamps,
@@ -524,7 +537,7 @@ class TreeSessionControllerJsTest < Minitest::Test
       let renders = 0;
       controller.render = () => { renders += 1; };
       controller.open();
-      console.log(JSON.stringify({ optionsOpen: options.open, search: search.value, modelQuery: controller.model.query, labelTimestamps: labelTimestamps.checked, browserHidden: browser.hidden, summaryHidden: summary.hidden, renders }));
+      console.log(JSON.stringify({ optionsOpen: options.open, search: search.value, modelQuery: controller.model.query, labelTimestamps: labelTimestamps.checked, browserHidden: browser.hidden, summaryHidden: summary.hidden, summaryLayout: summaryClasses.has("is-summary-step"), renders }));
     JS
 
     assert_equal false, result.fetch("optionsOpen")
@@ -534,6 +547,7 @@ class TreeSessionControllerJsTest < Minitest::Test
     assert_equal false, result.fetch("labelTimestamps")
     assert_equal false, result.fetch("browserHidden")
     assert_equal true, result.fetch("summaryHidden")
+    assert_equal false, result.fetch("summaryLayout")
   end
 
   def test_search_and_label_shortcuts_reveal_options_before_focusing
@@ -651,7 +665,7 @@ class TreeSessionControllerJsTest < Minitest::Test
     assert_includes css, ".tree-session-list { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;"
     assert_includes css, ".tree-session-connector-level:nth-last-child(n + 9)"
     assert_includes css, ".tree-session-connector-level:nth-last-child(n + 4)"
-    assert_includes css, ".tree-session-summary { overflow-y: auto; }"
+    assert_match(/\.tree-session-card\.is-summary-step \{[^}]*height: auto;[^}]*grid-template-rows: auto auto;[^}]*overflow-y: auto;/, css)
     assert_includes css, "env(safe-area-inset-bottom)"
   end
 

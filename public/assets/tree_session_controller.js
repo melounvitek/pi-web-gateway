@@ -411,6 +411,7 @@ export class TreeSessionController {
       this.navigate("none", "");
     } else {
       const modal = this.modal();
+      modal.querySelector(".tree-session-card")?.classList.toggle("is-summary-step", true);
       modal.querySelector("[data-tree-browser-step]").hidden = true;
       modal.querySelector("[data-tree-summary-step]").hidden = false;
       modal.querySelector('input[name="summary_mode"]:checked')?.focus();
@@ -421,6 +422,7 @@ export class TreeSessionController {
     if (!modal) return;
     const browser = modal.querySelector("[data-tree-browser-step]");
     const summary = modal.querySelector("[data-tree-summary-step]");
+    modal.querySelector(".tree-session-card")?.classList.toggle("is-summary-step", false);
     if (browser) browser.hidden = false;
     if (summary) summary.hidden = true;
   }

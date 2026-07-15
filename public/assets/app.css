@@ -413,9 +413,9 @@
     .fork-session-option { width: 100%; justify-self: stretch; display: block; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 0.3rem; background: var(--panel-soft); color: var(--text); text-align: left; font-family: var(--sans); font-size: 0.9rem; font-weight: 500; letter-spacing: normal; text-transform: none; overflow-wrap: anywhere; }
     .fork-session-option:hover { background: var(--panel-softer); border-color: var(--accent-line-55); }
     .tree-session-card { width: min(58rem, 100%); height: min(48rem, calc(100dvh - 2rem)); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+    .tree-session-card.is-summary-step { height: auto; grid-template-rows: auto auto; overflow-y: auto; }
     .tree-session-browser { min-height: 0; display: grid; grid-template-rows: minmax(0, auto) auto minmax(0, 1fr) auto; gap: 0.75rem; }
     .tree-session-summary, .tree-session-summary form { min-height: 0; display: grid; gap: 0.75rem; }
-    .tree-session-summary { overflow-y: auto; }
     .tree-session-options { min-width: 0; min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--panel-soft); }
     .tree-session-options > summary { padding: 0.55rem 0.65rem; color: var(--copy); font-family: var(--mono); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
     .tree-session-options-content { display: grid; gap: 0.7rem; max-height: min(12rem, 25dvh); overflow-y: auto; padding: 0 0.65rem 0.65rem; }
