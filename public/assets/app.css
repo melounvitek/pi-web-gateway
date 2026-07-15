@@ -483,8 +483,11 @@
       .send-button::before { content: "↑"; font-size: 1.35rem; line-height: 1; }
       .command-list { max-height: 30dvh; overflow-y: auto; }
       .composer-controls { justify-content: flex-start; }
-      .session-status-bar { width: 100%; max-width: 100%; min-width: 0; justify-content: center; text-align: center; flex-wrap: wrap; gap: 0.35rem 0.7rem; overflow: hidden; font-size: 0.66rem; }
+      .session-status-bar { width: 100%; max-width: 100%; min-width: 0; justify-content: center; text-align: center; flex-wrap: nowrap; gap: 0.45rem; overflow: hidden; font-size: 0.66rem; }
       .session-status-item { min-width: 0; }
+      .session-status-item[data-status-key="ctx"] { flex: 0 0 auto; }
+      .model-settings-chip { flex: 0 1 auto; max-width: 100%; overflow: hidden; }
+      .model-settings-chip .session-status-label { display: none; }
       .session-status-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       input, select, textarea { font-size: 16px; }
       textarea { min-height: 2.75rem; max-height: 8rem; padding: 0.65rem 0.7rem; }

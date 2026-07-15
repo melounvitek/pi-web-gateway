@@ -2320,6 +2320,17 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_mobile_session_status_stays_on_one_line_and_truncates_the_model
+    desktop_styles, mobile_styles = APP_STYLESHEET.split("@media (max-width: 760px) {", 2)
+
+    assert_includes mobile_styles, ".session-status-bar { width: 100%; max-width: 100%; min-width: 0; justify-content: center; text-align: center; flex-wrap: nowrap;"
+    assert_includes mobile_styles, '.session-status-item[data-status-key="ctx"] { flex: 0 0 auto; }'
+    assert_includes mobile_styles, ".model-settings-chip { flex: 0 1 auto; max-width: 100%; overflow: hidden; }"
+    assert_includes mobile_styles, ".model-settings-chip .session-status-label { display: none; }"
+    assert_includes mobile_styles, ".session-status-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+    refute_includes desktop_styles, ".model-settings-chip .session-status-label { display: none; }"
+  end
+
   def test_model_status_button_is_disabled_while_session_is_busy
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
