@@ -86,7 +86,57 @@ class DemoTest < Minitest::Test
     assert_includes body.at_css("#history-output").text, "mise run setup"
     refute_nil repository_link
     refute repository_link.attribute("target")
-    assert_includes File.read(JAVASCRIPT), 'gripi:static-demo:v4'
+    assert_match(/gripi:static-demo:v\d+/, File.read(JAVASCRIPT))
+  end
+
+  def test_demo_replaces_gripi_dummies_with_the_guide_catalogue
+    result = run_javascript("console.log(JSON.stringify(GripiDemo.sessionCatalog));")
+    grouped = result.group_by { |session| session.fetch("project") }
+
+    assert_equal [
+      "Welcome to GRIPi",
+      "New to Pi? Start here",
+      "Use subagents from GRIPi",
+      "What isn’t supported in GRIPi?",
+      "Run GRIPi on an always-on computer",
+      "Access GRIPi remotely with Tailscale",
+      "Use GRIPi from a phone or tablet",
+      "Should I run GRIPi on a VPS?"
+    ], grouped.fetch("gripi").map { |session| session.fetch("name") }
+    assert_equal ["Draft release notes", "Simplify documentation navigation"], grouped.fetch("website").map { |session| session.fetch("name") }
+    assert_equal ["Investigate flaky checkout spec", "Polish checkout confirmation copy", "Speed up CI dependency caching"], grouped.fetch("storefront").map { |session| session.fetch("name") }
+    assert_equal ["Welcome to GRIPi"], grouped.fetch("gripi").select { |session| session.fetch("pinned") }.map { |session| session.fetch("name") }
+
+    body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
+    assert body.at_css('.session-relation-tree a[data-session-id="new-to-pi"]')
+    javascript = File.read(JAVASCRIPT)
+    refute_includes javascript, 'gripi:static-demo:v4'
+    assert_includes javascript, 'gripi:static-demo:v5'
+    assert_includes javascript, "Use the general subagent to independently review this change."
+    assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
+    assert_includes javascript, "Never expose GRIPi through a public IP or public reverse proxy."
+    assert_includes javascript, 'switchSession(button.dataset.demoTreeTarget)'
+    assert_includes javascript, 'element.headerRelationTree.hidden = session.id !== defaultSessionId'
+    assert body.at_css('[data-demo-tree-target="new-to-pi"]')
+
+    source = javascript + File.read(HTML)
+    ["Build responsive session sidebar", "Improve gateway error handling", "Fix streamed markdown rendering", "Add session keyboard shortcuts"].each do |removed_title|
+      refute_includes source, removed_title
+    end
+  end
+
+  def test_guide_links_are_restricted_to_trusted_destinations
+    result = run_javascript(<<~JS)
+      console.log(JSON.stringify({
+        pi: GripiDemo.safeGuideLink({ href: "https://pi.dev/", label: "Pi" }),
+        docs: GripiDemo.safeGuideLink({ href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Guide" }),
+        unsafe: GripiDemo.safeGuideLink({ href: "javascript:alert(1)", label: "Unsafe" })
+      }));
+    JS
+
+    assert_equal({ "href" => "https://pi.dev/", "label" => "Pi" }, result.fetch("pi"))
+    assert_equal "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", result.fetch("docs").fetch("href")
+    assert_nil result.fetch("unsafe")
   end
 
   def test_demo_notice_links_to_the_repository_in_the_same_tab
