@@ -355,7 +355,7 @@
     if (force) autoScrollEnabled = true;
     programmaticScrollTo({ top: element.scroll.scrollHeight, behavior: "smooth" });
   }
-  function showDemoNotice(text) { element.notice.querySelector("span").textContent = text; element.notice.classList.add("is-visible"); }
+  function showDemoNotice(text) { element.notice.querySelector("[data-demo-notice-message]").textContent = text; element.notice.classList.add("is-visible"); }
 
   function cancelStream(feedback) {
     if (!streamController) return;

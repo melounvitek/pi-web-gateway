@@ -80,6 +80,8 @@ class DemoTest < Minitest::Test
     link = body.at_css('#demo-notice a[href="https://github.com/melounvitek/gripi"]')
 
     refute_nil link
+    assert_includes link.ancestors("#demo-notice").first["class"].split, "is-visible"
+    assert link.parent.at_css("[data-demo-notice-message]")
     assert_equal "View GRIPi on GitHub →", link.text
     refute link.attribute("target")
   end
