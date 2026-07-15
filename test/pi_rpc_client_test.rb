@@ -664,15 +664,121 @@ class PiRpcClientTest < Minitest::Test
     response_writer&.close
   end
 
-  def test_get_tree_uses_native_rpc_command
+  def test_reads_bounded_tree_snapshot_through_extension_bridge
     input = StringIO.new
-    output = StringIO.new(JSON.generate({ id: "get_tree-1", type: "response", command: "get_tree", success: true, data: { tree: [], leafId: nil } }) + "\n")
+    snapshot = {
+      entries: [{ entryId: "user-1", parentId: nil, depth: 0, type: "message", role: "user", text: "Prompt", timestamp: "2026-06-13T10:00:00Z", current: true, latest: true }],
+      leafId: "user-1",
+      truncated: false,
+      totalEntries: 1,
+      filter: "default",
+      settings: { treeFilterMode: "default", branchSummary: { skipPrompt: false } }
+    }
+    output = StringIO.new([
+      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_snapshot:abc123", statusText: JSON.generate({ ok: true }.merge(snapshot)) }),
+      JSON.generate({ id: "prompt-1", type: "response", command: "prompt", success: true })
+    ].join("\n") + "\n")
     client = PiRpcClient.new(stdin: input, stdout: output)
 
-    response = client.get_tree
+    response = with_secure_random_hex("abc123") { client.tree_snapshot }
 
-    assert_equal [], response.dig("data", "tree")
-    assert_equal({ "id" => "get_tree-1", "type" => "get_tree" }, JSON.parse(input.string))
+    assert_equal "user-1", response.dig("data", "leafId")
+    assert_equal "Prompt", response.dig("data", "entries", 0, "text")
+    assert_equal "default", response.dig("data", "settings", "treeFilterMode")
+    command = JSON.parse(input.string)
+    _request_id, payload = decode_extension_command(command.fetch("message"), "gripi_tree_snapshot")
+    assert_equal({}, payload)
+    assert_empty client.events_after(0).fetch(:events)
+  end
+
+  def test_reads_current_tree_leaf_through_lightweight_extension_bridge
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_leaf:abc123", statusText: JSON.generate(ok: true, leafId: "assistant-1") }),
+      JSON.generate({ id: "prompt-1", type: "response", command: "prompt", success: true })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    response = with_secure_random_hex("abc123") { client.tree_leaf }
+
+    assert_equal "assistant-1", response.dig("data", "leafId")
+    command = JSON.parse(input.string)
+    decode_extension_command(command.fetch("message"), "gripi_tree_leaf")
+    assert_empty client.events_after(0).fetch(:events)
+  end
+
+  def test_tree_bridge_times_out_and_discards_late_rpc_and_status_responses
+    command_reader, command_writer = IO.pipe
+    response_reader, response_writer = IO.pipe
+    client = PiRpcClient.new(stdin: command_writer, stdout: response_reader, tree_bridge_timeout: 0.05)
+
+    response = with_secure_random_hex("abc123") { client.tree_snapshot }
+    command = JSON.parse(Timeout.timeout(1) { command_reader.gets })
+
+    assert_equal false, response.fetch("success")
+    assert_equal "Session tree request timed out", response.fetch("error")
+
+    response_writer.puts JSON.generate({ id: command.fetch("id"), type: "response", command: "prompt", success: true })
+    response_writer.puts JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_snapshot:abc123", statusText: JSON.generate(ok: true, entries: []) })
+    Timeout.timeout(1) { sleep 0.01 until client.events_after(0).fetch(:last_seq).zero? }
+
+    state_thread = Thread.new { client.get_state }
+    state_command = JSON.parse(Timeout.timeout(1) { command_reader.gets })
+    response_writer.puts JSON.generate({ id: state_command.fetch("id"), type: "response", command: "get_state", success: true })
+
+    assert_equal true, Timeout.timeout(1) { state_thread.value }.fetch("success")
+    assert_empty client.events_after(0).fetch(:events)
+  ensure
+    state_thread&.kill
+    command_reader&.close
+    command_writer&.close
+    response_reader&.close
+    response_writer&.close
+  end
+
+  def test_tree_bridge_rejects_responses_stored_after_its_deadline
+    monotonic_time = 0
+    input = StringIO.new
+    input.define_singleton_method(:write) do |value|
+      written = super(value)
+      sleep 0.05
+      monotonic_time = 6
+      written
+    end
+    output = StringIO.new([
+      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_leaf:abc123", statusText: JSON.generate(ok: true, leafId: "late") }),
+      JSON.generate({ id: "prompt-1", type: "response", command: "prompt", success: true })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { monotonic_time })
+
+    response = with_secure_random_hex("abc123") { client.tree_leaf }
+
+    assert_equal false, response.fetch("success")
+    assert_equal "Session tree request timed out", response.fetch("error")
+    assert_empty client.events_after(0).fetch(:events)
+  end
+
+  def test_tree_bridge_times_out_while_waiting_for_extension_status
+    command_reader, command_writer = IO.pipe
+    response_reader, response_writer = IO.pipe
+    client = PiRpcClient.new(stdin: command_writer, stdout: response_reader, tree_bridge_timeout: 0.05)
+
+    response_thread = Thread.new { with_secure_random_hex("abc123") { client.tree_leaf } }
+    command = JSON.parse(Timeout.timeout(1) { command_reader.gets })
+    response_writer.puts JSON.generate({ id: command.fetch("id"), type: "response", command: "prompt", success: true })
+    response = Timeout.timeout(1) { response_thread.value }
+
+    assert_equal false, response.fetch("success")
+    assert_equal "Session tree request timed out", response.fetch("error")
+    response_writer.puts JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_leaf:abc123", statusText: JSON.generate(ok: true, leafId: "late") })
+    sleep 0.05
+    assert_empty client.events_after(0).fetch(:events)
+  ensure
+    response_thread&.kill
+    command_reader&.close
+    command_writer&.close
+    response_reader&.close
+    response_writer&.close
   end
 
   def test_navigate_tree_sends_structured_options_through_extension_bridge
@@ -695,19 +801,20 @@ class PiRpcClientTest < Minitest::Test
     assert_equal({ "entryId" => "entry-2", "summary" => "custom", "customInstructions" => "Focus on tests" }, payload)
   end
 
-  def test_reads_effective_tree_settings_through_extension_bridge
+  def test_tree_snapshot_sends_explicit_filter_through_extension_bridge
     input = StringIO.new
-    settings = { treeFilterMode: "user-only", branchSummary: { skipPrompt: true } }
     output = StringIO.new([
-      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_settings:abc123", statusText: JSON.generate(ok: true, settings: settings) }),
+      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_snapshot:abc123", statusText: JSON.generate(ok: true, entries: [], leafId: nil, filter: "user-only", settings: {}) }),
       JSON.generate({ id: "prompt-1", type: "response", command: "prompt", success: true })
     ].join("\n") + "\n")
     client = PiRpcClient.new(stdin: input, stdout: output)
 
-    response = with_secure_random_hex("abc123") { client.tree_settings }
+    response = with_secure_random_hex("abc123") { client.tree_snapshot("user-only") }
 
-    assert_equal "user-only", response.dig("data", "settings", "treeFilterMode")
-    assert_equal true, response.dig("data", "settings", "branchSummary", "skipPrompt")
+    assert_equal "user-only", response.dig("data", "filter")
+    command = JSON.parse(input.string)
+    _request_id, payload = decode_extension_command(command.fetch("message"), "gripi_tree_snapshot")
+    assert_equal({ "filter" => "user-only" }, payload)
   end
 
   def test_sets_and_clears_native_labels_through_extension_bridge
@@ -741,12 +848,12 @@ class PiRpcClientTest < Minitest::Test
   def test_extension_bridge_rejects_a_json_response_with_the_wrong_shape
     input = StringIO.new
     output = StringIO.new([
-      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_settings:abc123", statusText: JSON.generate([]) }),
+      JSON.generate({ type: "extension_ui_request", method: "setStatus", statusKey: "gripi_tree_snapshot:abc123", statusText: JSON.generate([]) }),
       JSON.generate({ id: "prompt-1", type: "response", command: "prompt", success: true })
     ].join("\n") + "\n")
     client = PiRpcClient.new(stdin: input, stdout: output)
 
-    response = with_secure_random_hex("abc123") { client.tree_settings }
+    response = with_secure_random_hex("abc123") { client.tree_snapshot }
 
     assert_equal false, response.fetch("success")
     assert_equal "Extension command returned an invalid response", response.fetch("error")
@@ -786,7 +893,8 @@ class PiRpcClientTest < Minitest::Test
 
     client.get_state
     client.get_messages
-    client.get_tree
+    with_secure_random_hex("tree123") { client.tree_snapshot }
+    with_secure_random_hex("leaf123") { client.tree_leaf }
     client.prompt("Hello", [{ type: "image", data: "abc", mimeType: "image/png" }])
     client.steer("Redirect now")
     client.abort
@@ -810,24 +918,25 @@ class PiRpcClientTest < Minitest::Test
     assert_equal [
       { "id" => "get_state-1", "type" => "get_state" },
       { "id" => "get_messages-2", "type" => "get_messages" },
-      { "id" => "get_tree-3", "type" => "get_tree" },
-      { "id" => "prompt-4", "type" => "prompt", "message" => "Hello", "images" => [{ "type" => "image", "data" => "abc", "mimeType" => "image/png" }] },
-      { "id" => "steer-5", "type" => "steer", "message" => "Redirect now" },
-      { "id" => "abort-6", "type" => "abort" },
-      { "id" => "new_session-7", "type" => "new_session", "parentSession" => "/tmp/session.jsonl" },
-      { "id" => "switch_session-8", "type" => "switch_session", "sessionPath" => "/tmp/other-session.jsonl" },
-      { "id" => "get_commands-9", "type" => "get_commands" },
-      { "id" => "compact-10", "type" => "compact", "customInstructions" => "Focus summary" },
-      { "id" => "set_session_name-11", "type" => "set_session_name", "name" => "Useful name" },
-      { "id" => "get_fork_messages-12", "type" => "get_fork_messages" },
-      { "id" => "fork-13", "type" => "fork", "entryId" => "entry-1" },
-      { "id" => "clone-14", "type" => "clone" },
-      { "id" => "prompt-15", "type" => "prompt", "message" => "/gripi_tree_navigate abc123 #{Base64.urlsafe_encode64(JSON.generate(entryId: "entry-2", summary: "none"), padding: false)}" },
-      { "id" => "follow_up-16", "type" => "follow_up", "message" => "After done", "images" => [{ "type" => "image", "data" => "def", "mimeType" => "image/jpeg" }] },
-      { "id" => "get_available_models-17", "type" => "get_available_models" },
-      { "id" => "set_model-18", "type" => "set_model", "provider" => "anthropic", "modelId" => "claude-sonnet-4" },
-      { "id" => "set_thinking_level-19", "type" => "set_thinking_level", "level" => "high" },
-      { "id" => "cycle_thinking_level-20", "type" => "cycle_thinking_level" }
+      { "id" => "prompt-3", "type" => "prompt", "message" => "/gripi_tree_snapshot tree123 e30" },
+      { "id" => "prompt-4", "type" => "prompt", "message" => "/gripi_tree_leaf leaf123 e30" },
+      { "id" => "prompt-5", "type" => "prompt", "message" => "Hello", "images" => [{ "type" => "image", "data" => "abc", "mimeType" => "image/png" }] },
+      { "id" => "steer-6", "type" => "steer", "message" => "Redirect now" },
+      { "id" => "abort-7", "type" => "abort" },
+      { "id" => "new_session-8", "type" => "new_session", "parentSession" => "/tmp/session.jsonl" },
+      { "id" => "switch_session-9", "type" => "switch_session", "sessionPath" => "/tmp/other-session.jsonl" },
+      { "id" => "get_commands-10", "type" => "get_commands" },
+      { "id" => "compact-11", "type" => "compact", "customInstructions" => "Focus summary" },
+      { "id" => "set_session_name-12", "type" => "set_session_name", "name" => "Useful name" },
+      { "id" => "get_fork_messages-13", "type" => "get_fork_messages" },
+      { "id" => "fork-14", "type" => "fork", "entryId" => "entry-1" },
+      { "id" => "clone-15", "type" => "clone" },
+      { "id" => "prompt-16", "type" => "prompt", "message" => "/gripi_tree_navigate abc123 #{Base64.urlsafe_encode64(JSON.generate(entryId: "entry-2", summary: "none"), padding: false)}" },
+      { "id" => "follow_up-17", "type" => "follow_up", "message" => "After done", "images" => [{ "type" => "image", "data" => "def", "mimeType" => "image/jpeg" }] },
+      { "id" => "get_available_models-18", "type" => "get_available_models" },
+      { "id" => "set_model-19", "type" => "set_model", "provider" => "anthropic", "modelId" => "claude-sonnet-4" },
+      { "id" => "set_thinking_level-20", "type" => "set_thinking_level", "level" => "high" },
+      { "id" => "cycle_thinking_level-21", "type" => "cycle_thinking_level" }
     ], commands
   ensure
     response_reader&.close

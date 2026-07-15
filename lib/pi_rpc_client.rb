@@ -5,7 +5,10 @@ require "securerandom"
 require "thread"
 
 class PiRpcClient
+  class RequestTimeout < IOError; end
+
   DEFAULT_EVENT_BUFFER_LIMIT = 5_000
+  TREE_BRIDGE_TIMEOUT = 5
   MAX_ACTIVE_TOOL_SNAPSHOTS = 16
   MAX_ACTIVE_TOOL_SNAPSHOT_BYTES = 64 * 1024
   MAX_ACTIVE_TOOL_SNAPSHOT_ID_BYTES = 1_024
@@ -50,7 +53,7 @@ class PiRpcClient
     [node_path, pi_path]
   end
 
-  def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, clock: -> { Time.now })
+  def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, clock: -> { Time.now }, monotonic_clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, tree_bridge_timeout: TREE_BRIDGE_TIMEOUT)
     @stdin = stdin
     @stdout = stdout
     @stderr = stderr
@@ -58,11 +61,15 @@ class PiRpcClient
     @request_sequence = 0
     @responses = {}
     @pending_ids = {}
+    @bridge_statuses = {}
+    @pending_bridge_status_keys = {}
     @events = []
     @event_sequence = 0
     @active_tool_events = {}
     @event_buffer_limit = event_buffer_limit
     @clock = clock
+    @monotonic_clock = monotonic_clock
+    @tree_bridge_timeout = tree_bridge_timeout
     @mutex = Mutex.new
     @write_mutex = Mutex.new
     @condition = ConditionVariable.new
@@ -82,10 +89,6 @@ class PiRpcClient
 
   def get_messages
     request("get_messages", id: next_id("get_messages"))
-  end
-
-  def get_tree
-    request("get_tree", id: next_id("get_tree"))
   end
 
   def get_session_stats
@@ -178,19 +181,24 @@ class PiRpcClient
     request("clone", id: next_id("clone"))
   end
 
+  def tree_snapshot(filter_mode = nil)
+    payload = filter_mode.to_s.empty? ? {} : { filter: filter_mode }
+    extension_request("gripi_tree_snapshot", payload, timeout: @tree_bridge_timeout, timeout_error: "Session tree request timed out")
+  end
+
+  def tree_leaf
+    extension_request("gripi_tree_leaf", {}, timeout: @tree_bridge_timeout, timeout_error: "Session tree request timed out")
+  end
+
   def navigate_tree(entry_id, summary: "none", custom_instructions: nil)
     payload = { entryId: entry_id, summary: summary }
     payload[:customInstructions] = custom_instructions unless custom_instructions.to_s.empty?
     extension_request("gripi_tree_navigate", payload)
   end
 
-  def tree_settings
-    extension_request("gripi_tree_settings", {})
-  end
-
   def set_tree_label(entry_id, label)
     normalized_label = label.to_s.strip
-    extension_request("gripi_tree_label", entryId: entry_id, label: normalized_label.empty? ? nil : normalized_label)
+    extension_request("gripi_tree_label", { entryId: entry_id, label: normalized_label.empty? ? nil : normalized_label })
   end
 
   def set_session_name(name)
@@ -255,8 +263,9 @@ class PiRpcClient
     @reader&.join(0.2)
   end
 
-  def request(type, id:, **payload)
+  def request(type, id:, timeout: nil, **payload)
     command = payload.merge(id: id, type: type)
+    deadline = monotonic_time + timeout if timeout
     @mutex.synchronize { @pending_ids[id] = true }
     ensure_reader
     begin
@@ -268,26 +277,40 @@ class PiRpcClient
 
     @mutex.synchronize do
       loop do
+        if deadline && deadline <= monotonic_time
+          @pending_ids.delete(id)
+          @responses.delete(id)
+          raise RequestTimeout, "Pi RPC command timed out: #{type}"
+        end
         return @responses.delete(id) if @responses.key?(id)
         unless @reader_running
           @pending_ids.delete(id)
           raise IOError, "Pi RPC process exited before responding to command"
         end
 
-        @condition.wait(@mutex, 0.1)
+        wait = deadline ? [remaining_timeout(deadline), 0.1].min : 0.1
+        @condition.wait(@mutex, wait)
       end
     end
   end
 
   private
 
-  def extension_request(command, payload)
+  def extension_request(command, payload, timeout: nil, timeout_error: "Extension command timed out")
     request_id = SecureRandom.hex(8)
+    status_key = "#{command}:#{request_id}"
     encoded_payload = Base64.urlsafe_encode64(JSON.generate(payload), padding: false)
-    response = request("prompt", id: next_id("prompt"), message: "/#{command} #{request_id} #{encoded_payload}")
+    deadline = monotonic_time + timeout if timeout
+    @mutex.synchronize { @pending_bridge_status_keys[status_key] = true }
+    response = request(
+      "prompt",
+      id: next_id("prompt"),
+      message: "/#{command} #{request_id} #{encoded_payload}",
+      timeout: remaining_timeout(deadline)
+    )
     return response unless response&.fetch("success", true)
 
-    status = wait_for_status("#{command}:#{request_id}")
+    status = wait_for_status(status_key, timeout: remaining_timeout(deadline) || 5)
     return response.merge("success" => false, "error" => "Extension command did not complete") unless status
 
     result = JSON.parse(status)
@@ -295,34 +318,30 @@ class PiRpcClient
     return response.merge("success" => false, "error" => result["error"].to_s.empty? ? "Extension command failed" : result["error"]) unless result["ok"] == true
 
     response.merge("data" => result.reject { |key, _value| key == "ok" })
+  rescue RequestTimeout
+    { "success" => false, "error" => timeout_error }
   rescue JSON::ParserError
     response.merge("success" => false, "error" => "Extension command returned an invalid response")
+  ensure
+    @mutex.synchronize do
+      @pending_bridge_status_keys.delete(status_key) if status_key
+      @bridge_statuses.delete(status_key) if status_key
+    end
   end
 
   def wait_for_status(status_key, timeout: 5)
-    deadline = @clock.call + timeout
+    deadline = monotonic_time + timeout
 
     @mutex.synchronize do
       loop do
-        result = status_from_events(status_key)
-        return result if result
+        remaining = deadline - monotonic_time
+        raise RequestTimeout, "Pi RPC extension status timed out" unless remaining.positive?
+        return @bridge_statuses.delete(status_key) if @bridge_statuses.key?(status_key)
         raise IOError, "Pi RPC process exited before reporting extension status" unless @reader_running
-
-        remaining = deadline - @clock.call
-        return nil unless remaining.positive?
 
         @condition.wait(@mutex, [remaining, 0.1].min)
       end
     end
-  end
-
-  def status_from_events(status_key)
-    event = @events.reverse_each.find do |_seq, candidate|
-      candidate["type"] == "extension_ui_request" &&
-        candidate["method"] == "setStatus" &&
-        candidate["statusKey"] == status_key
-    end
-    event&.last&.[]("statusText")
   end
 
   def close_io(io)
@@ -337,6 +356,16 @@ class PiRpcClient
     Process.kill("TERM", @wait_thread.pid)
   rescue Errno::ESRCH, IOError
     nil
+  end
+
+  def monotonic_time
+    @monotonic_clock.call
+  end
+
+  def remaining_timeout(deadline)
+    return unless deadline
+
+    [deadline - monotonic_time, 0].max
   end
 
   def next_id(type)
@@ -399,8 +428,13 @@ class PiRpcClient
 
   def store_response(response, serialized_bytesize:)
     @mutex.synchronize do
-      if response["id"] && @pending_ids.delete(response["id"])
+      status_key = internal_bridge_status_key(response)
+      if status_key
+        @bridge_statuses[status_key] = response["statusText"] if @pending_bridge_status_keys.key?(status_key)
+      elsif response["id"] && @pending_ids.delete(response["id"])
         @responses[response["id"]] = response
+      elsif response["type"] == "response" && response["id"]
+        # A timed-out RPC response is no longer useful and must not become an event.
       else
         if ["agent_start", "agent_settled", "turn_start", "compaction_start"].include?(response["type"])
           response = response.merge("gatewayTimestamp" => (@clock.call.to_f * 1000).to_i)
@@ -413,6 +447,13 @@ class PiRpcClient
       end
       @condition.broadcast
     end
+  end
+
+  def internal_bridge_status_key(response)
+    return unless response["type"] == "extension_ui_request" && response["method"] == "setStatus"
+
+    status_key = response["statusKey"]
+    status_key if status_key.to_s.match?(/\Agripi_tree_(?:snapshot|leaf|navigate|label):[a-f0-9]+\z/i)
   end
 
   def update_active_tool_events(response, serialized_bytesize)

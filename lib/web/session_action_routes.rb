@@ -414,26 +414,22 @@ module Web
 
       app.get "/sessions/tree_entries" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        tree_response, settings_response = with_synchronized_rpc_client(session_path) do |client|
-          [client.get_tree, client.tree_settings]
+        filter_mode = params["filter"].to_s
+        halt 400, "Invalid tree filter" if !filter_mode.empty? && !Rpc::TreeProjection::FILTER_MODES.include?(filter_mode)
+
+        snapshot_response = with_synchronized_rpc_client(session_path) do |client|
+          client.tree_snapshot(filter_mode.empty? ? nil : filter_mode)
         end
-        halt_failed_rpc_setting(tree_response)
-        halt_failed_rpc_setting(settings_response)
-        tree_data = response_data(tree_response)
-        settings_data = response_data(settings_response)
-        tree_settings = settings_data["settings"] if settings_data.is_a?(Hash)
-        unless tree_data.is_a?(Hash) && tree_data["tree"].is_a?(Array) && tree_settings.is_a?(Hash)
+        halt_failed_rpc_setting(snapshot_response)
+        snapshot = response_data(snapshot_response)
+        unless snapshot.is_a?(Hash) && snapshot["entries"].is_a?(Array) && snapshot["settings"].is_a?(Hash) && Rpc::TreeProjection::FILTER_MODES.include?(snapshot["filter"])
           status 502
           content_type :json
           halt JSON.generate(error: "Could not load session tree")
         end
 
-        filter_mode = params["filter"].to_s
-        filter_mode = tree_settings["treeFilterMode"].to_s if filter_mode.empty?
-        halt 400, "Invalid tree filter" unless Rpc::TreeProjection::FILTER_MODES.include?(filter_mode)
-        projection = Rpc::TreeProjection.call(tree_data, filter_mode: filter_mode)
         content_type :json
-        JSON.generate(projection.merge(settings: tree_settings, filter: filter_mode))
+        JSON.generate(snapshot)
       end
 
       app.post "/sessions/tree" do

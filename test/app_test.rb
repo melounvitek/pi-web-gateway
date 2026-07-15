@@ -1576,7 +1576,7 @@ class AppTest < Minitest::Test
       assert_equal "Alternate prompt", entries.last.fetch("text")
       refute entries.last.key?("editorText")
       refute entries[1].key?("editorText")
-      assert_equal [[:start, path], [:get_tree], [:tree_settings]], calls
+      assert_equal [[:start, path], [:tree_snapshot, nil]], calls
     end
   end
 
@@ -1604,7 +1604,34 @@ class AppTest < Minitest::Test
       assert_equal "user-only", payload.fetch("filter")
       assert_equal true, payload.dig("settings", "branchSummary", "skipPrompt")
       assert_equal ["user-1"], payload.fetch("entries").map { |entry| entry.fetch("entryId") }
-      assert_equal [[:start, path], [:get_tree], [:tree_settings]], calls
+      assert_equal [[:start, path], [:tree_snapshot, nil]], calls
+    end
+  end
+
+  def test_tree_entries_return_controlled_failure_when_snapshot_times_out
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      client = FakeRpcClient.new(calls)
+      client.define_singleton_method(:tree_snapshot) do |_filter_mode = nil|
+        calls << [:tree_snapshot, nil]
+        { "success" => false, "error" => "Session tree request timed out" }
+      end
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        client
+      }]
+
+      response = Rack::MockRequest.new(Gripi).get(
+        "/sessions/tree_entries",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 422, response.status
+      assert_equal({ "success" => false, "error" => "Session tree request timed out" }, JSON.parse(response.body))
+      assert_equal [[:start, path], [:tree_snapshot, nil]], calls
     end
   end
 
@@ -1844,7 +1871,7 @@ class AppTest < Minitest::Test
       entries = JSON.parse(response.body).fetch("entries")
       assert_equal [false, true, false], entries.map { |entry| entry.fetch("current") }
       assert_equal [false, false, true], entries.map { |entry| entry.fetch("latest") }
-      assert_equal [[:start, path], [:get_tree], [:tree_settings]], calls
+      assert_equal [[:start, path], [:tree_snapshot, nil]], calls
     end
   end
 
@@ -2424,7 +2451,8 @@ class AppTest < Minitest::Test
           { "name" => "sessions", "source" => "extension", "description" => "Switch, rename, or delete project sessions" },
           { "name" => "rename", "source" => "extension", "description" => "Rename the current session" },
           { "name" => "gripi_tree_navigate", "source" => "extension", "description" => "Internal bridge" },
-          { "name" => "gripi_tree_settings", "source" => "extension", "description" => "Internal bridge" },
+          { "name" => "gripi_tree_snapshot", "source" => "extension", "description" => "Internal bridge" },
+          { "name" => "gripi_tree_leaf", "source" => "extension", "description" => "Internal bridge" },
           { "name" => "gripi_tree_label", "source" => "extension", "description" => "Internal bridge" }
         ])
       }]
@@ -2445,7 +2473,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, "/sessions"
       assert_includes response.body, "/rename"
       refute_includes response.body, "gripi_tree_navigate"
-      refute_includes response.body, "gripi_tree_settings"
+      refute_includes response.body, "gripi_tree_snapshot"
+      refute_includes response.body, "gripi_tree_leaf"
       refute_includes response.body, "gripi_tree_label"
       refute_includes response.body, "command-filter"
       assert_equal [[ :start, path ], [ :get_commands ]], calls
@@ -7428,14 +7457,20 @@ class AppTest < Minitest::Test
       @calls << [:get_messages]
     end
 
-    def get_tree
-      @calls << [:get_tree]
-      { "success" => true, "data" => { "tree" => @tree, "leafId" => @session_file } }
+    def tree_snapshot(filter_mode = nil)
+      @calls << [:tree_snapshot, filter_mode]
+      effective_filter = filter_mode || @tree_filter_mode
+      projection = Rpc::TreeProjection.call({ "tree" => @tree, "leafId" => @session_file }, filter_mode: effective_filter)
+      data = projection.merge(
+        filter: effective_filter,
+        settings: { treeFilterMode: @tree_filter_mode, branchSummary: { skipPrompt: @branch_summary_skip_prompt } }
+      )
+      { "success" => true, "data" => JSON.parse(JSON.generate(data)) }
     end
 
-    def tree_settings
-      @calls << [:tree_settings]
-      { "success" => true, "data" => { "settings" => { "treeFilterMode" => @tree_filter_mode, "branchSummary" => { "skipPrompt" => @branch_summary_skip_prompt } } } }
+    def tree_leaf
+      @calls << [:tree_leaf]
+      { "success" => true, "data" => { "leafId" => @session_file } }
     end
 
     def new_session(parent_session = nil)

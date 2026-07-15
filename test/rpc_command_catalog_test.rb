@@ -11,7 +11,8 @@ module Rpc
             { "name" => "sessions", "source" => "extension", "description" => "Switch, rename, or delete project sessions" },
             { "name" => "rename", "source" => "extension", "description" => "Rename the current session" },
             { "name" => "gripi_tree_navigate", "source" => "extension", "description" => "Internal bridge" },
-            { "name" => "gripi_tree_settings", "source" => "extension", "description" => "Internal bridge" },
+            { "name" => "gripi_tree_snapshot", "source" => "extension", "description" => "Internal bridge" },
+            { "name" => "gripi_tree_leaf", "source" => "extension", "description" => "Internal bridge" },
             { "name" => "gripi_tree_label", "source" => "extension", "description" => "Internal bridge" }
           ]
         }

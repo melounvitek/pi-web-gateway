@@ -267,6 +267,22 @@ class SessionsSessionViewTest < Minitest::Test
     end
   end
 
+  def test_active_session_leaf_fallback_uses_lightweight_tree_bridge
+    calls = []
+    client = Object.new
+    client.define_singleton_method(:tree_leaf) do
+      calls << :tree_leaf
+      { "success" => true, "data" => { "leafId" => "assistant-1" } }
+    end
+    rpc_clients = Object.new
+    rpc_clients.define_singleton_method(:with_active_client) { |_path, &block| block.call(client) }
+
+    leaf_id = Sessions::SessionView.active_session_tree_leaf(rpc_clients, "/tmp/session.jsonl")
+
+    assert_equal "assistant-1", leaf_id
+    assert_equal [:tree_leaf], calls
+  end
+
   def test_conversation_applies_byte_budget_after_retaining_the_latest_turn
     Dir.mktmpdir do |dir|
       session_path = write_session_with_messages(dir, 100, text_suffix: "x" * 10_000)
