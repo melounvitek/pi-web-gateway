@@ -75,6 +75,15 @@ class DemoTest < Minitest::Test
     assert_equal "pi", body.at_css(".message--assistant:not(.message--thinking):not(.message--tool-call) .role").text
   end
 
+  def test_demo_notice_links_to_the_repository_in_the_same_tab
+    body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
+    link = body.at_css('#demo-notice a[href="https://github.com/melounvitek/gripi"]')
+
+    refute_nil link
+    assert_equal "View GRIPi on GitHub →", link.text
+    refute link.attribute("target")
+  end
+
   def test_streams_are_bound_to_the_originating_session_and_blocked_while_switching
     javascript = File.read(JAVASCRIPT)
 

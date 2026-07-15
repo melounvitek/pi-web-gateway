@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#18181e">
   <title>Build responsive session sidebar · GRIPi demo</title>
-  <style></style>
+  <style>
+    .demo-repository-link { color: var(--text); font-weight: 700; white-space: nowrap; text-underline-offset: 0.15em; }
+    .demo-repository-link:hover { color: #fff; }
+  </style>
   <style data-production-styles>
     :root {
       color-scheme: dark;
@@ -618,7 +621,7 @@ No production selectors need to diverge.</pre></div></div></article>
 
       <div class="composer"><div class="composer-inner">
         <details class="command-list" id="command-list" data-loaded="true"><summary>Slash commands (5)</summary><h3>Gateway commands</h3><div class="command" data-command-name="new"><code>/new</code> — Start a new session</div><div class="command" data-command-name="fork"><code>/fork</code> — Fork this conversation</div><div class="command" data-command-name="tree"><code>/tree</code> — Open the session tree</div><div class="command" data-command-name="model"><code>/model</code> — Choose model and thinking</div><div class="command" data-command-name="compact"><code>/compact</code> — Compact context</div></details>
-        <div class="session-reconnect" id="demo-notice" role="status" aria-live="polite"><span>Static demo: prompts and settings stay in this browser; Pi and gateway-only actions are simulated.</span><button type="button" class="secondary reconnect-button" data-dismiss-notice>Dismiss</button></div>
+        <div class="session-reconnect" id="demo-notice" role="status" aria-live="polite"><span>Static demo: prompts and settings stay in this browser; Pi and gateway-only actions are simulated. <a class="demo-repository-link" href="https://github.com/melounvitek/gripi">View GRIPi on GitHub →</a></span><button type="button" class="secondary reconnect-button" data-dismiss-notice>Dismiss</button></div>
         <form class="prompt-form" id="prompt-form">
           <div class="tree-position-banner" role="status" data-demo-secondary-state hidden><div><strong>Viewing earlier tree point.</strong> <span>Your next message will branch from here.</span></div><button type="button" class="secondary" data-demo-notice>Jump to latest</button></div>
           <div class="session-sync-banner" role="status" data-demo-secondary-state hidden><div><strong>Session changed outside the gateway.</strong> <span>Finish using this session in Pi CLI before continuing here.</span></div><button type="button" class="secondary" data-demo-notice>Take over in gateway</button></div>
