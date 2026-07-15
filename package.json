@@ -2,8 +2,8 @@
   "name": "gripi-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Thin Electron shell for GRIPi.",
-  "author": "GRIPi contributors",
+  "description": "Thin Electron shell for Gripi.",
+  "author": "Gripi contributors",
   "main": "electron/main.js",
   "desktopName": "gripi",
   "engines": {
@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "dev.gripi.desktop",
-    "productName": "GRIPi",
+    "productName": "Gripi",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "electron/**/*",

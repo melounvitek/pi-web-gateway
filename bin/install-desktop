@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PRODUCT_NAME="GRIPi"
+PRODUCT_NAME="Gripi"
 DESKTOP_ID="gripi"
 
 log() {
@@ -80,7 +80,7 @@ install_linux() {
 [Desktop Entry]
 Type=Application
 Name=${PRODUCT_NAME}
-Comment=Thin Electron shell for GRIPi
+Comment=Thin Electron shell for Gripi
 Exec="${target_path}"
 Icon=${icon_path}
 Terminal=false

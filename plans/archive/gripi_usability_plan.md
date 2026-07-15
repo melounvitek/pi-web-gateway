@@ -1,8 +1,8 @@
-# GRIPi Usability Plan
+# Gripi Usability Plan
 
 ## Goal
 
-Turn the current GRIPi PoC into a usable personal browser UI for daily Pi sessions.
+Turn the current Gripi PoC into a usable personal browser UI for daily Pi sessions.
 
 Keep the same core architecture:
 

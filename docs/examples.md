@@ -1,12 +1,12 @@
 # Local and remote setups
 
-GRIPi lets a desktop app or web browser use Pi running on the gateway machine. Pi has access to that machine's files, repositories, and credentials, so do not expose GRIPi directly to the public internet.
+Gripi lets a desktop app or web browser use Pi running on the gateway machine. Pi has access to that machine's files, repositories, and credentials, so do not expose Gripi directly to the public internet.
 
 For remote access, use a VPN such as [Tailscale](https://tailscale.com/). It is free for personal use and a common default for this kind of setup.
 
 ## Local gateway
 
-Use this when GRIPi and your browser or desktop app run on the same machine:
+Use this when Gripi and your browser or desktop app run on the same machine:
 
 ```sh
 GRIPI_HOST=127.0.0.1 mise run start
@@ -18,13 +18,13 @@ Open <http://localhost:4567>. This is the simplest and safest setup.
 
 Use this when Pi should run on an always-on desktop, spare laptop, or home server while you connect from another device.
 
-1. Install GRIPi and Pi CLI on the gateway machine.
+1. Install Gripi and Pi CLI on the gateway machine.
 2. Put the gateway machine and client devices on the same Tailscale network.
 3. Choose one of the connection options below.
 
 ### Direct VPN connection
 
-Bind GRIPi to the gateway machine's Tailscale address:
+Bind Gripi to the gateway machine's Tailscale address:
 
 ```sh
 GRIPI_HOST=100.x.y.z mise run start
@@ -34,7 +34,7 @@ Open `http://100.x.y.z:4567` in a browser, or add it from the desktop app's **Ad
 
 ### HTTPS through Tailscale Serve
 
-Keep GRIPi bound to the gateway machine itself:
+Keep Gripi bound to the gateway machine itself:
 
 ```sh
 GRIPI_HOST=127.0.0.1 mise run start
@@ -61,7 +61,7 @@ Create `~/.config/systemd/user/gripi.service` on the gateway machine:
 
 ```ini
 [Unit]
-Description=GRIPi
+Description=Gripi
 After=network-online.target
 Wants=network-online.target
 
@@ -80,7 +80,7 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-Replace `WorkingDirectory` with the GRIPi checkout and `ExecStart` with the path reported by `command -v mise`. The unit above is configured for Tailscale Serve; for a direct VPN connection, replace `127.0.0.1` with the gateway machine's Tailscale address.
+Replace `WorkingDirectory` with the Gripi checkout and `ExecStart` with the path reported by `command -v mise`. The unit above is configured for Tailscale Serve; for a direct VPN connection, replace `127.0.0.1` with the gateway machine's Tailscale address.
 
 The explicit `PATH` includes common Pi installation locations. If `command -v pi` reports another directory, add that directory to `PATH` or configure the [custom Pi runtime](configuration.md#custom-pi-runtime).
 

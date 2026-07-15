@@ -28,7 +28,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    title: process.platform === "darwin" ? "" : "GRIPi",
+    title: process.platform === "darwin" ? "" : "Gripi",
     icon: WINDOW_ICON_PATH,
     autoHideMenuBar: true,
     webPreferences: {
@@ -312,8 +312,8 @@ function showGatewayNotification(event, payload) {
   if (!sameOrigin(event.senderFrame?.url, gateway.allowedOrigin)) return { ok: false };
   if (!Notification.isSupported()) return { ok: false };
 
-  const title = stringPayloadValue(payload?.title) || "GRIPi";
-  const body = stringPayloadValue(payload?.body) || "Notification from GRIPi.";
+  const title = stringPayloadValue(payload?.title) || "Gripi";
+  const body = stringPayloadValue(payload?.body) || "Notification from Gripi.";
   const url = resolveSameOriginUrl(payload?.url || "/", gateway.allowedOrigin);
   const notification = new Notification({ title, body, icon: WINDOW_ICON_PATH });
   notification.on("click", () => {

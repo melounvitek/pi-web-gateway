@@ -26,7 +26,7 @@ test("desktop window hides the native menu bar by default", () => {
 test("desktop window hides only its native title on macOS", () => {
   const main = read("electron/main.js");
 
-  assert.match(main, /title:\s*process\.platform === "darwin" \? "" : "GRIPi"/);
+  assert.match(main, /title:\s*process\.platform === "darwin" \? "" : "Gripi"/);
   assert.match(main, /if \(process\.platform === "darwin"\) \{\s*mainWindow\.on\("page-title-updated", \(event\) => event\.preventDefault\(\)\);\s*}/s);
 });
 

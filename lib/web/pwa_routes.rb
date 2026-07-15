@@ -2,7 +2,7 @@ require "json"
 
 module Web
   module PwaRoutes
-    # GRIPi mark: the pi CLI glyph (verbatim) held by four corner clamps.
+    # Gripi mark: the pi CLI glyph (verbatim) held by four corner clamps.
     # Geometry lives on an 8x8 pixel grid, cell = 100. See branding/.
     GRIPI_ICON_GRIP = '<path fill="#F24405" d="M0 0H200V100H100V200H0ZM600 0H800V200H700V100H600ZM0 600H100V700H200V800H0ZM700 600H800V800H600V700H700Z"/>'
     GRIPI_ICON_PI = '<g fill="#F1EFE9" transform="translate(200 200)"><path fill-rule="evenodd" d="M0 0H300V200H200V300H100V400H0ZM100 100V200H200V100Z"/><path d="M300 200H400V400H300Z"/></g>'
@@ -11,8 +11,8 @@ module Web
       app.get "/manifest.webmanifest" do
         content_type "application/manifest+json"
         JSON.generate(
-          name: "GRIPi",
-          short_name: "GRIPi",
+          name: "Gripi",
+          short_name: "Gripi",
           start_url: "/",
           scope: "/",
           display: "standalone",
@@ -65,7 +65,7 @@ module Web
 
             const defaultUrl = data.type === "gripi-notification-test" ? "/notification-test" : "/";
             const defaultTag = data.type === "gripi-notification-test" ? "gripi-notification-test" : "gripi-notification";
-            event.waitUntil(self.registration.showNotification(data.title || "GRIPi", {
+            event.waitUntil(self.registration.showNotification(data.title || "Gripi", {
               body: data.body || "Notifications are working.",
               tag: data.tag || defaultTag,
               renotify: true,

@@ -5,14 +5,14 @@
   </picture>
 </p>
 
-**GRIPi is a desktop and web portal for [Pi](https://pi.dev/), powered by a self-hosted gateway.** Run the gateway on a development machine or home server with Pi CLI installed, then use Pi from the desktop app or any web browser—locally or over a private network.
+**Gripi is a desktop and web portal for [Pi](https://pi.dev/), powered by a self-hosted gateway.** Run the gateway on a development machine or home server with Pi CLI installed, then use Pi from the desktop app or any web browser—locally or over a private network.
 
 <p align="center">
   <strong><a href="https://melounvitek.github.io/gripi/">Try the live interactive demo →</a></strong><br>
   <sub>No installation required. Responses and backend actions are simulated.</sub>
 </p>
 
-<a href="docs/images/gripi-architecture.svg"><img alt="Desktop, browser, and mobile clients connect over a local network or VPN to the GRIPi gateway, which runs Pi with access to the gateway machine's projects, sessions, and credentials" src="docs/images/gripi-architecture.svg" /></a>
+<a href="docs/images/gripi-architecture.svg"><img alt="Desktop, browser, and mobile clients connect over a local network or VPN to the Gripi gateway, which runs Pi with access to the gateway machine's projects, sessions, and credentials" src="docs/images/gripi-architecture.svg" /></a>
 
 ## Install
 
@@ -53,7 +53,7 @@ There is no mobile app, but on iPhone, adding the gateway to the Home Screen wit
 
 <img width="804" height="362" alt="image" src="https://github.com/user-attachments/assets/37ab55d7-7b34-4cce-932e-566a6d415041" />
 
-<img width="360" alt="GRIPi running as an iPhone web app" src="docs/images/gripi-mobile-screenshot.png" />
+<img width="360" alt="Gripi running as an iPhone web app" src="docs/images/gripi-mobile-screenshot.png" />
 
 ## Usage modes
 

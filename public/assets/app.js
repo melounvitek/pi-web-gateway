@@ -743,7 +743,7 @@ function updateSessionHeaderName(name) {
   const title = headerName.closest(".session-header-title");
   const project = title?.querySelector(".session-header-project-label")?.textContent.trim();
   if (title) title.title = project ? `${name} · ${project}` : name;
-  document.title = `${name} · GRIPi`;
+  document.title = `${name} · Gripi`;
 }
 
 function renderAttachments() {
@@ -1746,7 +1746,7 @@ async function switchSession(url, { push = true, focus = true, preserveScroll = 
     bindSessionControls();
     rememberMainSessionSelection(payload.session);
     if (push) history.pushState({ session: payload.session }, payload.title || "", payload.url || url);
-    document.title = payload.title ? `${payload.title} · GRIPi` : "GRIPi";
+    document.title = payload.title ? `${payload.title} · Gripi` : "Gripi";
     sidebarController.closeMobile();
     initializeSessionView({ focus, scrollSnapshot });
     if (refreshRequestVersion !== sidebarController.refreshRequestVersion) sidebarController.scheduleRefresh(0);

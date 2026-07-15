@@ -1,6 +1,6 @@
 # Configuration
 
-GRIPi reads most settings from `~/.config/gripi/env`. Values passed in the process environment take precedence.
+Gripi reads most settings from `~/.config/gripi/env`. Values passed in the process environment take precedence.
 
 ## Server address
 
@@ -15,7 +15,7 @@ Keep `GRIPI_HOST=127.0.0.1` for same-machine use. Bind to a LAN or VPN address o
 
 Plain `mise run start` currently listens on all interfaces (`0.0.0.0`). Do not use that default unless network access to the machine is already restricted.
 
-`GRIPI_HOST` and `GRIPI_PORT` must be set in the command or service environment; they are read by the launcher before GRIPi loads `~/.config/gripi/env`.
+`GRIPI_HOST` and `GRIPI_PORT` must be set in the command or service environment; they are read by the launcher before Gripi loads `~/.config/gripi/env`.
 
 ## Browser approval
 
@@ -31,7 +31,7 @@ Only disable approval when network access is already restricted to trusted devic
 
 ## Multi-user mode
 
-By default, GRIPi runs in single-user mode and shows all Pi sessions to one trusted user.
+By default, Gripi runs in single-user mode and shows all Pi sessions to one trusted user.
 
 To enable multi-user mode, add this to the env file:
 
@@ -67,7 +67,7 @@ GRIPI_PI=/path/to/pi
 
 ## Self-updates
 
-GRIPi checks `origin/master` after the page loads and shows a sidebar control when updates are available. Anyone who can use the gateway can trigger an update, and updating interrupts active Pi work.
+Gripi checks `origin/master` after the page loads and shows a sidebar control when updates are available. Anyone who can use the gateway can trigger an update, and updating interrupts active Pi work.
 
 Updates require the checkout to:
 
@@ -76,6 +76,6 @@ Updates require the checkout to:
 - have no local commits
 - allow a fast-forward to `origin/master`
 
-GRIPi fetches the update, runs `bundle install`, and restarts. If dependency installation fails, it restores the previous tracked checkout and reports the failure in the sidebar.
+Gripi fetches the update, runs `bundle install`, and restarts. If dependency installation fails, it restores the previous tracked checkout and reports the failure in the sidebar.
 
-Automatic restart requires GRIPi to be launched through `mise run start` or `bin/start`. A direct `bundle exec rackup` process can update the checkout but cannot start its replacement.
+Automatic restart requires Gripi to be launched through `mise run start` or `bin/start`. A direct `bundle exec rackup` process can update the checkout but cannot start its replacement.

@@ -232,7 +232,7 @@ class AppTest < Minitest::Test
     assert_equal 200, response.status
     assert_equal "application/manifest+json", response.media_type
     manifest = JSON.parse(response.body)
-    assert_equal "GRIPi", manifest.fetch("name")
+    assert_equal "Gripi", manifest.fetch("name")
     assert_equal "/", manifest.fetch("start_url")
     assert_equal "standalone", manifest.fetch("display")
   end
@@ -345,7 +345,7 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(Gripi).get("/")
 
       assert_equal 200, response.status
-      assert_includes response.body, "GRIPi"
+      assert_includes response.body, "Gripi"
       refute_includes response.body, "Browser access required"
       refute File.exist?(Gripi.settings.browser_access_path)
     end
@@ -383,7 +383,7 @@ class AppTest < Minitest::Test
 
       allowed = request.get("/", "HTTP_COOKIE" => cookie)
       assert_equal 200, allowed.status
-      assert_includes allowed.body, "GRIPi"
+      assert_includes allowed.body, "Gripi"
       refute_includes allowed.body, "Browser access required"
     end
   end
@@ -3801,7 +3801,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_equal "https://pi.example.test:9292", document.at_css(".sidebar-server-origin").text.strip
-      assert_operator response.body.index(%(aria-label="GRIPi")), :<, response.body.index("sidebar-server-origin")
+      assert_operator response.body.index(%(aria-label="Gripi")), :<, response.body.index("sidebar-server-origin")
     end
   end
 

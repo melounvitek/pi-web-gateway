@@ -94,7 +94,7 @@ export function messageRoleLabel(roleName) {
 export function extensionUiRequestNotice(event) {
   if (event?.type !== "extension_ui_request") return null;
   if (["select", "confirm", "input", "editor"].includes(event.method)) {
-    return { role: "status", text: "This extension requested interactive UI that GRIPi does not support yet. The request was cancelled." };
+    return { role: "status", text: "This extension requested interactive UI that Gripi does not support yet. The request was cancelled." };
   }
   if (event.method === "notify" && event.message) {
     if (event.notifyType === "error") return { role: "error", text: event.message };
@@ -140,7 +140,7 @@ export function eventErrorText(event) {
   if (!event || typeof event !== "object") return "";
   const errorText = errorValueText(event.error) || errorValueText(event.finalError);
   if (event.type === "extension_error" && event.extensionPath === "command:sessions" && event.event === "command" && errorText === "Cannot read properties of undefined (reading 'action')") {
-    return "This extension command requires terminal UI that GRIPi does not support yet.";
+    return "This extension command requires terminal UI that Gripi does not support yet.";
   }
   if (errorText) return errorText;
   if (event.type === "error" || /(?:error|fail(?:ed|ure)?)/i.test(event.type || "")) return errorValueText(event);

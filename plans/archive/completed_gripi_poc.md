@@ -1,4 +1,4 @@
-# GRIPi PoC Plan
+# Gripi PoC Plan
 
 ## Goal
 

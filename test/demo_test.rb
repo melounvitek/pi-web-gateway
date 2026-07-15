@@ -80,8 +80,8 @@ class DemoTest < Minitest::Test
     repository_link = body.at_css('#history-output a[href="https://github.com/melounvitek/gripi"]')
     result = run_javascript("console.log(JSON.stringify({ defaultSessionId: GripiDemo.defaultSessionId }));")
 
-    assert_equal "Welcome to GRIPi · GRIPi demo", body.document.at_css("title").text
-    assert_equal "Welcome to GRIPi", body.at_css(".session-header-name").text
+    assert_equal "Welcome to Gripi · Gripi demo", body.document.at_css("title").text
+    assert_equal "Welcome to Gripi", body.at_css(".session-header-name").text
     assert_equal "welcome", result.fetch("defaultSessionId")
     assert_includes body.at_css("#history-output").text, "mise run setup"
     refute_nil repository_link
@@ -94,24 +94,24 @@ class DemoTest < Minitest::Test
     grouped = result.group_by { |session| session.fetch("project") }
 
     assert_equal [
-      "Welcome to GRIPi",
+      "Welcome to Gripi",
       "New to Pi? Start here",
-      "What isn’t supported in GRIPi?",
-      "Run GRIPi on an always-on computer",
-      "Access GRIPi remotely with Tailscale",
-      "Use GRIPi from a phone or tablet",
-      "Should I run GRIPi on a VPS?"
+      "What isn’t supported in Gripi?",
+      "Run Gripi on an always-on computer",
+      "Access Gripi remotely with Tailscale",
+      "Use Gripi from a phone or tablet",
+      "Should I run Gripi on a VPS?"
     ], grouped.fetch("gripi").map { |session| session.fetch("name") }
     assert_equal ["Draft release notes", "Simplify documentation navigation"], grouped.fetch("website").map { |session| session.fetch("name") }
     assert_equal ["Investigate flaky checkout spec", "Polish checkout confirmation copy", "Speed up CI dependency caching"], grouped.fetch("storefront").map { |session| session.fetch("name") }
-    assert_equal ["Welcome to GRIPi"], result.select { |session| session.fetch("pinned") }.map { |session| session.fetch("name") }
+    assert_equal ["Welcome to Gripi"], result.select { |session| session.fetch("pinned") }.map { |session| session.fetch("name") }
 
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
     javascript = File.read(JAVASCRIPT)
     refute_includes javascript, 'gripi:static-demo:v6'
     assert_includes javascript, 'gripi:static-demo:v7'
     assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
-    assert_includes javascript, "Never expose GRIPi through a public IP or public reverse proxy."
+    assert_includes javascript, "Never expose Gripi through a public IP or public reverse proxy."
     assert_includes javascript, 'switchSession(button.dataset.demoTreeTarget)'
     assert body.at_css('[data-demo-tree-target="new-to-pi"]')
 
@@ -142,7 +142,7 @@ class DemoTest < Minitest::Test
     refute_nil link
     assert_includes link.ancestors("#demo-notice").first["class"].split, "is-visible"
     assert link.parent.at_css("[data-demo-notice-message]")
-    assert_equal "View GRIPi on GitHub →", link.text
+    assert_equal "View Gripi on GitHub →", link.text
     refute link.attribute("target")
   end
 

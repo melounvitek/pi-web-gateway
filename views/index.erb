@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GRIPi</title>
+  <title>Gripi</title>
   <link rel="icon" href="/app-icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#18181e">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="GRIPi">
+  <meta name="apple-mobile-web-app-title" content="Gripi">
   <link rel="stylesheet" href="/assets/app.css?v=<%= h settings.gateway_instance_id %>">
 </head>
 <body class="<%= session_only? ? "session-only" : "" %>" data-browser-access-enabled="<%= browser_access_enabled? ? "true" : "false" %>" data-workspace-access-enabled="<%= multi_user_mode? ? "true" : "false" %>" data-gateway-instance-id="<%= h settings.gateway_instance_id %>" data-home-dir="<%= h Dir.home %>">

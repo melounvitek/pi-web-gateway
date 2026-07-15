@@ -2,7 +2,7 @@
 
 ## Goal
 
-Bring GRIPi's `/tree` workflow close to practical Pi CLI parity while preserving Pi-owned session data and behavior.
+Bring Gripi's `/tree` workflow close to practical Pi CLI parity while preserving Pi-owned session data and behavior.
 
 ## Scope
 

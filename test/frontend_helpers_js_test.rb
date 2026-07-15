@@ -56,7 +56,7 @@ class FrontendHelpersJsTest < Minitest::Test
       ]));
     JS
 
-    assert_equal({ "role" => "status", "text" => "This extension requested interactive UI that GRIPi does not support yet. The request was cancelled." }, results[0])
+    assert_equal({ "role" => "status", "text" => "This extension requested interactive UI that Gripi does not support yet. The request was cancelled." }, results[0])
     assert_equal({ "role" => "status", "text" => "Review finished" }, results[1])
     assert_equal({ "role" => "status", "text" => "Warning: Review needs attention" }, results[2])
     assert_equal({ "role" => "error", "text" => "Review failed" }, results[3])
@@ -74,7 +74,7 @@ class FrontendHelpersJsTest < Minitest::Test
       ]));
     JS
 
-    assert_equal "This extension command requires terminal UI that GRIPi does not support yet.", results[0]
+    assert_equal "This extension command requires terminal UI that Gripi does not support yet.", results[0]
     assert_equal "Session lookup failed", results[1]
     assert_equal "Cannot read properties of undefined (reading 'action')", results[2]
   end

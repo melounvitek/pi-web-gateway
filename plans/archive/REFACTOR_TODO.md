@@ -1,4 +1,4 @@
-# Refactor TODO — GRIPi production hardening
+# Refactor TODO — Gripi production hardening
 
 This file captures the current project audit and turns it into an ordered checklist for future sessions.
 
@@ -21,7 +21,7 @@ The agent should:
 
 ## Overall context
 
-GRIPi started as a Ruby/Sinatra proof of concept, but it is now a real daily-use app. The current state is healthier than a typical vibe-coded POC: the test suite passes, routes are understandable, browser access exists, and Pi RPC event polling has already received some resilience work.
+Gripi started as a Ruby/Sinatra proof of concept, but it is now a real daily-use app. The current state is healthier than a typical vibe-coded POC: the test suite passes, routes are understandable, browser access exists, and Pi RPC event polling has already received some resilience work.
 
 Current audit snapshot:
 

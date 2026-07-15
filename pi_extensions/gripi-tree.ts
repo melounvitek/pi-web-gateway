@@ -302,7 +302,7 @@ export default function (pi: ExtensionAPI) {
     settingsManager = SettingsManager.create(ctx.cwd, undefined, { projectTrusted: ctx.isProjectTrusted() });
   });
 
-  registerBridgeCommand(pi, "gripi_tree_navigate", "Navigate the current session tree from GRIPi", async (requestPayload, ctx) => {
+  registerBridgeCommand(pi, "gripi_tree_navigate", "Navigate the current session tree from Gripi", async (requestPayload, ctx) => {
     if (!ctx.isIdle()) throw new Error("Session is busy");
     const payload = requestPayload as NavigationPayload;
     if (typeof payload.entryId !== "string" || !payload.entryId) throw new Error("Tree entry id is required");
@@ -324,7 +324,7 @@ export default function (pi: ExtensionAPI) {
     return { cancelled: result.cancelled, editorText: result.cancelled ? undefined : editorText };
   });
 
-  registerBridgeCommand(pi, "gripi_tree_snapshot", "Report a bounded session tree snapshot to GRIPi", (requestPayload, ctx) => {
+  registerBridgeCommand(pi, "gripi_tree_snapshot", "Report a bounded session tree snapshot to Gripi", (requestPayload, ctx) => {
     const requestedFilter = requestPayload.filter;
     if (requestedFilter !== undefined && (typeof requestedFilter !== "string" || !TREE_FILTER_MODES.has(requestedFilter))) {
       throw new Error("Invalid tree filter");
@@ -341,11 +341,11 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  registerBridgeCommand(pi, "gripi_tree_leaf", "Report the current session tree leaf to GRIPi", (_requestPayload, ctx) => ({
+  registerBridgeCommand(pi, "gripi_tree_leaf", "Report the current session tree leaf to Gripi", (_requestPayload, ctx) => ({
     leafId: boundedMetadata(ctx.sessionManager.getLeafId()),
   }));
 
-  registerBridgeCommand(pi, "gripi_tree_label", "Set or clear a native Pi tree label from GRIPi", (requestPayload, ctx) => {
+  registerBridgeCommand(pi, "gripi_tree_label", "Set or clear a native Pi tree label from Gripi", (requestPayload, ctx) => {
     if (!ctx.isIdle()) throw new Error("Session is busy");
     const payload = requestPayload as LabelPayload;
     if (typeof payload.entryId !== "string" || !payload.entryId) throw new Error("Tree entry id is required");
