@@ -23,7 +23,8 @@
       --link: #81a2be;
       --button-text: #18181e;
       --user-msg: #343541;
-      --tool-ok: #283228;
+      --tool-ok: #1d211d;
+      --tool-copy: #d4d4d4b8;
       --tool-pending: #282832;
       --accent-tint-04: #ff5a1f0f;
       --accent-tint-08: #ff5a1f1a;
@@ -189,8 +190,8 @@
     .message--assistant { margin-right: 10%; background: var(--panel); border-color: var(--border); color: var(--copy); }
     .message--thinking { margin-right: 16%; background: transparent; border-color: var(--border-strong); border-style: dashed; color: var(--muted); }
     .message--status { background: transparent; color: var(--muted); }
-    .message--tool, .message--tool-call { background: var(--tool-ok); border-color: #ffffff0f; color: var(--copy); }
-    .message--tool-transcript { background: var(--tool-ok); border-color: #ffffff0f; color: var(--copy); font-family: var(--mono); }
+    .message--tool, .message--tool-call, .message--tool-transcript { background: var(--tool-ok); border-color: #ffffff0a; color: var(--tool-copy); }
+    .message--tool-transcript { font-family: var(--mono); }
     .message--tool .role, .message--tool-call .role, .message--tool-transcript .role { color: var(--accent); }
     .message--tool-transcript .message-details-summary { color: var(--copy); }
     .message--tool-transcript .message-body { font-size: 0.84rem; line-height: 1.4; tab-size: 2; white-space: pre; overflow-wrap: normal; word-break: normal; }

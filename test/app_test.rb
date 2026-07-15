@@ -2639,7 +2639,12 @@ class AppTest < Minitest::Test
       assert_includes APP_STYLESHEET, ".message--user { margin-left: 10%; background: var(--user-msg); border-color: #ffffff14; color: var(--text); }"
       assert_includes APP_STYLESHEET, ".message--assistant { margin-right: 10%; background: var(--panel); border-color: var(--border); color: var(--copy); }"
       assert_includes APP_STYLESHEET, ".message--thinking { margin-right: 16%; background: transparent; border-color: var(--border-strong); border-style: dashed; color: var(--muted); }"
-      assert_includes APP_STYLESHEET, ".message--tool, .message--tool-call { background: var(--tool-ok); border-color: #ffffff0f; color: var(--copy); }"
+      assert_includes APP_STYLESHEET, "--tool-ok: #1d211d;"
+      assert_includes APP_STYLESHEET, "--tool-copy: #d4d4d4b8;"
+      assert_includes APP_STYLESHEET, ".message--tool, .message--tool-call, .message--tool-transcript { background: var(--tool-ok); border-color: #ffffff0a; color: var(--tool-copy); }"
+      assert_includes APP_STYLESHEET, ".message--tool-transcript { font-family: var(--mono); }"
+      assert_includes APP_STYLESHEET, ".message--error, .message--tool-error { background: var(--danger-soft); border-color: #cc666659; color: #e8a9a9; }"
+      assert_includes APP_STYLESHEET, ".message--tool-error .message-details-summary { color: #e8a9a9; }"
     end
   end
 
