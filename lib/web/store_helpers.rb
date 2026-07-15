@@ -1,4 +1,5 @@
 require_relative "../gateway_read_state_store"
+require_relative "../gateway_pinned_session_store"
 require_relative "../pi_attachment_store"
 
 module Web
@@ -15,6 +16,14 @@ module Web
         @read_state_store = GatewayReadStateStore.new(path: settings.read_state_path)
       end
       @read_state_store
+    end
+
+    def pinned_session_store
+      if @pinned_session_store_path != settings.pinned_sessions_path
+        @pinned_session_store_path = settings.pinned_sessions_path
+        @pinned_session_store = GatewayPinnedSessionStore.new(path: settings.pinned_sessions_path)
+      end
+      @pinned_session_store
     end
   end
 end

@@ -23,6 +23,7 @@ class AppTest < Minitest::Test
     @workspace_root = Dir.mktmpdir
     Gripi.set :attachments_root, @attachments_root
     Gripi.set :read_state_path, File.join(@read_state_root, "read-state.json")
+    Gripi.set :pinned_sessions_path, File.join(@read_state_root, "pinned-sessions.json")
     Gripi.set :browser_access_path, File.join(@browser_access_root, "browser-access.json")
     Gripi.set :browser_auth_disabled, false
     Gripi.set :multi_user_mode, false
@@ -5673,6 +5674,63 @@ class AppTest < Minitest::Test
 
       read_response = request.get("/sidebar", params: { "session" => first_path })
       assert_empty Nokogiri::HTML(read_response.body).css("a.session.unread")
+    end
+  end
+
+  def test_pinning_keeps_a_session_visible_above_filtered_sessions_until_unpinned
+    Dir.mktmpdir do |dir|
+      first_path, second_path = write_sessions(dir, count: 2)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+      request = Rack::MockRequest.new(Gripi)
+
+      pin_response = request.post("/sessions/pin", params: { "session" => first_path, "pinned" => "true" }, "HTTP_ACCEPT" => "application/json")
+
+      assert_equal 200, pin_response.status
+      assert_equal({ "session" => first_path, "pinned" => true }, JSON.parse(pin_response.body))
+
+      sidebar_response = request.get("/sidebar", params: { "session" => second_path, "session_search" => "no matches" })
+      document = Nokogiri::HTML(sidebar_response.body)
+
+      assert_equal ["Pinned"], document.css(".recent-sessions-header h2").first(1).map(&:text)
+      assert_equal [first_path], document.css(".pinned-sessions-list a.session").map { |link| link["data-session-path"] }
+      assert_empty document.css(".sessions-list a.session")
+      assert_equal "true", document.at_css(".pinned-sessions-list [data-session-pin-toggle]")["data-pinned"]
+
+      unpin_response = request.post("/sessions/pin", params: { "session" => first_path, "pinned" => "false" }, "HTTP_ACCEPT" => "application/json")
+      assert_equal 200, unpin_response.status
+
+      unpinned_sidebar = Nokogiri::HTML(request.get("/sidebar", params: { "session" => second_path, "session_search" => "no matches" }).body)
+      assert_empty unpinned_sidebar.css(".pinned-sessions-list")
+    end
+  end
+
+  def test_pin_endpoint_rejects_unknown_sessions
+    Dir.mktmpdir do |dir|
+      Gripi.set :sessions_root, dir
+      outside_path = File.join(@workspace_root, "outside.jsonl")
+      File.write(outside_path, "not a session")
+      request = Rack::MockRequest.new(Gripi)
+
+      missing_response = request.post("/sessions/pin", params: { "session" => File.join(dir, "missing.jsonl"), "pinned" => "true" })
+      outside_response = request.post("/sessions/pin", params: { "session" => outside_path, "pinned" => "true" })
+
+      assert_equal 404, missing_response.status
+      assert_equal 404, outside_response.status
+    end
+  end
+
+  def test_current_session_has_no_shortcut_after_nine_pinned_sessions
+    Dir.mktmpdir do |dir|
+      paths = write_sessions(dir, count: 10)
+      Gripi.set :sessions_root, dir
+      paths.first(9).each { |path| GatewayPinnedSessionStore.new(path: Gripi.settings.pinned_sessions_path).pin(path) }
+
+      response = Rack::MockRequest.new(Gripi).get("/sidebar", params: { "session" => paths.last, "session_search" => "no matches" })
+      document = Nokogiri::HTML(response.body)
+
+      assert_equal (1..9).map(&:to_s), document.css(".pinned-sessions-list a.session").map { |link| link["data-session-shortcut"] }
+      assert_nil document.at_css(".current-session-section a.session")["data-session-shortcut"]
     end
   end
 

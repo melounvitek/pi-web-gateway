@@ -23,6 +23,43 @@ class SessionsSidebarTest < Minitest::Test
     assert_equal 1, sidebar.unread_session_count
   end
 
+  def test_keeps_pinned_sessions_visible_above_filtered_regular_sessions
+    pinned = session("pinned", "pinned-project", "Pinned", 10)
+    matching = session("matching", "matching-project", "Matching", 20)
+    hidden = session("hidden", "hidden-project", "Hidden", 30)
+    sidebar = build_sidebar(
+      groups: groups(pinned, matching, hidden),
+      selected_session: matching,
+      params: { "project" => matching.cwd },
+      pinned_paths: [pinned.path]
+    )
+
+    assert_equal [pinned], sidebar.pinned_sessions
+    assert_equal [matching], sidebar.sessions
+    refute_includes sidebar.session_pool, pinned
+  end
+
+  def test_pinned_sessions_do_not_consume_the_recent_session_limit
+    pinned = session("pinned", "project", "Pinned", -1)
+    regulars = 21.times.map { |index| session("regular-#{index}", "project", "Regular #{index}", index) }
+    sidebar = build_sidebar(
+      groups: groups(pinned, *regulars),
+      selected_session: regulars.last,
+      pinned_paths: [pinned.path]
+    )
+
+    assert_equal [pinned], sidebar.pinned_sessions
+    assert_equal 20, sidebar.sessions.length
+    assert sidebar.sessions_overflow?
+  end
+
+  def test_does_not_separate_a_pinned_current_session
+    current = session("current", "project", "Current", 1)
+    sidebar = build_sidebar(groups: groups(current), selected_session: current, pinned_paths: [current.path])
+
+    assert_nil sidebar.separate_current_session
+  end
+
   def test_orders_sessions_by_conversation_activity_instead_of_file_modification
     newer_conversation = session("newer-conversation", "project", "Newer conversation", 20, modified_at: 10)
     newer_file = session("newer-file", "project", "Newer file", 10, modified_at: 30)
@@ -99,12 +136,13 @@ class SessionsSidebarTest < Minitest::Test
 
   private
 
-  def build_sidebar(groups:, selected_session:, params: {}, unread_paths: [])
+  def build_sidebar(groups:, selected_session:, params: {}, unread_paths: [], pinned_paths: [])
     Sessions::Sidebar.new(
       groups: groups,
       selected_session: selected_session,
       params: params,
-      read_state_store: FakeReadState.new(unread_paths)
+      read_state_store: FakeReadState.new(unread_paths),
+      pinned_session_store: FakePinnedSessions.new(pinned_paths)
     )
   end
 
@@ -121,6 +159,16 @@ class SessionsSidebarTest < Minitest::Test
       modified_at: Time.at(modified_at),
       conversation_activity_at: Time.at(activity_at)
     )
+  end
+
+  class FakePinnedSessions
+    def initialize(paths)
+      @paths = paths.to_set
+    end
+
+    def pinned_paths
+      @paths.to_a
+    end
   end
 
   class FakeReadState

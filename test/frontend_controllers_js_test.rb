@@ -678,6 +678,54 @@ class FrontendControllersJsTest < Minitest::Test
     assert_equal "3", results.fetch("badgeText")
   end
 
+  def test_sidebar_controller_restores_focus_to_a_replaced_pin_button
+    results = run_javascript(<<~JS)
+      const { SidebarController } = await import(#{module_url("sidebar_controller.js").to_json});
+      const oldPin = { dataset: { sessionPath: "/session" }, closest: (selector) => selector === "[data-session-pin-toggle]" ? oldPin : null };
+      const newPin = { dataset: { sessionPath: "/session" }, focused: false, focus() { this.focused = true; }, closest: (selector) => selector === "[data-session-pin-toggle]" ? newPin : null };
+      const fallback = { focused: false, focus() { this.focused = true; } };
+      const oldSidebar = sidebar(oldPin);
+      const newSidebar = sidebar(newPin);
+      const filteredSidebar = sidebar(null, fallback);
+      let currentSidebar = oldSidebar;
+      Object.defineProperty(oldSidebar, "outerHTML", { set() { currentSidebar = newSidebar; } });
+      Object.defineProperty(newSidebar, "outerHTML", { set() { currentSidebar = filteredSidebar; } });
+      const document = {
+        activeElement: oldPin, body: { classList: { contains: () => false } },
+        addEventListener() {},
+        querySelector: (selector) => selector === ".session-sidebar" ? currentSidebar : null,
+        querySelectorAll: () => [], getElementById: () => null, dispatchEvent() {}
+      };
+      const window = {
+        location: { href: "https://example.test/", origin: "https://example.test", search: "" },
+        CustomEvent: class {}, addEventListener() {}
+      };
+      const controller = new SidebarController(document, window, { initialize() {}, destroy() {}, isActive: () => false }, { apply() {} }, () => {});
+      controller.bind();
+
+      controller.replace("<aside>replacement</aside>");
+      document.activeElement = newPin;
+      controller.replace("<aside>filtered replacement</aside>");
+
+      console.log(JSON.stringify({ pinFocused: newPin.focused, fallbackFocused: fallback.focused }));
+
+      function sidebar(pin, fallback = null) {
+        return {
+          dataset: {},
+          querySelector(selector) {
+            if (selector === ".session-sidebar-content") return { scrollTop: 0 };
+            if (selector === "[data-sidebar-search-toggle]") return fallback;
+            return null;
+          },
+          querySelectorAll: (selector) => selector === "[data-session-pin-toggle]" && pin ? [pin] : []
+        };
+      }
+    JS
+
+    assert_equal true, results.fetch("pinFocused")
+    assert_equal true, results.fetch("fallbackFocused")
+  end
+
   def test_sidebar_controller_retries_refresh_after_a_transient_failure
     results = run_javascript(<<~JS)
       const { SidebarController } = await import(#{module_url("sidebar_controller.js").to_json});
@@ -741,6 +789,67 @@ class FrontendControllersJsTest < Minitest::Test
     JS
 
     assert_equal [10_000, 2_500, 0], results
+  end
+
+  def test_sidebar_controller_pins_a_session_and_requests_an_immediate_refresh
+    results = run_javascript(<<~JS)
+      const { SidebarController } = await import(#{module_url("sidebar_controller.js").to_json});
+      const sidebar = { dataset: {}, querySelector: () => null, querySelectorAll: () => [] };
+      const document = {
+        hidden: false, activeElement: null, body: { classList: { contains: () => false } },
+        addEventListener() {},
+        querySelector: (selector) => selector === ".session-sidebar" ? sidebar : null,
+        querySelectorAll: () => [], getElementById: () => null
+      };
+      const window = { location: { href: "https://example.test/", origin: "https://example.test", search: "" } };
+      const timers = [];
+      const requests = [];
+      globalThis.setTimeout = (_callback, delay) => { timers.push(delay); return timers.length; };
+      globalThis.clearTimeout = () => {};
+      globalThis.fetch = async (url, options) => {
+        requests.push([url, options.method, Object.fromEntries(options.body)]);
+        return { ok: true, json: async () => ({ session: "/session", pinned: true }) };
+      };
+      const controller = new SidebarController(document, window, { initialize() {}, isActive: () => false }, { apply() {} }, () => {});
+      controller.bind();
+      const button = { disabled: false, dataset: { sessionPath: "/session", pinned: "false" } };
+
+      const payload = await controller.togglePin(button);
+
+      console.log(JSON.stringify({ requests, timers, payload, disabled: button.disabled }));
+    JS
+
+    assert_equal [["/sessions/pin", "POST", { "session" => "/session", "pinned" => "true" }]], results.fetch("requests")
+    assert_equal [0], results.fetch("timers")
+    assert_equal({ "session" => "/session", "pinned" => true }, results.fetch("payload"))
+    assert_equal false, results.fetch("disabled")
+  end
+
+  def test_sidebar_controller_resumes_periodic_refresh_after_pin_failure
+    results = run_javascript(<<~JS)
+      const { SidebarController } = await import(#{module_url("sidebar_controller.js").to_json});
+      const sidebar = { dataset: {}, querySelector: () => null, querySelectorAll: () => [] };
+      const document = {
+        hidden: false, activeElement: null, body: { classList: { contains: () => false } },
+        addEventListener() {}, querySelector: (selector) => selector === ".session-sidebar" ? sidebar : null,
+        querySelectorAll: () => [], getElementById: () => null
+      };
+      const window = { location: { href: "https://example.test/", origin: "https://example.test", search: "" } };
+      const timers = [];
+      globalThis.setTimeout = (_callback, delay) => { timers.push(delay); return timers.length; };
+      globalThis.clearTimeout = () => {};
+      globalThis.fetch = async () => ({ ok: false });
+      const controller = new SidebarController(document, window, { initialize() {}, isActive: () => false }, { apply() {} }, () => {});
+      controller.bind();
+      const button = { disabled: false, dataset: { sessionPath: "/session", pinned: "false" } };
+
+      try { await controller.togglePin(button); } catch (_error) {}
+
+      console.log(JSON.stringify({ timers, disabled: button.disabled }));
+    JS
+
+    assert_equal [10_000], results.fetch("timers")
+    assert_equal false, results.fetch("disabled")
   end
 
   def test_marking_compaction_replaces_the_idle_refresh_schedule

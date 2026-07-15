@@ -119,8 +119,16 @@
     .sidebar-load-more-spinner { display: none; width: 0.95rem; height: 0.95rem; border: 2px solid var(--accent-tint-14); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
     .sidebar-load-more.is-loading { pointer-events: none; opacity: 0.82; }
     .sidebar-load-more.is-loading .sidebar-load-more-spinner { display: inline-block; }
+    .session-row { position: relative; }
+    .session-row a.session { padding-right: 2.7rem; }
     a.session { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.65rem 0.75rem; margin: 0.25rem 0; border-radius: 0.35rem; color: inherit; text-decoration: none; border: 1px solid transparent; transition: background 120ms ease, border-color 120ms ease; }
     a.session:hover { background: var(--accent-tint-04); border-color: var(--border); }
+    .session-pin-toggle { position: absolute; z-index: 1; top: 0.55rem; right: 0.55rem; display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; padding: 0.3rem; border: 1px solid transparent; border-radius: 0.25rem; background: transparent; color: var(--muted); opacity: 0; }
+    .session-pin-toggle svg { width: 100%; height: 100%; fill: currentColor; }
+    .session-row:hover .session-pin-toggle, .session-pin-toggle:focus-visible, .session-pin-toggle.is-pinned { opacity: 1; }
+    .session-pin-toggle:hover { border-color: var(--border-strong); background: var(--panel); color: var(--text); }
+    .session-pin-toggle.is-pinned { color: var(--gold); }
+    .session-pin-toggle:disabled { cursor: wait; opacity: 0.55; }
     a.session.selected { background: var(--panel-softer); border-color: var(--accent-line-35); }
     a.session.selected::before { content: ""; position: absolute; left: -1rem; top: 0.7rem; bottom: 0.7rem; width: 3px; background: var(--accent); }
     a.session.unread .session-title { color: var(--text); font-weight: 700; }
@@ -428,6 +436,8 @@
       html, body { width: 100%; max-width: 100vw; overflow-x: hidden; }
       .app-shell { display: block; width: 100%; max-width: 100vw; height: 100dvh; overflow-x: hidden; }
       .session-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; flex-direction: column; width: min(21rem, calc(100vw - 3rem)); max-height: none; padding: calc(0.75rem + env(safe-area-inset-top)) 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); border-right: 1px solid var(--border-strong); border-bottom: 0; transform: translateX(-105%); transition: transform 160ms ease; }
+      .session-row a.session { padding-right: 3.6rem; }
+      .session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }
       .mobile-session-toggle:checked + .session-sidebar { transform: translateX(0); }
       .mobile-sidebar-backdrop { position: fixed; inset: 0; z-index: 9; background: #00000073; }
       .mobile-session-toggle:checked ~ .mobile-sidebar-backdrop { display: block; }

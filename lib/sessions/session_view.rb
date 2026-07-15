@@ -78,6 +78,7 @@ module Sessions
       params:,
       include_conversation:,
       read_state_store:,
+      pinned_session_store: nil,
       attachment_store:,
       rpc_clients:,
       session_synchronizer: nil,
@@ -90,6 +91,7 @@ module Sessions
       @params = params
       @include_conversation = include_conversation
       @read_state_store = read_state_store
+      @pinned_session_store = pinned_session_store
       @attachment_store = attachment_store
       @rpc_clients = rpc_clients
       @session_synchronizer = session_synchronizer
@@ -113,7 +115,8 @@ module Sessions
         groups: @groups,
         selected_session: @selected_session,
         params: @params,
-        read_state_store: @read_state_store
+        read_state_store: @read_state_store,
+        pinned_session_store: @pinned_session_store
       )
       prepare_conversation
       self

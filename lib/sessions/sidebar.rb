@@ -5,11 +5,12 @@ module Sessions
     RECENT_SESSION_LIMIT = 20
     SESSION_PAGE_SIZE = 20
 
-    def initialize(groups:, selected_session:, params:, read_state_store:)
+    def initialize(groups:, selected_session:, params:, read_state_store:, pinned_session_store: nil)
       @groups = groups
       @selected_session = selected_session
       @params = params
       @read_state_store = read_state_store
+      @pinned_paths = pinned_session_store&.pinned_paths&.to_h { |path| [path, true] } || {}
     end
 
     def selected?(session)
@@ -18,6 +19,14 @@ module Sessions
 
     def unread?(session)
       !selected?(session) && @read_state_store.unread?(session)
+    end
+
+    def pinned?(session)
+      session && @pinned_paths.key?(session.path)
+    end
+
+    def pinned_sessions
+      @pinned_sessions ||= sorted_sessions.select { |session| pinned?(session) }
     end
 
     def sorted_sessions
@@ -42,11 +51,11 @@ module Sessions
     end
 
     def separate_current_session
-      @selected_session unless sessions.any? { |session| selected?(session) }
+      @selected_session unless pinned?(@selected_session) || sessions.any? { |session| selected?(session) }
     end
 
     def session_pool
-      @session_pool ||= sorted_sessions.select { |session| matches_filters?(session) }
+      @session_pool ||= sorted_sessions.reject { |session| pinned?(session) }.select { |session| matches_filters?(session) }
     end
 
     def show_all_sessions?

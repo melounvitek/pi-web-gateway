@@ -90,6 +90,7 @@ class Gripi < Sinatra::Base
   end
 
   set :read_state_path, ENV.fetch("GRIPI_READ_STATE_PATH", File.expand_path("~/.pi/gripi/read-state.json"))
+  set :pinned_sessions_path, File.expand_path("~/.pi/gripi/pinned-sessions.json")
   set :browser_access_path, ENV.fetch("GRIPI_BROWSER_ACCESS_PATH", File.expand_path("~/.pi/gripi/browser-access.json"))
   set :browser_auth_disabled, browser_auth_disabled
   set :multi_user_mode, multi_user_mode

@@ -15,14 +15,29 @@
       <% else %>
         <section class="recent-sessions">
           <% shortcut_index = 0 %>
+          <% if sidebar_pinned_sessions.any? %>
+            <section class="pinned-sessions-section">
+              <div class="recent-sessions-header">
+                <h2>Pinned</h2>
+              </div>
+              <div class="pinned-sessions-list">
+                <% sidebar_pinned_sessions.each do |session| %>
+                  <% shortcut_index += 1 %>
+                  <% shortcut = shortcut_index <= 9 ? shortcut_index : nil %>
+                  <%= erb :_sidebar_session, layout: false, locals: { session: session, shortcut: shortcut } %>
+                <% end %>
+              </div>
+            </section>
+          <% end %>
           <% separate_current_session = sidebar_separate_current_session %>
           <% if separate_current_session %>
             <% shortcut_index += 1 %>
+            <% shortcut = shortcut_index <= 9 ? shortcut_index : nil %>
             <section class="current-session-section">
               <div class="recent-sessions-header">
                 <h2>Current session</h2>
               </div>
-              <%= erb :_sidebar_session, layout: false, locals: { session: separate_current_session, shortcut: shortcut_index } %>
+              <%= erb :_sidebar_session, layout: false, locals: { session: separate_current_session, shortcut: shortcut } %>
             </section>
           <% end %>
           <div class="recent-sessions-header">

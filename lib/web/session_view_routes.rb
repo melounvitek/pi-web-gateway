@@ -14,6 +14,7 @@ module Web
           params: params,
           include_conversation: include_conversation,
           read_state_store: read_state_store,
+          pinned_session_store: pinned_session_store,
           attachment_store: attachment_store,
           rpc_clients: rpc_clients,
           session_synchronizer: session_synchronizer,
