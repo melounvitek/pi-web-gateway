@@ -64,6 +64,21 @@ class FrontendHelpersJsTest < Minitest::Test
     assert_nil results[5]
   end
 
+  def test_extension_custom_ui_failure_has_a_clear_error
+    results = run_javascript(<<~JS)
+      const { eventErrorText } = await import(#{module_url("formatting.js").to_json});
+      console.log(JSON.stringify([
+        eventErrorText({ type: "extension_error", extensionPath: "command:sessions", event: "command", error: "Cannot read properties of undefined (reading 'action')" }),
+        eventErrorText({ type: "extension_error", extensionPath: "command:sessions", event: "command", error: "Session lookup failed" }),
+        eventErrorText({ type: "extension_error", extensionPath: "command:review", event: "command", error: "Cannot read properties of undefined (reading 'action')" })
+      ]));
+    JS
+
+    assert_equal "This extension command requires terminal UI that GRIPi does not support yet.", results[0]
+    assert_equal "Session lookup failed", results[1]
+    assert_equal "Cannot read properties of undefined (reading 'action')", results[2]
+  end
+
   def test_event_timestamp_prefers_gateway_receipt_time
     results = run_javascript(<<~JS)
       const { eventTimestamp } = await import(#{module_url("formatting.js").to_json});
