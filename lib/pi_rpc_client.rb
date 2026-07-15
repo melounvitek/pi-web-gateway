@@ -82,6 +82,10 @@ class PiRpcClient
     request("get_messages", id: next_id("get_messages"))
   end
 
+  def get_session_stats
+    request("get_session_stats", id: next_id("get_session_stats"))
+  end
+
   def session_position(append_cursor)
     result = session_entries_after(append_cursor)
     { known: result[:known], leaf_id: result[:leaf_id], error: result[:error] }

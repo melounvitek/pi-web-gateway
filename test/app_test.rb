@@ -2378,6 +2378,127 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_returns_live_rpc_status_for_an_active_session
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "model_change", provider: "old-provider", modelId: "old-model" },
+        { type: "message", message: { role: "assistant", content: [], usage: { totalTokens: 1 } } }
+      ])
+      calls = []
+      client = FakeRpcClient.new(calls)
+      client.define_singleton_method(:get_state) do
+        calls << [:get_state]
+        {
+          "success" => true,
+          "data" => {
+            "model" => { "provider" => "openai-codex", "id" => "gpt-5.6-sol", "contextWindow" => 200_000 },
+            "thinkingLevel" => "high",
+            "messageCount" => 4
+          }
+        }
+      end
+      client.define_singleton_method(:get_session_stats) do
+        calls << [:get_session_stats]
+        { "success" => true, "data" => { "contextUsage" => { "tokens" => 50_000, "contextWindow" => 200_000, "percent" => 25 } } }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_equal({ "context" => "25%/200.0k", "model" => "openai-codex/gpt-5.6-sol", "thinking" => "high" }, JSON.parse(response.body))
+      assert_equal [[:get_state], [:get_session_stats]], calls
+    end
+  end
+
+  def test_uses_live_context_when_live_state_is_unavailable
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "model_change", provider: "anthropic", modelId: "claude-sonnet-4" },
+        { type: "message", message: { role: "assistant", content: [], usage: { totalTokens: 1 } } }
+      ])
+      calls = []
+      client = FakeRpcClient.new(calls)
+      client.define_singleton_method(:get_state) do
+        calls << [:get_state]
+        { "success" => false, "error" => "Unavailable" }
+      end
+      client.define_singleton_method(:get_session_stats) do
+        calls << [:get_session_stats]
+        { "success" => true, "data" => { "contextUsage" => { "tokens" => 50_000, "contextWindow" => 200_000, "percent" => 25 } } }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_equal({ "context" => "25%/200.0k", "model" => "anthropic/claude-sonnet-4", "thinking" => nil }, JSON.parse(response.body))
+      assert_equal [[:get_state], [:get_session_stats]], calls
+    end
+  end
+
+  def test_returns_unknown_live_context_after_compaction
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "model_change", provider: "anthropic", modelId: "claude-sonnet-4" },
+        { type: "compaction", summary: "Compacted context" }
+      ])
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:get_session_stats) do
+        { "success" => true, "data" => { "contextUsage" => { "tokens" => nil, "contextWindow" => 200_000, "percent" => nil } } }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_equal "?%/200.0k", JSON.parse(response.body).fetch("context")
+    end
+  end
+
+  def test_returns_initial_status_for_an_active_pending_session
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      client = FakeRpcClient.new(calls)
+      client.define_singleton_method(:get_state) do
+        calls << [:get_state]
+        {
+          "success" => true,
+          "data" => {
+            "model" => { "provider" => "anthropic", "id" => "claude-sonnet-4", "contextWindow" => 200_000 },
+            "thinkingLevel" => "medium",
+            "messageCount" => 0
+          }
+        }
+      end
+      client.define_singleton_method(:get_session_stats) do
+        calls << [:get_session_stats]
+        { "success" => true, "data" => { "contextUsage" => { "tokens" => 0, "contextWindow" => 200_000, "percent" => 0 } } }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+      Gripi.set :pending_session_registry, Rpc::PendingSessionRegistry.new(path => project_cwd(dir))
+
+      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
+
+      assert_equal 200, response.status
+      assert_equal({ "context" => "0%/200.0k", "model" => "anthropic/claude-sonnet-4", "thinking" => "medium" }, JSON.parse(response.body))
+      assert_equal [[:get_state], [:get_state], [:get_session_stats]], calls
+    end
+  end
+
   def test_returns_estimated_session_status_after_compaction
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
@@ -5199,11 +5320,14 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "const submittedViewChanged = () => generation !== sessionViewGeneration || switchGeneration !== sessionSwitchGeneration || submittedSession !== promptSessionInput?.value;"
       assert_includes APP_JAVASCRIPT, "if (stopHandlingChangedSubmittedView()) return;"
       assert_includes APP_JAVASCRIPT, "function refreshSessionStatus(generation = sessionViewGeneration)"
+      assert_includes APP_JAVASCRIPT, "refreshSessionStatus(generation).catch(() => {});"
       assert_includes APP_JAVASCRIPT, "function renderModelStatus()"
       assert_includes APP_JAVASCRIPT, "[liveStatusModel, liveStatusThinking ? `(${liveStatusThinking})` : null]"
       assert_includes APP_JAVASCRIPT, "removeStatusItem(\"thinking\")"
-      assert_includes APP_JAVASCRIPT, "if (!response.ok || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;"
-      assert_includes APP_JAVASCRIPT, "refreshSessionStatus(generation).catch(() => {});"
+      assert_includes APP_JAVASCRIPT, "const requestVersion = ++sessionStatusRequestVersion;"
+      assert_includes APP_JAVASCRIPT, "if (!response.ok || requestVersion !== sessionStatusRequestVersion || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;"
+      assert_includes APP_JAVASCRIPT, 'if (event.type === "message_end") refreshSessionStatus().catch(() => {});'
+      refute_includes APP_JAVASCRIPT, "if (payload.events.length > 0) refreshSessionStatus(generation)"
       assert_includes APP_JAVASCRIPT, "function resetSessionViewState()"
       assert_includes APP_JAVASCRIPT, "markOptimisticUserMessageFailed(text)"
       assert_includes APP_JAVASCRIPT, "const previousWaitingForOutputSince = waitingForOutputSince;"

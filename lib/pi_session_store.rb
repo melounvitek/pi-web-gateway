@@ -231,7 +231,12 @@ class PiSessionStore
       when "thinking_level_change"
         latest.thinking_level = entry["thinkingLevel"] || entry["thinking_level"] unless (entry["thinkingLevel"] || entry["thinking_level"]).to_s.empty?
       when "message"
-        latest_usage_index = index if apply_usage(latest, entry["message"])
+        message = entry["message"]
+        if message.is_a?(Hash) && message["role"] == "assistant"
+          latest.provider = message["provider"] unless message["provider"].to_s.empty?
+          latest.model_id = message["model"] unless message["model"].to_s.empty?
+        end
+        latest_usage_index = index if apply_usage(latest, message)
       when "compaction"
         latest_compaction_index = index
       end
@@ -394,8 +399,13 @@ class PiSessionStore
   def apply_usage(status, message)
     return false unless message.is_a?(Hash) && message["role"] == "assistant" && message["usage"].is_a?(Hash)
 
+    return false if ["aborted", "error"].include?(message["stopReason"])
+
     usage = message["usage"]
-    status.context_tokens = usage["totalTokens"] || usage["total_tokens"] || usage["tokens"]
+    context_tokens = usage["totalTokens"] || usage["total_tokens"] || usage["tokens"]
+    return false unless context_tokens.to_f.positive?
+
+    status.context_tokens = context_tokens
     status.context_limit = usage["contextWindow"] || usage["context_window"] || usage["contextLimit"] || usage["context_limit"]
     status.context_percent = usage["contextPercent"] || usage["context_percent"]
     status.context_estimated = false

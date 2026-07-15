@@ -139,6 +139,17 @@ class PiRpcClientTest < Minitest::Test
     assert_equal({ "id" => "state-1", "type" => "get_state" }, written)
   end
 
+  def test_get_session_stats_sends_rpc_command
+    input = StringIO.new
+    output = StringIO.new(JSON.generate({ id: "get_session_stats-1", type: "response", command: "get_session_stats", success: true, data: { contextUsage: { tokens: 50_000 } } }) + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    response = client.get_session_stats
+
+    assert_equal 50_000, response.dig("data", "contextUsage", "tokens")
+    assert_equal({ "id" => "get_session_stats-1", "type" => "get_session_stats" }, JSON.parse(input.string.lines.first))
+  end
+
   def test_session_position_reports_known_persisted_entry_and_selected_leaf
     input = StringIO.new
     output = StringIO.new(JSON.generate({ id: "get_entries-1", type: "response", command: "get_entries", success: true, data: { entries: [], leafId: "selected-leaf" } }) + "\n")

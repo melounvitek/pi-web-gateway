@@ -101,6 +101,7 @@ let waitingForOutputLabel = "Pi is running…";
 let emptyEventPollCount = 0;
 let sessionViewGeneration = 0;
 let sessionSwitchGeneration = 0;
+let sessionStatusRequestVersion = 0;
 let notificationRegistration = null;
 const notifiedFinalReplyKeys = new Set();
 const conversationController = new ConversationController(document, window);
@@ -442,12 +443,7 @@ async function applyModelSettings(form) {
 }
 
 function updateStatusFromMessage(message) {
-  const usage = message?.usage;
-  if (!usage) return;
-
-  const tokens = usage.totalTokens || usage.total_tokens || usage.tokens;
-  if (tokens) setStatusItem("ctx", "CTX", compactNumber(tokens));
-  if (message.provider || message.model) {
+  if (message?.provider || message?.model) {
     liveStatusModel = [message.provider, message.model].filter(Boolean).join("/");
     renderModelStatus();
   }
@@ -585,10 +581,11 @@ async function refreshSessionStatus(generation = sessionViewGeneration) {
   const statusUrl = statusBar?.dataset.statusUrl;
   if (!statusBar || !statusUrl) return;
 
+  const requestVersion = ++sessionStatusRequestVersion;
   const response = await fetch(statusUrl);
-  if (!response.ok || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
+  if (!response.ok || requestVersion !== sessionStatusRequestVersion || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
   const status = await response.json();
-  if (generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
+  if (requestVersion !== sessionStatusRequestVersion || generation !== sessionViewGeneration || statusBar !== sessionStatusBar) return;
   setStatusItem("ctx", "CTX", status.context);
   liveStatusModel = status.model;
   liveStatusThinking = status.thinking;
@@ -816,6 +813,7 @@ function renderEvent(event) {
     const outcome = liveMessageRenderer.renderMessageEvent(event);
     if (outcome.finalAssistantEnded) markCurrentSessionRead();
     notifyFinalAssistantReply(event);
+    if (event.type === "message_end") refreshSessionStatus().catch(() => {});
     return;
   }
 
@@ -1093,7 +1091,6 @@ async function pollEvents() {
       updateStatusFromEvent(event);
       renderEvent(event);
     });
-    if (payload.events.length > 0) refreshSessionStatus(generation).catch(() => {});
   } catch (_error) {
     if (!controller.piSuppressedAbort && generation === sessionViewGeneration && !document.hidden) showReconnectBanner();
   } finally {
@@ -2381,6 +2378,7 @@ function initializeSessionView({ focus = true, scrollSnapshot = null } = {}) {
   if (liveOutput) {
     enhanceMarkdownCodeBlocks(conversationScroll);
     resetEventCursor();
+    refreshSessionStatus(generation).catch(() => {});
     const initialComposerState = liveOutput.dataset.composerState;
     const initialComposerStateSince = Number(liveOutput.dataset.composerStateSince || 0);
     const initialComposerCompacting = liveOutput.dataset.composerCompacting === "true";

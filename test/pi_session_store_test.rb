@@ -828,6 +828,38 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_preserves_context_usage_after_aborted_and_failed_responses
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Earlier" }], usage: { totalTokens: 12_345, contextWindow: 200_000 } } },
+        { type: "message", message: { role: "assistant", stopReason: "aborted", content: [], usage: { totalTokens: 20_000 } } },
+        { type: "message", message: { role: "assistant", stopReason: "error", content: [], usage: { totalTokens: 30_000 } } }
+      ])
+
+      status = PiSessionStore.new(root: dir).status(path)
+
+      assert_equal 12_345, status.context_tokens
+      assert_equal 200_000, status.context_limit
+    end
+  end
+
+  def test_infers_model_from_assistant_messages_when_change_entries_are_missing
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", message: { role: "assistant", provider: "anthropic", model: "claude-sonnet-4", content: [] } }
+      ])
+
+      status = PiSessionStore.new(root: dir).status(path)
+
+      assert_equal "anthropic", status.provider
+      assert_equal "claude-sonnet-4", status.model_id
+    end
+  end
+
   def test_file_snapshot_reports_file_identity_and_last_append_cursor
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")

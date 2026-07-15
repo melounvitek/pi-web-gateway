@@ -154,6 +154,37 @@ module Web
         Rpc::CommandCatalog.builtin_commands
       end
 
+      def live_session_status(session_path, status)
+        responses = rpc_clients.with_existing_client(session_path, touch: false) do |client|
+          [client.get_state, client.get_session_stats]
+        end
+        return status unless responses
+
+        state_response, stats_response = responses
+        state = state_response["data"] if state_response.is_a?(Hash) && state_response["success"] == true
+        stats = stats_response["data"] if stats_response.is_a?(Hash) && stats_response["success"] == true
+
+        if state.is_a?(Hash)
+          model = state["model"]
+          if model.is_a?(Hash)
+            status.provider = model["provider"] unless model["provider"].to_s.empty?
+            status.model_id = model["id"] unless model["id"].to_s.empty?
+          end
+          status.thinking_level = state["thinkingLevel"] unless state["thinkingLevel"].to_s.empty?
+        end
+
+        context = stats["contextUsage"] if stats.is_a?(Hash)
+        if context.is_a?(Hash)
+          status.context_tokens = context["tokens"]
+          status.context_limit = context["contextWindow"]
+          status.context_percent = context["percent"]
+          status.context_estimated = false
+        end
+        status
+      rescue Errno::EPIPE, IOError
+        status
+      end
+
       def halt_failed_rpc_prompt(response)
         return unless response.is_a?(Hash) && response["success"] == false
 
@@ -478,10 +509,16 @@ module Web
 
       app.get "/status" do
         session_path = require_current_workspace_session!(params.fetch("session"))
-        halt 404 unless File.exist?(session_path)
+        session_path = canonical_rpc_session_path(session_path)
+        halt 404 unless command_session_available?(session_path)
 
         content_type :json
-        status = PiSessionStore.new(root: settings.sessions_root).status(session_path)
+        status = if File.exist?(session_path)
+          PiSessionStore.new(root: settings.sessions_root).status(session_path)
+        else
+          PiSessionStore::Status.new
+        end
+        status = live_session_status(session_path, status)
         JSON.generate(
           context: format_context_usage(status),
           model: format_model(status),
