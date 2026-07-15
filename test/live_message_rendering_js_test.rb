@@ -120,6 +120,84 @@ class LiveMessageRenderingJsTest < Minitest::Test
     assert_equal "Future", result["future"]
   end
 
+  def test_expanded_skill_prompt_reuses_the_optimistic_command_message
+    result = run_javascript(<<~JS)
+      const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const expandedSkill = `<skill name="diffx" location="/home/tester/.pi/agent/skills/diffx/SKILL.md">
+References are relative to /home/tester/.pi/agent/skills/diffx.
+
+# diffx
+
+Start a review.
+</skill>`;
+      const optimisticArticle = {
+        dataset: { optimistic: "true", optimisticText: "/skill:diffx", optimisticImageCount: "0" },
+        hasAttribute: (name) => name === "data-optimistic-text",
+        querySelector: (selector) => selector === ".message-body" ? { textContent: "/skill:diffx" } : null
+      };
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      renderer.parser = new LiveMessageParser();
+      renderer.conversationController = { followLiveOutput: () => true, afterLiveOutputChange() {} };
+      renderer.liveUserMessages = new Map();
+      renderer.liveToolExecutions = new Map();
+      renderer.livePairedToolCalls = new Map();
+      renderer.conversationScroll = { querySelectorAll: () => [optimisticArticle] };
+      renderer.replaceMessageImages = () => {};
+      let appended = 0;
+      renderer.appendMessage = () => { appended += 1; return null; };
+
+      renderer.renderMessageEvent({
+        type: "message_start",
+        message: { id: "user-1", role: "user", content: [{ type: "text", text: expandedSkill }] }
+      });
+
+      console.log(JSON.stringify({
+        text: optimisticArticle.querySelector(".message-body").textContent,
+        optimistic: optimisticArticle.dataset.optimistic || null,
+        appended
+      }));
+    JS
+
+    assert_equal({ "text" => "/skill:diffx", "optimistic" => nil, "appended" => 0 }, result)
+  end
+
+  def test_live_skill_prompt_preserves_arguments_and_ignores_other_xml
+    result = run_javascript(<<~JS)
+      const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
+      const parser = new LiveMessageParser();
+      const expandedSkill = `<skill name="pdf-tools" location="/skills/pdf/SKILL.md">
+References are relative to /skills/pdf.
+
+# PDF tools
+
+Extract PDFs.
+</skill>`;
+      const text = (value) => parser.messageText({ role: "user", content: [{ type: "text", text: value }] });
+      const invalidSkills = [
+        expandedSkill.replace("relative to /skills/pdf.", "relative to /skills/other."),
+        expandedSkill.replaceAll("/skills/pdf", "skills/pdf"),
+        expandedSkill.replaceAll("/skills/pdf", "/skills/../pdf"),
+        expandedSkill.replaceAll("/skills/pdf", "/skills/./pdf"),
+        expandedSkill.replaceAll("/skills/pdf", "/skills//pdf"),
+        expandedSkill.replace('location="/skills/pdf/SKILL.md"', 'location="/skills/pdf/"')
+      ];
+      console.log(JSON.stringify({
+        command: text(expandedSkill),
+        arguments: text(`${expandedSkill}\n\nextract report.pdf`),
+        invalidUnchanged: invalidSkills.every((value) => text(value) === value),
+        trailingNewline: text(`${expandedSkill}\n`),
+        ordinary: text(`<skill name="pdf-tools">ordinary text</skill>`)
+      }));
+    JS
+
+    assert_equal "/skill:pdf-tools", result["command"]
+    assert_equal "/skill:pdf-tools extract report.pdf", result["arguments"]
+    assert result["invalidUnchanged"]
+    assert_equal "</skill>\n", result["trailingNewline"][-9..]
+    assert_equal '<skill name="pdf-tools">ordinary text</skill>', result["ordinary"]
+  end
+
   def test_live_renderer_only_marks_final_answer_message_ends_as_final
     result = run_javascript(<<~JS)
       const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});

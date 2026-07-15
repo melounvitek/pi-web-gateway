@@ -126,6 +126,21 @@ export class LiveMessageParser {
       return { src: `data:${part.mimeType};base64,${part.data}`, alt: "Attached image" };
     }
 
+    function skillCommandDisplayText(text) {
+      const match = String(text || "").match(/^<skill name="([^"\n]+)" location="([^"\n]+)">\nReferences are relative to ([^\n]+)\.\n\n[\s\S]*\n<\/skill>(?:\n\n([\s\S]*))?(?![\s\S])/);
+      if (!match) return text;
+
+      const canonicalLocation = match[2].startsWith("/") && !match[2].endsWith("/") && !match[2].includes("//") && !match[2].split("/").some((part) => [".", ".."].includes(part));
+      if (!canonicalLocation) return text;
+
+      const locationSeparator = match[2].lastIndexOf("/");
+      const skillDirectory = locationSeparator === 0 ? "/" : match[2].slice(0, locationSeparator);
+      if (skillDirectory !== match[3]) return text;
+
+      const command = `/skill:${match[1]}`;
+      return match[4] ? `${command} ${match[4]}` : command;
+    }
+
     function contentSegments(content, message = {}) {
       const parts = Array.isArray(content) ? content : [content];
       const groups = [];
@@ -150,7 +165,8 @@ export class LiveMessageParser {
       });
 
       return groups.map((group) => {
-        const text = message.toolName === "edit" && message.details?.diff ? message.details.diff : group.parts.map(contentPartText).filter(Boolean).join("\n");
+        const rawText = message.toolName === "edit" && message.details?.diff ? message.details.diff : group.parts.map(contentPartText).filter(Boolean).join("\n");
+        const text = message.role === "user" ? skillCommandDisplayText(rawText) : rawText;
         const images = group.parts.map(contentPartImage).filter(Boolean);
         const labels = group.parts.map(contentPartLabel).filter(Boolean);
         const toolPart = group.parts.find((part) => part && typeof part === "object" && ["toolCall", "toolResult"].includes(part.type));

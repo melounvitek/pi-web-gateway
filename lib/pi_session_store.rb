@@ -704,6 +704,7 @@ class PiSessionStore
     else
       general_subagent = general_subagent_details?(message)
       text = general_subagent ? general_subagent_text(message) : tool_result_text(message)
+      text = skill_command_display_text(text) if role == "user"
       images = content_images(message["content"])
       return [] if text.empty? && images.empty?
 
@@ -749,6 +750,16 @@ class PiSessionStore
         final_assistant_response: final_assistant_response_parts?(parts)
       )
     end
+  end
+
+  def skill_command_display_text(text)
+    match = text.match(/\A<skill name="([^"\n]+)" location="([^"\n]+)">\nReferences are relative to ([^\n]+)\.\n\n.*\n<\/skill>(?:\n\n(.*))?\z/m)
+    location = match && match[2]
+    canonical_location = location&.start_with?("/") && !location.end_with?("/") && !location.include?("//") && location.split("/").none? { |part| %w[. ..].include?(part) }
+    return text unless canonical_location && File.dirname(location) == match[3]
+
+    command = "/skill:#{match[1]}"
+    match[4].to_s.empty? ? command : "#{command} #{match[4]}"
   end
 
   def tool_result_text(message)
