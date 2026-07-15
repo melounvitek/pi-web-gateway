@@ -2608,6 +2608,7 @@ class AppTest < Minitest::Test
       assert_includes response.body, "session-sidebar-header"
       refute_includes response.body, "mobile-sessions-label\">Sessions"
       assert_includes APP_STYLESHEET, "scrollbar-gutter: stable"
+      assert_includes APP_STYLESHEET, "html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }"
       assert_includes APP_STYLESHEET, ".conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden;"
       assert_includes APP_STYLESHEET, ".jump-controls { position: sticky; z-index: 3; display: flex;"
       assert_includes APP_STYLESHEET, "min-height: 2rem; margin: 0.25rem auto; visibility: hidden; opacity: 0;"
