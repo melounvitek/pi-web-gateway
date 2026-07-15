@@ -59,7 +59,7 @@
         { role: "assistant", text: "Prefer an always-on trusted computer or private home server. If you still choose a VPS, expose it only inside a private VPN such as Tailscale and treat every credential available to that OS user as reachable through Pi.", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/configuration.md", label: "Review GRIPi security configuration →" }, time: "Guide" }
       ]
     },
-    { id: "release-notes", name: "Draft release notes", project: "website", monogram: "WE", color: "#9fc5ff", background: "#1e334d", age: "Monday", pinned: true, messages: [
+    { id: "release-notes", name: "Draft release notes", project: "website", monogram: "WE", color: "#9fc5ff", background: "#1e334d", age: "Monday", pinned: false, messages: [
       { role: "user", text: "Draft concise release notes from the changes in this branch.", time: "Monday" },
       { role: "assistant", text: "What’s new\n\n• Find sessions faster with sidebar search.\n• Enjoy a cleaner composer on mobile screens.\n• Keep unsent drafts when reconnecting.", time: "Monday" }
     ] },
@@ -165,7 +165,7 @@
   global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
   if (typeof document === "undefined") return;
 
-  const storageKey = "gripi:static-demo:v6";
+  const storageKey = "gripi:static-demo:v7";
   let sessions = initialSessions;
   let currentId = defaultSessionId;
   let streamController = null;

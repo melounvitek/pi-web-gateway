@@ -104,12 +104,12 @@ class DemoTest < Minitest::Test
     ], grouped.fetch("gripi").map { |session| session.fetch("name") }
     assert_equal ["Draft release notes", "Simplify documentation navigation"], grouped.fetch("website").map { |session| session.fetch("name") }
     assert_equal ["Investigate flaky checkout spec", "Polish checkout confirmation copy", "Speed up CI dependency caching"], grouped.fetch("storefront").map { |session| session.fetch("name") }
-    assert_equal ["Welcome to GRIPi"], grouped.fetch("gripi").select { |session| session.fetch("pinned") }.map { |session| session.fetch("name") }
+    assert_equal ["Welcome to GRIPi"], result.select { |session| session.fetch("pinned") }.map { |session| session.fetch("name") }
 
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
     javascript = File.read(JAVASCRIPT)
-    refute_includes javascript, 'gripi:static-demo:v5'
-    assert_includes javascript, 'gripi:static-demo:v6'
+    refute_includes javascript, 'gripi:static-demo:v6'
+    assert_includes javascript, 'gripi:static-demo:v7'
     assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
     assert_includes javascript, "Never expose GRIPi through a public IP or public reverse proxy."
     assert_includes javascript, 'switchSession(button.dataset.demoTreeTarget)'
