@@ -205,7 +205,7 @@
     pinned: document.getElementById("pinned-sessions-list"), sessions: document.getElementById("sessions-list"), empty: document.getElementById("sidebar-empty"),
     project: document.getElementById("project-filter"), projectTrigger: document.getElementById("project-select-trigger"), projectList: document.getElementById("project-select-listbox"),
     searchForm: document.getElementById("sidebar-session-search"), search: document.querySelector('#sidebar-session-search input[type="search"]'), clearFilters: document.querySelector("[data-sidebar-filters-clear]"),
-    headerName: document.querySelector(".session-header-name"), headerProject: document.querySelector(".session-header-project"), headerRelationTree: document.querySelector(".session-relation-tree"), form: document.getElementById("prompt-form"), prompt: document.querySelector(".prompt-form textarea"),
+    headerName: document.querySelector(".session-header-name"), headerProject: document.querySelector(".session-header-project"), form: document.getElementById("prompt-form"), prompt: document.querySelector(".prompt-form textarea"),
     state: document.querySelector(".composer-state"), stop: document.getElementById("stop-button"), commands: document.getElementById("command-list"), notice: document.getElementById("demo-notice"), attachmentTray: document.querySelector(".attachment-tray"),
     jumpTop: document.querySelector(".jump-controls--top"), jumpFirst: document.querySelector(".jump-to-first"), jumpBottom: document.querySelector(".jump-controls--bottom"), jumpLatest: document.querySelector(".jump-to-latest"),
     treeTarget: document.querySelector("[data-demo-tree-target]"), treeTargetTitle: document.querySelector("[data-demo-tree-target-title]"), treeCurrentTitle: document.querySelector("[data-demo-tree-current-title]")
@@ -385,7 +385,6 @@
     applyIdentity(element.headerProject, session);
     element.headerProject.querySelector(".session-header-project-icon").textContent = session.monogram;
     element.headerProject.querySelector(".session-header-project-label").textContent = session.project;
-    element.headerRelationTree.hidden = session.id !== defaultSessionId;
     const relatedSession = sessions.find(({ id }) => id === (session.id === defaultSessionId ? "new-to-pi" : defaultSessionId));
     element.treeTarget.dataset.demoTreeTarget = relatedSession.id;
     element.treeTargetTitle.textContent = relatedSession.name;

@@ -56,7 +56,7 @@ class DemoTest < Minitest::Test
     %w[
       .app-shell>.session-sidebar .session-sidebar-content_.recent-sessions
       .sidebar-project-filter .sessions-list .conversation-panel>.session-header
-      .session-header-title>.session-relation-tree .conversation-scroll>#history-output
+      .conversation-scroll>#history-output
       .current-session-find .jump-controls .message.message--user
       .message.message--assistant.message--thinking .message.message--assistant.message--tool-call
       .composer>.composer-inner .command-list .prompt-form_.attachment-tray
@@ -68,7 +68,7 @@ class DemoTest < Minitest::Test
       selector = encoded_selector.tr("_", " ")
       assert body.at_css(selector), "Expected body to include #{selector}"
     end
-    refute body.at_css(".current-session-section")
+    refute body.at_css(".current-session-section, .session-relation-tree")
     refute body.at_css(".session.unread, .mobile-sessions-unread-badge")
     refute body.at_css(".jump-controls.is-visible, .jump-button.is-visible")
     assert_equal "pi", body.at_css(".message--assistant.message--thinking .role").text
@@ -108,7 +108,6 @@ class DemoTest < Minitest::Test
     assert_equal ["Welcome to GRIPi"], grouped.fetch("gripi").select { |session| session.fetch("pinned") }.map { |session| session.fetch("name") }
 
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
-    assert body.at_css('.session-relation-tree a[data-session-id="new-to-pi"]')
     javascript = File.read(JAVASCRIPT)
     refute_includes javascript, 'gripi:static-demo:v4'
     assert_includes javascript, 'gripi:static-demo:v5'
@@ -116,7 +115,6 @@ class DemoTest < Minitest::Test
     assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
     assert_includes javascript, "Never expose GRIPi through a public IP or public reverse proxy."
     assert_includes javascript, 'switchSession(button.dataset.demoTreeTarget)'
-    assert_includes javascript, 'element.headerRelationTree.hidden = session.id !== defaultSessionId'
     assert body.at_css('[data-demo-tree-target="new-to-pi"]')
 
     source = javascript + File.read(HTML)
