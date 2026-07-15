@@ -43,6 +43,21 @@ module Sessions
       conflict_result(session_path, "Session file could not be read: #{error.message}")
     end
 
+    def inspect_if_available(session_path, include_position: false)
+      lock = lock_for(session_path)
+      return unless lock.try_lock
+
+      begin
+        inspect_locked(session_path, include_position: include_position)
+      rescue IOError, Errno::EPIPE
+        recover_from_rpc_exit_locked(session_path)
+      rescue SystemCallError => error
+        conflict_result_locked(session_path, "Session file could not be read: #{error.message}")
+      ensure
+        lock.unlock
+      end
+    end
+
     def message_for(result)
       blocked_message(result.mode, result.error)
     end
@@ -276,24 +291,28 @@ module Sessions
     end
 
     def recover_from_rpc_exit(session_path)
-      synchronize(session_path) do
-        snapshot = @store.file_snapshot(session_path)
-        state = state_for(session_path)
-        mode = state.snapshot && !same_file_revision?(state.snapshot, snapshot) ? :external_follow : :available
-        update_state(session_path, snapshot, mode: mode)
-        result_for(state)
-      end
+      synchronize(session_path) { recover_from_rpc_exit_locked(session_path) }
+    end
+
+    def recover_from_rpc_exit_locked(session_path)
+      snapshot = @store.file_snapshot(session_path)
+      state = state_for(session_path)
+      mode = state.snapshot && !same_file_revision?(state.snapshot, snapshot) ? :external_follow : :available
+      update_state(session_path, snapshot, mode: mode)
+      result_for(state)
     rescue SystemCallError => error
-      conflict_result(session_path, "Session file could not be read: #{error.message}")
+      conflict_result_locked(session_path, "Session file could not be read: #{error.message}")
     end
 
     def conflict_result(session_path, message)
-      synchronize(session_path) do
-        state = state_for(session_path)
-        state.mode = :conflict
-        state.error = message
-        result_for(state)
-      end
+      synchronize(session_path) { conflict_result_locked(session_path, message) }
+    end
+
+    def conflict_result_locked(session_path, message)
+      state = state_for(session_path)
+      state.mode = :conflict
+      state.error = message
+      result_for(state)
     end
 
     def same_file_revision?(left, right)

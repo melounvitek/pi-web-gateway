@@ -284,6 +284,51 @@ Extract PDFs.
     ], result
   end
 
+  def test_live_compaction_renders_native_and_legacy_summaries_as_collapsed_details
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      class Element {
+        constructor(tagName) { this.tagName = tagName.toUpperCase(); this.children = []; this.dataset = {}; this.attributes = {}; this.className = ""; this.textContent = ""; }
+        append(...children) { this.children.push(...children); }
+        replaceChildren(...children) { this.children = children; }
+        setAttribute(name, value) { this.attributes[name] = value; }
+      }
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      renderer.document = { createElement: (tagName) => new Element(tagName) };
+      renderer.liveOutput = new Element("div");
+      renderer.conversationController = { followLiveOutput: () => true, afterLiveOutputChange() {} };
+      renderer.liveMessageAlreadyRendered = () => false;
+      renderer.renderMessageImages = () => {};
+      renderer.removePendingCompactionMessage = () => {};
+      const render = (event) => {
+        const entry = renderer.renderCompactionEvent(event);
+        const summary = entry.details.children[0];
+        return {
+          detailsTag: entry.details.tagName,
+          detailsClass: entry.details.className,
+          open: Object.hasOwn(entry.details.attributes, "open"),
+          summaryTag: summary.tagName,
+          title: summary.children[0].textContent,
+          actionClass: summary.children[1].className,
+          text: entry.body.textContent
+        };
+      };
+      console.log(JSON.stringify({
+        native: render({ type: "compaction_end", result: { summary: "## Goal\\nNative summary" }, gatewayTimestamp: 1781344860100 }),
+        legacy: render({ type: "compaction", summary: "Legacy summary", gatewayTimestamp: 1781344860200 })
+      }));
+    JS
+
+    assert_equal "DETAILS", result.dig("native", "detailsTag")
+    assert_equal "message-details message-details--compaction", result.dig("native", "detailsClass")
+    assert_equal false, result.dig("native", "open")
+    assert_equal "SUMMARY", result.dig("native", "summaryTag")
+    assert_equal "Conversation compacted", result.dig("native", "title")
+    assert_equal "compaction-details-action", result.dig("native", "actionClass")
+    assert_equal "## Goal\nNative summary", result.dig("native", "text")
+    assert_equal "Legacy summary", result.dig("legacy", "text")
+  end
+
   def test_parser_semantics_cover_representative_ssr_message_shapes
     result = run_javascript(<<~JS)
       const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});

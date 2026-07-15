@@ -154,46 +154,62 @@ export class LiveMessageRenderer {
     header.append(role);
     if (meta.textContent) header.append(meta);
 
-    const details = this.document.createElement("div");
-    details.className = "message-details message-details--always-open";
-    const summaryElement = this.document.createElement("div");
-    summaryElement.className = "message-details-summary";
+    const compaction = options.compaction === true;
+    const details = this.document.createElement(compaction ? "details" : "div");
+    details.className = compaction ? "message-details message-details--compaction" : "message-details message-details--always-open";
+    const summaryElement = this.document.createElement(compaction ? "summary" : "div");
+    summaryElement.className = compaction ? "message-details-summary compaction-details-summary" : "message-details-summary";
     const summaryText = this.document.createElement("span");
     summaryText.className = "compact-summary";
     this.renderToolSummary(summaryText, options.summaryParts, summary);
     summaryElement.append(summaryText);
-    const output = this.document.createElement("div");
-    output.className = "tool-output-collapse";
-    output.dataset.toolOutputCollapse = "";
-    output.dataset.toolOutputCollapsible = ["assistant", "tool", "toolResult"].includes(roleName) ? "true" : "false";
-    output.dataset.collapsed = "false";
-    const control = this.document.createElement("div");
-    control.className = "tool-output-collapse-control";
-    control.dataset.toolOutputCollapseControl = "";
-    const desktopCount = this.document.createElement("span");
-    desktopCount.className = "tool-output-hidden-count tool-output-hidden-count--desktop";
-    const mobileCount = this.document.createElement("span");
-    mobileCount.className = "tool-output-hidden-count tool-output-hidden-count--mobile";
-    const toggle = this.document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "tool-output-toggle";
-    toggle.dataset.toolOutputToggle = "";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.textContent = "Expand";
-    control.append(desktopCount, mobileCount, toggle);
-    const body = this.document.createElement("pre");
-    body.className = "message-body";
-    body.dataset.toolOutputBody = "";
-    const fullTemplate = this.document.createElement("template");
-    fullTemplate.dataset.toolOutputFull = "";
-    const tailTemplate = this.document.createElement("template");
-    tailTemplate.dataset.toolOutputTail = "";
-    output.append(control, body, fullTemplate, tailTemplate);
-    this.renderToolTranscriptBody(body, text, options.toolName, { preview: options.toolPreview === true });
-    details.append(summaryElement, output);
+    if (compaction) {
+      const action = this.document.createElement("span");
+      action.className = "compaction-details-action";
+      action.setAttribute("aria-hidden", "true");
+      summaryElement.append(action);
+    }
+    let output = null;
+    let body;
+    if (compaction) {
+      body = this.document.createElement("pre");
+      body.className = "message-body";
+      body.textContent = text;
+      details.append(summaryElement, body);
+    } else {
+      output = this.document.createElement("div");
+      output.className = "tool-output-collapse";
+      output.dataset.toolOutputCollapse = "";
+      output.dataset.toolOutputCollapsible = ["assistant", "tool", "toolResult"].includes(roleName) ? "true" : "false";
+      output.dataset.collapsed = "false";
+      const control = this.document.createElement("div");
+      control.className = "tool-output-collapse-control";
+      control.dataset.toolOutputCollapseControl = "";
+      const desktopCount = this.document.createElement("span");
+      desktopCount.className = "tool-output-hidden-count tool-output-hidden-count--desktop";
+      const mobileCount = this.document.createElement("span");
+      mobileCount.className = "tool-output-hidden-count tool-output-hidden-count--mobile";
+      const toggle = this.document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "tool-output-toggle";
+      toggle.dataset.toolOutputToggle = "";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = "Expand";
+      control.append(desktopCount, mobileCount, toggle);
+      body = this.document.createElement("pre");
+      body.className = "message-body";
+      body.dataset.toolOutputBody = "";
+      const fullTemplate = this.document.createElement("template");
+      fullTemplate.dataset.toolOutputFull = "";
+      const tailTemplate = this.document.createElement("template");
+      tailTemplate.dataset.toolOutputTail = "";
+      output.append(control, body, fullTemplate, tailTemplate);
+      this.renderToolTranscriptBody(body, text, options.toolName, { preview: options.toolPreview === true });
+      details.append(summaryElement, output);
+    }
 
     const entry = { article, details, output, body, summaryText, compact: true, toolName: options.toolName || "" };
-    this.renderSubagentPrompt(entry, options.toolPrompt);
+    if (!compaction) this.renderSubagentPrompt(entry, options.toolPrompt);
     article.append(header, details);
     this.renderMessageImages(article, options.images);
     this.liveOutput.append(article);
@@ -579,7 +595,7 @@ export class LiveMessageRenderer {
   renderCompactionEvent(event) {
     this.removePendingCompactionMessage();
     this.liveCompactionRendered = true;
-    this.appendCompactMessage("status", "Conversation compacted", event.summary || "Compaction completed", true, true, eventTimestamp(event));
+    return this.appendCompactMessage("status", "Conversation compacted", event.result?.summary || event.summary || "Compaction completed", true, true, eventTimestamp(event), { compaction: true });
   }
 
   renderMessageEvent(event) {

@@ -22,7 +22,7 @@ class PiSessionStore
     keyword_init: true
   )
 
-  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, keyword_init: true)
+  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, :compaction, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
   Conversation = Struct.new(:messages, :latest_leaf_id, :status, keyword_init: true)
   FileSnapshot = Struct.new(:device, :inode, :size, :mtime_ns, :append_cursor, :persisted_leaf_id, :complete, keyword_init: true) do
@@ -648,7 +648,8 @@ class PiSessionStore
       text: text,
       timestamp: parse_time(entry["timestamp"]),
       compact: true,
-      summary: "Conversation compacted"
+      summary: "Conversation compacted",
+      compaction: true
     )
   end
 

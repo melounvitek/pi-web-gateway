@@ -456,13 +456,19 @@ module Web
         session_path = require_current_workspace_session!(params.fetch("session"))
         after_seq = params.fetch("after", 0).to_i
         payload = rpc_clients.events_after(session_path, after_seq)
-        sync_state = File.exist?(session_path) ? session_sync_state(session_path) : nil
-        payload[:session_sync] = {
-          mode: sync_state&.mode || :available,
-          revision: sync_state&.revision,
-          error: sync_state&.error,
-          gateway_busy: rpc_clients.busy?(session_path)
-        }
+        if File.exist?(session_path)
+          sync_state = session_synchronizer.inspect_if_available(session_path)
+          if sync_state
+            payload[:session_sync] = {
+              mode: sync_state.mode,
+              revision: sync_state.revision,
+              error: sync_state.error,
+              gateway_busy: rpc_clients.busy?(session_path)
+            }
+          end
+        else
+          payload[:session_sync] = { mode: :available, revision: nil, error: nil, gateway_busy: rpc_clients.busy?(session_path) }
+        end
         cleanup_idle_rpc_clients
         content_type :json
         JSON.generate(payload)

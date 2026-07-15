@@ -1215,6 +1215,48 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_event_poll_does_not_wait_for_a_synchronized_session_operation
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      client = FakeRpcClient.new(calls, [{ "type" => "compaction_start" }], path)
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      request = Rack::MockRequest.new(Gripi)
+      initial_response = request.get("/events", params: { "session" => path, "after" => "0" })
+      assert_event_payload(initial_response, events: [{ "type" => "compaction_start" }], last_seq: 1, mode: "managed")
+      operation_started = Queue.new
+      release_operation = Queue.new
+      operation_thread = Thread.new do
+        Gripi.settings.session_synchronizer.with_mutable_client(path) do
+          operation_started << true
+          release_operation.pop
+        end
+      end
+      operation_started.pop
+      event_thread = Thread.new { request.get("/events", params: { "session" => path, "after" => "0" }) }
+
+      response = Timeout.timeout(1) { event_thread.value }
+      assert_equal 200, response.status
+      payload = JSON.parse(response.body)
+      assert_equal [{ "type" => "compaction_start" }], payload.fetch("events")
+      refute payload.key?("session_sync")
+      assert operation_thread.alive?
+
+      release_operation << true
+      operation_thread.join
+      resumed_response = request.get("/events", params: { "session" => path, "after" => "0" })
+      assert_event_payload(resumed_response, events: [{ "type" => "compaction_start" }], last_seq: 1, mode: "managed")
+    ensure
+      release_operation << true if operation_thread&.alive?
+      operation_thread&.join
+      event_thread&.join
+    end
+  end
+
   def test_event_poll_closes_an_idle_persisted_client_after_reading_events
     Dir.mktmpdir do |dir|
       now = Time.at(1_000)
@@ -4294,9 +4336,13 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
 
       assert_equal 200, response.status
-      assert_includes response.body, 'class="message message--status message--compact" data-role="status"'
-      assert_includes response.body, '<div class="message-details-summary"><span class="compact-summary">Conversation compacted</span></div>'
-      assert_includes response.body, "Important summary"
+      document = Nokogiri::HTML(response.body)
+      message = document.at_css('.message.message--status.message--compact[data-role="status"]')
+      details = message&.at_css("details.message-details--compaction")
+      refute_nil details
+      refute details.key?("open")
+      assert_equal "Conversation compacted", details.at_css("summary .compact-summary").text
+      assert_equal "Important summary", details.at_css(".message-body").text.strip
     end
   end
 
@@ -5765,7 +5811,6 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "function showStatus(_text, _forceScroll = false) {}"
       assert_includes APP_JAVASCRIPT, "showStatus(eventStatusText(event));"
       assert_includes APP_JAVASCRIPT, "renderCompactionEvent(event)"
-      assert_includes APP_JAVASCRIPT, "this.appendCompactMessage(\"status\", \"Conversation compacted\", event.summary || \"Compaction completed\""
       assert_includes APP_JAVASCRIPT, "refreshSessionStatus().catch(() => {});"
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.renderCompactionEvent(event);"
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.resetLiveCompactionTracking();"
