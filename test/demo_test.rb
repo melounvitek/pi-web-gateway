@@ -34,6 +34,7 @@ class DemoTest < Minitest::Test
     javascript = File.read(JAVASCRIPT)
 
     assert_includes html, "<style>"
+    assert_includes html, '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,'
     assert_includes html, '<script src="demo.js"></script>'
     refute_match(/<(?:link|script|img|iframe|source|object|embed)[^>]+(?:href|src|data)=["'](?:https?:|\/)/i, html)
     refute_match(/url\s*\(\s*["']?(?:https?:|\/)/i, html)
