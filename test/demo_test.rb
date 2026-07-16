@@ -58,7 +58,7 @@ class DemoTest < Minitest::Test
       .sidebar-project-filter .sessions-list .conversation-panel>.session-header
       .conversation-scroll>#history-output
       .current-session-find .jump-controls .message.message--user
-      .message.message--assistant.message--thinking .message.message--assistant.message--tool-call
+      .message.message--assistant.message--thinking .message.message--assistant:not(.message--thinking)
       .composer>.composer-inner .command-list .prompt-form_.attachment-tray
       .session-status-bar_.model-settings-chip[data-status-key=model]
       [data-modal=new-session-modal] [data-modal=fork-session-modal]
@@ -84,6 +84,8 @@ class DemoTest < Minitest::Test
     assert_equal "Welcome to Gripi", body.at_css(".session-header-name").text
     assert_equal "welcome", result.fetch("defaultSessionId")
     assert_includes body.at_css("#history-output").text, "mise run setup"
+    refute_includes body.at_css("#history-output").text, "Installation requirements"
+    refute_includes File.read(JAVASCRIPT), 'title: "Installation requirements"'
     refute_nil repository_link
     refute repository_link.attribute("target")
     assert_match(/gripi:static-demo:v\d+/, File.read(JAVASCRIPT))
@@ -108,8 +110,8 @@ class DemoTest < Minitest::Test
 
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
     javascript = File.read(JAVASCRIPT)
-    refute_includes javascript, 'gripi:static-demo:v6'
-    assert_includes javascript, 'gripi:static-demo:v7'
+    refute_includes javascript, 'gripi:static-demo:v7'
+    assert_includes javascript, 'gripi:static-demo:v8'
     assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
     assert_includes javascript, "Never expose Gripi through a public IP or public reverse proxy."
     assert_includes javascript, 'switchSession(button.dataset.demoTreeTarget)'
@@ -169,15 +171,14 @@ class DemoTest < Minitest::Test
     refute_match(/gripi:static-demo:v\d+:intro-seen/, javascript)
   end
 
-  def test_demo_notice_links_to_the_repository_in_the_same_tab
+  def test_demo_has_no_global_notice_bar
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
-    link = body.at_css('#demo-notice a[href="https://github.com/melounvitek/gripi"]')
+    javascript = File.read(JAVASCRIPT)
 
-    refute_nil link
-    assert_includes link.ancestors("#demo-notice").first["class"].split, "is-visible"
-    assert link.parent.at_css("[data-demo-notice-message]")
-    assert_equal "View Gripi on GitHub →", link.text
-    refute link.attribute("target")
+    refute body.at_css("#demo-notice")
+    refute_includes javascript, "showDemoNotice"
+    refute_includes javascript, "data-dismiss-notice"
+    assert_includes javascript, 'if (event.target.closest("[data-demo-disabled]")) event.preventDefault();'
   end
 
   def test_streams_are_bound_to_the_originating_session_and_blocked_while_switching

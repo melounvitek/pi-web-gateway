@@ -8,7 +8,6 @@
         { role: "user", text: "What is Gripi, and how can I get started?", time: "Welcome" },
         { role: "thinking", text: "I’ll give you a quick tour and the shortest path to a local installation.", time: "Welcome" },
         { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nThis static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated.", time: "Welcome" },
-        { role: "tool", title: "Installation requirements", text: "mise\nPi CLI available on PATH", time: "Welcome" },
         { role: "assistant", text: "Clone and start Gripi with these commands. Setup prints the admin password used to approve your browser, then Gripi is available at http://localhost:4567.", code: "git clone https://github.com/melounvitek/gripi.git\ncd gripi\nmise install\nmise run setup\nGRIPI_HOST=127.0.0.1 mise run start", link: { href: "https://github.com/melounvitek/gripi", label: "View Gripi on GitHub →" }, time: "Welcome" }
       ]
     },
@@ -165,7 +164,7 @@
   global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
   if (typeof document === "undefined") return;
 
-  const storageKey = "gripi:static-demo:v7";
+  const storageKey = "gripi:static-demo:v8";
   const introSeenKey = "gripi:static-demo:intro-seen";
   let sessions = initialSessions;
   let currentId = defaultSessionId;
@@ -198,7 +197,7 @@
     project: document.getElementById("project-filter"), projectTrigger: document.getElementById("project-select-trigger"), projectList: document.getElementById("project-select-listbox"),
     searchForm: document.getElementById("sidebar-session-search"), search: document.querySelector('#sidebar-session-search input[type="search"]'), clearFilters: document.querySelector("[data-sidebar-filters-clear]"),
     headerName: document.querySelector(".session-header-name"), headerProject: document.querySelector(".session-header-project"), form: document.getElementById("prompt-form"), prompt: document.querySelector(".prompt-form textarea"),
-    state: document.querySelector(".composer-state"), stop: document.getElementById("stop-button"), commands: document.getElementById("command-list"), notice: document.getElementById("demo-notice"), attachmentTray: document.querySelector(".attachment-tray"),
+    state: document.querySelector(".composer-state"), stop: document.getElementById("stop-button"), commands: document.getElementById("command-list"), attachmentTray: document.querySelector(".attachment-tray"),
     jumpTop: document.querySelector(".jump-controls--top"), jumpFirst: document.querySelector(".jump-to-first"), jumpBottom: document.querySelector(".jump-controls--bottom"), jumpLatest: document.querySelector(".jump-to-latest"),
     treeTarget: document.querySelector("[data-demo-tree-target]"), treeTargetTitle: document.querySelector("[data-demo-tree-target-title]"), treeCurrentTitle: document.querySelector("[data-demo-tree-current-title]")
   };
@@ -425,9 +424,8 @@
     if (force) autoScrollEnabled = true;
     programmaticScrollTo({ top: element.scroll.scrollHeight, behavior: "smooth" });
   }
-  function showDemoNotice(text) { element.notice.querySelector("[data-demo-notice-message]").textContent = text; element.notice.classList.add("is-visible"); }
 
-  function cancelStream(feedback) {
+  function cancelStream() {
     if (!streamController) return;
     streamController.abort(); streamController = null;
     streamingEntry?.article.classList.remove("message--streaming");
@@ -444,7 +442,6 @@
     }
     streamingEntry = null; activeToolEntry = null;
     setRunning(false);
-    if (feedback) showDemoNotice("Simulated response stopped. No backend request was made.");
     persist();
   }
 
@@ -506,7 +503,7 @@
     const generation = ++switchGeneration;
     switching = true;
     element.prompt.disabled = true;
-    persistDraft(); cancelStream(false); resetFind(true); document.body.classList.add("session-switching");
+    persistDraft(); cancelStream(); resetFind(true); document.body.classList.add("session-switching");
     setTimeout(() => {
       if (generation !== switchGeneration) return;
       currentId = id;
@@ -580,8 +577,7 @@
     }
     const removeAttachment = event.target.closest("[data-remove-attachment]"); if (removeAttachment) { removeAttachment.closest(".attachment")?.remove(); element.attachmentTray.classList.toggle("has-attachments", !!element.attachmentTray.children.length); document.getElementById("image-input").value = ""; return; }
     if (!event.target.closest("[data-project-select]") && !element.projectList.hidden) { element.projectList.hidden = true; element.projectTrigger.setAttribute("aria-expanded", "false"); }
-    if (event.target.closest("[data-demo-notice]")) { event.preventDefault(); showDemoNotice("This control needs a connected gateway. The static demo stays on this page."); }
-    if (event.target.closest("[data-dismiss-notice]")) element.notice.classList.remove("is-visible");
+    if (event.target.closest("[data-demo-disabled]")) event.preventDefault();
     if (event.target.closest(".jump-to-first")) { autoScrollEnabled = false; programmaticScrollTo({ top: 0, behavior: "smooth" }); }
     if (event.target.closest(".jump-to-latest")) scrollLatest(true);
   });
@@ -613,11 +609,11 @@
   element.clearFilters.addEventListener("click", (event) => { event.preventDefault(); element.search.value = ""; selectProject(""); });
   element.projectTrigger.addEventListener("click", () => { const open = element.projectList.hidden; element.projectList.hidden = !open; element.projectTrigger.setAttribute("aria-expanded", String(open)); if (open) { const rect = element.projectTrigger.getBoundingClientRect(); Object.assign(element.projectList.style, { left: `${rect.left}px`, top: `${rect.bottom + 4}px`, width: `${rect.width}px` }); } });
   element.projectList.addEventListener("click", (event) => { const option = event.target.closest("[data-project-value]"); if (option) selectProject(option.dataset.projectValue); });
-  document.querySelector("[data-notification-toggle]").addEventListener("click", (event) => { const enabled = !event.currentTarget.classList.contains("is-enabled"); event.currentTarget.classList.toggle("is-enabled", enabled); event.currentTarget.classList.toggle("is-disabled", !enabled); event.currentTarget.querySelector("[data-notification-toggle-state]").textContent = enabled ? "Demo on" : "Demo off"; showDemoNotice(enabled ? "Demo notifications enabled. No browser permission or network service is used." : "Demo notifications disabled."); });
+  document.querySelector("[data-notification-toggle]").addEventListener("click", (event) => { const enabled = !event.currentTarget.classList.contains("is-enabled"); event.currentTarget.classList.toggle("is-enabled", enabled); event.currentTarget.classList.toggle("is-disabled", !enabled); event.currentTarget.querySelector("[data-notification-toggle-state]").textContent = enabled ? "Demo on" : "Demo off"; });
   element.form.addEventListener("submit", (event) => { event.preventDefault(); submitPrompt(); });
   element.prompt.addEventListener("input", () => { const slash = element.prompt.value.startsWith("/"); element.commands.classList.toggle("is-visible", slash); if (slash) element.commands.open = true; persistDraft(); });
   element.prompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); } });
-  element.stop.addEventListener("click", () => cancelStream(true));
+  element.stop.addEventListener("click", cancelStream);
   document.getElementById("image-input").addEventListener("change", (event) => { element.attachmentTray.replaceChildren(); [...event.target.files].forEach((file) => { const attachment = document.createElement("span"); attachment.className = "attachment"; const name = document.createElement("span"); name.textContent = file.name; const remove = document.createElement("button"); remove.type = "button"; remove.dataset.removeAttachment = ""; remove.textContent = "Remove"; attachment.append(name, remove); element.attachmentTray.append(attachment); }); element.attachmentTray.classList.toggle("has-attachments", event.target.files.length > 0); });
 
   document.querySelector("[data-current-session-find-input]").addEventListener("input", updateFind);
@@ -688,8 +684,8 @@
     closeModal(event.target.closest("[data-modal]")); switchSession(id);
   });
   document.querySelectorAll("[data-demo-fork]").forEach((button) => button.addEventListener("click", () => { const source = currentSession(); const id = `fork-${Date.now()}`; sessions.push({ ...source, id, name: `${source.name} (fork)`, pinned: false, messages: source.messages.slice(0, 4).map((message) => ({ ...message })) }); closeModal(button.closest("[data-modal]")); switchSession(id); }));
-  document.querySelectorAll("[data-demo-tree]").forEach((button) => button.addEventListener("click", () => { closeModal(button.closest("[data-modal]")); if (button.dataset.demoTreeTarget) switchSession(button.dataset.demoTreeTarget); else showDemoNotice("Already viewing this tree point."); }));
-  document.querySelector(".model-settings-form").addEventListener("submit", (event) => { event.preventDefault(); const model = new FormData(event.target).get("model"); const thinking = new FormData(event.target).get("thinking"); document.querySelector('[data-status-key="model"] .session-status-value').textContent = `${model} (${thinking})`; closeModal(event.target.closest("[data-modal]")); showDemoNotice("Model settings applied locally for the demo."); });
+  document.querySelectorAll("[data-demo-tree]").forEach((button) => button.addEventListener("click", () => { closeModal(button.closest("[data-modal]")); if (button.dataset.demoTreeTarget) switchSession(button.dataset.demoTreeTarget); }));
+  document.querySelector(".model-settings-form").addEventListener("submit", (event) => { event.preventDefault(); const model = new FormData(event.target).get("model"); const thinking = new FormData(event.target).get("thinking"); document.querySelector('[data-status-key="model"] .session-status-value').textContent = `${model} (${thinking})`; closeModal(event.target.closest("[data-modal]")); });
   document.querySelector("[data-model-search]").addEventListener("input", (event) => { const query = event.target.value.toLowerCase(); document.querySelectorAll(".model-option").forEach((option) => { option.hidden = !option.textContent.toLowerCase().includes(query); }); });
 
   renderHeader(); renderConversation(); renderSidebar(); loadDraft();
