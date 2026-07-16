@@ -304,37 +304,17 @@ class DemoTest < Minitest::Test
     assert_includes result.fetch("answer"), "How does this work?"
   end
 
-  def test_demo_tool_output_models_edit_diffs_and_expansion
-    result = run_javascript(<<~JS)
-      console.log(JSON.stringify({
-        collapsed: GripiDemo.toolOutputModel("edit test/system/checkout_test.rb", "context\\n- old\\n+ new\\n+ another"),
-        expanded: GripiDemo.toolOutputModel("edit test/system/checkout_test.rb", "context\\n- old\\n+ new\\n+ another", true),
-        write: GripiDemo.toolOutputModel("write content/app/releases.md", "+ draft"),
-        read: GripiDemo.toolOutputModel("read README.md", "one\\ntwo\\nthree\\nfour"),
-        guide: GripiDemo.toolOutputModel("Safer deployment checklist", "one\\ntwo\\nthree\\nfour")
-      }));
-    JS
-
-    assert_equal true, result.fetch("collapsed").fetch("isDiff")
-    assert_equal true, result.fetch("collapsed").fetch("shouldCollapse")
-    assert_equal 1, result.fetch("collapsed").fetch("hiddenCount")
-    assert_equal ["- old", "+ new", "+ another"], result.fetch("collapsed").fetch("visibleLines")
-    assert_equal %w[tool-diff-line--remove tool-diff-line--add tool-diff-line--add], result.fetch("collapsed").fetch("lineClasses")
-    assert_equal ["context", "- old", "+ new", "+ another"], result.fetch("expanded").fetch("visibleLines")
-    assert_equal true, result.fetch("write").fetch("isDiff")
-    assert_equal ["tool-diff-line--add"], result.fetch("write").fetch("lineClasses")
-    assert_equal false, result.fetch("read").fetch("isDiff")
-    assert_equal false, result.fetch("guide").fetch("isNativeTool")
-    assert_equal false, result.fetch("guide").fetch("shouldCollapse")
-    assert_equal ["one", "two", "three", "four"], result.fetch("guide").fetch("visibleLines")
-  end
-
-  def test_demo_tool_expand_click_rerenders_body
+  def test_demo_tool_activity_uses_production_compact_structure_without_fake_output
     javascript = File.read(JAVASCRIPT)
 
-    assert_includes javascript, "renderToolOutput(collapse, body, body.dataset.toolTitle, body.dataset.rawText, expanded)"
-    assert_includes javascript, "body.dataset.rawText = String(text || \"\")"
-    assert_includes javascript, "tool-output-content--diff"
+    assert_includes javascript, 'role === "tool" ? " message--compact message--tool-call"'
+    assert_includes javascript, 'details.className = "message-details message-details--always-open"'
+    assert_includes javascript, 'summary.className = "message-details-summary"'
+    assert_includes javascript, 'compact.className = "compact-summary"'
+    refute_includes javascript, "dataToolOutputBody"
+    refute_includes javascript, "dataToolOutputToggle"
+    refute_includes javascript, "tool-output-content--diff"
+    refute_includes javascript, "toolOutputModel"
   end
 
   private
