@@ -10,7 +10,7 @@
 **Pi stays Pi.** Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. It is a gateway and UI layer for accessing the Pi environment you already run.
 
 <p align="center">
-  <strong><a href="https://melounvitek.github.io/gripi/">Try the live interactive demo →</a></strong><br>
+  <strong><a href="https://gripi.w10.cz/">Try the live interactive demo →</a></strong><br>
   <sub>No installation required. Responses and backend actions are simulated.</sub>
 </p>
 
