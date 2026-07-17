@@ -21,6 +21,31 @@ class FrontendHelpersJsTest < Minitest::Test
     assert_match(/\Atool:123:[0-9a-f]+\z/, results.last)
   end
 
+  def test_notification_reply_preview_returns_plain_text
+    results = run_javascript(<<~JS)
+      const { notificationReplyPreview } = await import(#{module_url("formatting.js").to_json});
+      console.log(JSON.stringify([
+        notificationReplyPreview("**Bold** and *italic* with __strong__ and _emphasis_"),
+        notificationReplyPreview("Use `code` and ```js\\nconst value = 1;\\n```"),
+        notificationReplyPreview("[Label](https://example.com) and ![Image alt](image.png)"),
+        notificationReplyPreview("# Heading\\n> Quote\\n- item\\n1. numbered"),
+        notificationReplyPreview("<b>HTML-ish</b> javascript:alert(1)"),
+        notificationReplyPreview("2 < 3 and 4 > 1"),
+        notificationReplyPreview("   ")
+      ]));
+    JS
+
+    assert_equal [
+      "Bold and italic with strong and emphasis",
+      "Use code and const value = 1;",
+      "Label and Image alt",
+      "Heading Quote item numbered",
+      "HTML-ish alert(1)",
+      "2 < 3 and 4 > 1",
+      "New reply."
+    ], results
+  end
+
   def test_session_name_helpers_follow_native_pi_events_and_command
     results = run_javascript(<<~JS)
       const { sessionNameFromEvent, sessionNameSlashCommand } = await import(#{module_url("formatting.js").to_json});

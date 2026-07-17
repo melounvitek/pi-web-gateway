@@ -50,7 +50,22 @@ export function sessionNameFromEvent(event) {
 }
 
 export function notificationReplyPreview(text) {
-  const preview = String(text || "").replace(/\s+/g, " ").trim();
+  const preview = String(text || "")
+    .replace(/```[^\n]*\n?/g, "")
+    .replace(/```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-*+] |\d+[.)]\s+)/gm, "")
+    .replace(/^\s*[-*_]{3,}\s*$/gm, " ")
+    .replace(/<\/?[a-z][^>]*>/gi, " ")
+    .replace(/\bjavascript:/gi, "")
+    .replace(/([*_~]{1,2})([^*_~]+)\1/g, "$2")
+    .replace(/[*_~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!preview) return "New reply.";
   return preview.length > 180 ? `${preview.slice(0, 177)}…` : preview;
 }
