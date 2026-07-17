@@ -5,71 +5,71 @@
     {
       id: "welcome", name: "Welcome to Gripi", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Start here", pinned: true,
       messages: [
-        { role: "user", text: "What is Gripi, and how can I get started?", time: "Welcome" },
-        { role: "thinking", text: "I’ll give you a quick tour and the shortest path to a local installation.", time: "Welcome" },
-        { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nPi stays Pi: Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. This static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated.", time: "Welcome" },
-        { role: "assistant", text: "Clone and start Gripi with these commands. Setup prints the admin password used to approve your browser, then Gripi is available at http://localhost:4567.", code: "git clone https://github.com/melounvitek/gripi.git\ncd gripi\nmise install\nmise run setup\nGRIPI_HOST=127.0.0.1 mise run start", link: { href: "https://github.com/melounvitek/gripi", label: "View Gripi on GitHub →" }, time: "Welcome" }
+        { role: "user", text: "What is Gripi, and how can I get started?" },
+        { role: "thinking", text: "I’ll give you a quick tour and the shortest path to a local installation." },
+        { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nPi stays Pi: Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. This static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated." },
+        { role: "assistant", text: "Clone and start Gripi with these commands. Setup prints the admin password used to approve your browser, then Gripi is available at http://localhost:4567.", code: "git clone https://github.com/melounvitek/gripi.git\ncd gripi\nmise install\nmise run setup\nGRIPI_HOST=127.0.0.1 mise run start", link: { href: "https://github.com/melounvitek/gripi", label: "View Gripi on GitHub →" } }
       ]
     },
     {
       id: "new-to-pi", name: "New to Pi? Start here", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Read next", pinned: false,
       messages: [
-        { role: "user", text: "I found Gripi before Pi. Is this a good place to start?", time: "Guide" },
-        { role: "assistant", text: "Start with Pi itself. Pi is the coding agent that reads files, runs tools, edits code, and owns the projects and sessions shown here. Gripi runs that same Pi environment on a gateway machine and gives you desktop and browser access to it.\n\nTry Pi CLI first and become comfortable with its tools, sessions, models, extensions, and filesystem access. Gripi becomes useful when you want to reach an existing Pi setup from other devices.", link: { href: "https://pi.dev/", label: "Learn about Pi →" }, time: "Guide" }
+        { role: "user", text: "I found Gripi before Pi. Is this a good place to start?" },
+        { role: "assistant", text: "Start with Pi itself. Pi is the coding agent that reads files, runs tools, edits code, and owns the projects and sessions shown here. Gripi runs that same Pi environment on a gateway machine and gives you desktop and browser access to it.\n\nTry Pi CLI first and become comfortable with its tools, sessions, models, extensions, and filesystem access. Gripi becomes useful when you want to reach an existing Pi setup from other devices.", link: { href: "https://pi.dev/", label: "Learn about Pi →" } }
       ]
     },
     {
       id: "pi-stays-pi", name: "Does Gripi change Pi?", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Trust", pinned: false,
       messages: [
-        { role: "user", text: "Does Gripi change how Pi behaves?", time: "Guide" },
-        { role: "assistant", text: "No. Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. It starts and connects to Pi through a gateway, while Pi remains responsible for the actual agent runtime, tools, models, and session data.", time: "Guide" }
+        { role: "user", text: "Does Gripi change how Pi behaves?" },
+        { role: "assistant", text: "No. Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. It starts and connects to Pi through a gateway, while Pi remains responsible for the actual agent runtime, tools, models, and session data." }
       ]
     },
     {
       id: "unsupported", name: "What isn’t supported in Gripi?", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Compatibility", pinned: false,
       messages: [
-        { role: "user", text: "Does Gripi support everything an extension can do in Pi’s terminal UI?", time: "Guide" },
-        { role: "assistant", text: "No. Standard tools, compatible custom tools, subagents, extension commands exposed through RPC, session data, images, compaction, and tree navigation work through Pi’s gateway runtime.\n\nGripi does not reproduce arbitrary terminal interfaces. Custom TUI components, overlays, widgets, editors, terminal keybindings, custom TUI rendering, and interactive select/confirm/input/editor dialogs are not currently supported.", time: "Guide" },
-        { role: "assistant", text: "Use Pi CLI directly for workflows that depend on custom terminal UI or explicitly require ctx.mode === “tui”. Gripi preserves the underlying Pi workflow, but it is not a browser implementation of every possible extension interface.", time: "Guide" }
+        { role: "user", text: "Does Gripi support everything an extension can do in Pi’s terminal UI?" },
+        { role: "assistant", text: "No. Standard tools, compatible custom tools, subagents, extension commands exposed through RPC, session data, images, compaction, and tree navigation work through Pi’s gateway runtime.\n\nGripi does not reproduce arbitrary terminal interfaces. Custom TUI components, overlays, widgets, editors, terminal keybindings, custom TUI rendering, and interactive select/confirm/input/editor dialogs are not currently supported." },
+        { role: "assistant", text: "Use Pi CLI directly for workflows that depend on custom terminal UI or explicitly require ctx.mode === “tui”. Gripi preserves the underlying Pi workflow, but it is not a browser implementation of every possible extension interface." }
       ]
     },
     {
       id: "always-on", name: "Run Gripi on an always-on computer", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Recommended setup", pinned: false,
       messages: [
-        { role: "user", text: "I have an office PC or spare computer that stays on. Can it be my gateway?", time: "Guide" },
-        { role: "thinking", text: "I’ll outline the reliable private-network setup and the machine-access implications.", time: "Guide" },
-        { role: "assistant", text: "Yes. Install Pi and Gripi there and connect it through Tailscale. On Linux, you can optionally run Gripi as a user systemd service and enable user lingering if it must start before login. Configure the computer not to sleep unexpectedly.\n\nCheck your employer’s policy before using an office machine. Anyone allowed into Gripi can ask Pi to access that computer’s projects and credentials.", code: "systemctl --user enable --now gripi.service\nsudo loginctl enable-linger \"$USER\"\nsystemctl --user status gripi.service --no-pager", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Read the always-on setup guide →" }, time: "Guide" }
+        { role: "user", text: "I have an office PC or spare computer that stays on. Can it be my gateway?" },
+        { role: "thinking", text: "I’ll outline the reliable private-network setup and the machine-access implications." },
+        { role: "assistant", text: "Yes. Install Pi and Gripi there and connect it through Tailscale. On Linux, you can optionally run Gripi as a user systemd service and enable user lingering if it must start before login. Configure the computer not to sleep unexpectedly.\n\nCheck your employer’s policy before using an office machine. Anyone allowed into Gripi can ask Pi to access that computer’s projects and credentials.", code: "systemctl --user enable --now gripi.service\nsudo loginctl enable-linger \"$USER\"\nsystemctl --user status gripi.service --no-pager", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Read the always-on setup guide →" } }
       ]
     },
     {
       id: "tailscale", name: "Access Gripi remotely with Tailscale", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Remote access", pinned: false,
       messages: [
-        { role: "user", text: "What is the recommended way to connect from another device?", time: "Guide" },
-        { role: "assistant", text: "Use a private VPN such as Tailscale. Either bind Gripi to the gateway’s Tailscale address, or keep it on 127.0.0.1 and use Tailscale Serve for private HTTPS. Keep browser approval enabled.\n\nDo not expose port 4567 directly to the public internet.", code: "GRIPI_HOST=127.0.0.1 mise run start\ntailscale serve --bg --yes 4567\ntailscale serve status", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "See the remote-access options →" }, time: "Guide" }
+        { role: "user", text: "What is the recommended way to connect from another device?" },
+        { role: "assistant", text: "Use a private VPN such as Tailscale. Either bind Gripi to the gateway’s Tailscale address, or keep it on 127.0.0.1 and use Tailscale Serve for private HTTPS. Keep browser approval enabled.\n\nDo not expose port 4567 directly to the public internet.", code: "GRIPI_HOST=127.0.0.1 mise run start\ntailscale serve --bg --yes 4567\ntailscale serve status", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "See the remote-access options →" } }
       ]
     },
     {
       id: "mobile", name: "Use Gripi from a phone or tablet", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Mobile access", pinned: false,
       messages: [
-        { role: "user", text: "Can I use Gripi from my phone?", time: "Guide" },
-        { role: "assistant", text: "Yes. Join the phone to the same Tailscale network, open the gateway’s private URL, and approve that browser. On iPhone, Safari’s Add to Home Screen flow can open Gripi as a web app.\n\nThere is no native mobile app, but the web interface includes a responsive session sidebar and composer.", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Review the private-network setup →" }, time: "Guide" }
+        { role: "user", text: "Can I use Gripi from my phone?" },
+        { role: "assistant", text: "Yes. Join the phone to the same Tailscale network, open the gateway’s private URL, and approve that browser. On iPhone, Safari’s Add to Home Screen flow can open Gripi as a web app.\n\nThere is no native mobile app, but the web interface includes a responsive session sidebar and composer.", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Review the private-network setup →" } }
       ]
     },
     {
       id: "vps", name: "Should I run Gripi on a VPS?", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Advanced", pinned: false,
       messages: [
-        { role: "user", text: "Could I deploy Gripi on an internet-hosted VPS?", time: "Guide" },
-        { role: "thinking", text: "This needs a strong warning because the gateway can execute Pi tools with the server user’s access.", time: "Guide" },
-        { role: "assistant", text: "Running Gripi on a VPS is advanced and potentially dangerous. Do not do it unless you understand server hardening, network isolation, credential management, and remote-code-execution risk. Never expose Gripi through a public IP or public reverse proxy. Browser approval is not a substitute for network isolation.", time: "Guide" },
-        { role: "tool", title: "Safer deployment checklist", text: "Private VPN only\nDedicated non-root OS user\nMinimal repositories and credentials\nFirewall and security updates\nEncrypted storage, backups, and monitoring\nBrowser approval kept enabled", time: "Guide" },
-        { role: "assistant", text: "Prefer an always-on trusted computer or private home server. If you still choose a VPS, expose it only inside a private VPN such as Tailscale and treat every credential available to that OS user as reachable through Pi.", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/configuration.md", label: "Review Gripi security configuration →" }, time: "Guide" }
+        { role: "user", text: "Could I deploy Gripi on an internet-hosted VPS?" },
+        { role: "thinking", text: "This needs a strong warning because the gateway can execute Pi tools with the server user’s access." },
+        { role: "assistant", text: "Running Gripi on a VPS is advanced and potentially dangerous. Do not do it unless you understand server hardening, network isolation, credential management, and remote-code-execution risk. Never expose Gripi through a public IP or public reverse proxy. Browser approval is not a substitute for network isolation." },
+        { role: "tool", title: "Safer deployment checklist", text: "Private VPN only\nDedicated non-root OS user\nMinimal repositories and credentials\nFirewall and security updates\nEncrypted storage, backups, and monitoring\nBrowser approval kept enabled" },
+        { role: "assistant", text: "Prefer an always-on trusted computer or private home server. If you still choose a VPS, expose it only inside a private VPN such as Tailscale and treat every credential available to that OS user as reachable through Pi.", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/configuration.md", label: "Review Gripi security configuration →" } }
       ]
     },
     {
       id: "demo-fidelity", name: "Does this look 1:1 realistic as the real product?", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "Demo note", pinned: false,
       messages: [
-        { role: "user", text: "Does this static demo look exactly like the real product?", time: "Guide" },
-        { role: "assistant", text: "Not exactly. The demo uses the same overall interface, but some interactions and details are simplified, and a few parts are not as polished here as they are in the real app. A connected Gripi gateway has the full live session behavior, real tool output, and production rendering polish.", time: "Guide" }
+        { role: "user", text: "Does this static demo look exactly like the real product?" },
+        { role: "assistant", text: "Not exactly. The demo uses the same overall interface, but some interactions and details are simplified, and a few parts are not as polished here as they are in the real app. A connected Gripi gateway has the full live session behavior, real tool output, and production rendering polish." }
       ]
     },
     { id: "release-notes", name: "Draft release notes", project: "website", monogram: "WE", color: "#9fc5ff", background: "#1e334d", age: "Monday", pinned: false, messages: [
@@ -206,13 +206,14 @@
 
   const defaultSessionId = "welcome";
   const sessionCatalog = initialSessions.map(({ id, name, project, pinned }) => ({ id, name, project, pinned }));
-  global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, inlineCodeParts, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
+  global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, inlineCodeParts, formatDemoTimestamp: timeLabel, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
   if (typeof document === "undefined") return;
 
-  const storageKey = "gripi:static-demo:v10";
+  const storageKey = "gripi:static-demo:v11";
   const introSeenKey = "gripi:static-demo:intro-seen";
   let sessions = initialSessions;
   let currentId = defaultSessionId;
+  const demoStartedAt = timeLabel();
   let streamController = null;
   let streamingEntry = null;
   let activeToolEntry = null;
@@ -268,7 +269,7 @@
     try { element.prompt.value = localStorage.getItem(draftKey()) || ""; } catch (_error) { element.prompt.value = ""; }
     element.commands.classList.toggle("is-visible", element.prompt.value.startsWith("/"));
   }
-  function timeLabel() { return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date()); }
+  function timeLabel(date = new Date()) { const pad = (value) => String(value).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`; }
   function applyIdentity(target, session) {
     target.style.setProperty("--project-identity-bg", safeIdentityColor(session.background, "#4a281f"));
     target.style.setProperty("--project-identity-fg", safeIdentityColor(session.color, "#ff9b73"));
@@ -308,7 +309,7 @@
     label.textContent = role === "assistant" || role === "thinking" ? "pi" : role === "compaction" ? "status" : role;
     const meta = document.createElement("div");
     meta.className = "message-meta";
-    meta.textContent = message.time || timeLabel();
+    meta.textContent = message.time || demoStartedAt;
     header.append(label, meta);
     if (role === "assistant") header.append(makeCopyButton());
     article.append(header);

@@ -115,8 +115,8 @@ class DemoTest < Minitest::Test
 
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
     javascript = File.read(JAVASCRIPT)
-    refute_includes javascript, 'gripi:static-demo:v9'
-    assert_includes javascript, 'gripi:static-demo:v10'
+    refute_includes javascript, 'gripi:static-demo:v10'
+    assert_includes javascript, 'gripi:static-demo:v11'
     assert_includes javascript, "does not alter Pi’s system prompt"
     assert_includes javascript, "not as polished here as they are in the real app"
     assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
@@ -133,6 +133,20 @@ class DemoTest < Minitest::Test
     assert_includes javascript, 'title: "edit app/views/checkouts/show.html.erb"'
     assert_includes javascript, 'title: "bash bin/rails test test/system/checkout_test.rb"'
     assert_includes javascript, 'title: "read .github/workflows/test.yml"'
+  end
+
+  def test_demo_guide_messages_use_current_real_timestamp_format
+    javascript = File.read(JAVASCRIPT)
+    html = File.read(HTML)
+    result = run_javascript(<<~JS)
+      const date = new Date(2026, 6, 17, 16, 36);
+      console.log(JSON.stringify({ formatted: GripiDemo.formatDemoTimestamp(date) }));
+    JS
+
+    refute_includes javascript, 'time: "Welcome"'
+    refute_includes javascript, 'time: "Guide"'
+    refute_includes html, '<div class="message-meta">Welcome</div>'
+    assert_equal "2026-07-17 16:36", result.fetch("formatted")
   end
 
   def test_demo_project_sessions_show_native_tool_activity
