@@ -16,7 +16,7 @@
 
 <a href="docs/images/gripi-architecture.svg"><img alt="Desktop, browser, and mobile clients connect over a local network or VPN to the Gripi gateway, which runs Pi with access to the gateway machine's projects, sessions, and credentials" src="docs/images/gripi-architecture.svg" /></a>
 
-> The project is currently a fully vibe-coded alpha version. Initially, it was supposed to be a quick proof of concept, but I ended up using it for my daily work. So please, expect some rough edges, missing features, and behavior that may change. Happy to look at any feedback (use Github issues)!
+> The project is a fully vibe-coded alpha version ATM. Initially, it was supposed to be a quick proof of concept, but I ended up using it for my daily work and I actually like it. So please, feel free to try it; but expect some rough edges, missing features, and behavior that may change. Happy to look at any feedback (use Github issues)!
 
 ## Install
 
