@@ -180,6 +180,16 @@
     ];
   }
 
+  function inlineCodeParts(text) {
+    const parts = [];
+    String(text || "").split(/(`[^`\n]+`)/).forEach((part) => {
+      if (!part) return;
+      if (part.startsWith("`") && part.endsWith("`")) parts.push({ type: "code", text: part.slice(1, -1) });
+      else parts.push({ type: "text", text: part });
+    });
+    return parts;
+  }
+
   async function playScript(script, options) {
     const settings = options || {};
     const wait = settings.wait || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
@@ -196,7 +206,7 @@
 
   const defaultSessionId = "welcome";
   const sessionCatalog = initialSessions.map(({ id, name, project, pinned }) => ({ id, name, project, pinned }));
-  global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
+  global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, inlineCodeParts, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
   if (typeof document === "undefined") return;
 
   const storageKey = "gripi:static-demo:v10";
@@ -273,6 +283,18 @@
     return button;
   }
 
+  function appendInlineCode(target, text) {
+    inlineCodeParts(text).forEach((part) => {
+      if (part.type === "code") {
+        const code = document.createElement("code");
+        code.textContent = part.text;
+        target.append(code);
+      } else {
+        target.append(document.createTextNode(part.text));
+      }
+    });
+  }
+
   function messageArticle(message, live) {
     const article = document.createElement("article");
     const role = message.role;
@@ -322,7 +344,7 @@
       const body = document.createElement(role === "assistant" || role === "thinking" ? "div" : "pre");
       body.className = `message-body${role === "assistant" || role === "thinking" ? " message-body--markdown" : ""}${role === "thinking" ? " message-body--thinking" : ""}`;
       if (role === "assistant" || role === "thinking") {
-        String(message.text || "").split(/\n\n+/).forEach((paragraph) => { const p = document.createElement("p"); p.textContent = paragraph; body.append(p); });
+        String(message.text || "").split(/\n\n+/).forEach((paragraph) => { const p = document.createElement("p"); appendInlineCode(p, paragraph); body.append(p); });
         if (message.code) { const pre = document.createElement("pre"); const code = document.createElement("code"); code.textContent = message.code; pre.append(code); body.append(pre); }
         if (message.link) { const p = document.createElement("p"); const link = document.createElement("a"); link.href = message.link.href; link.textContent = message.link.label; p.append(link); body.append(p); }
       } else body.textContent = message.text || "";

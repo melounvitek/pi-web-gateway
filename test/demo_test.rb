@@ -322,6 +322,20 @@ class DemoTest < Minitest::Test
     assert_includes result.fetch("answer"), "How does this work?"
   end
 
+  def test_demo_assistant_text_supports_inline_code_markup
+    result = run_javascript(<<~JS)
+      console.log(JSON.stringify(GripiDemo.inlineCodeParts("Use `Gemfile.lock`, not `github.sha`.")));
+    JS
+
+    assert_equal [
+      { "type" => "text", "text" => "Use " },
+      { "type" => "code", "text" => "Gemfile.lock" },
+      { "type" => "text", "text" => ", not " },
+      { "type" => "code", "text" => "github.sha" },
+      { "type" => "text", "text" => "." }
+    ], result
+  end
+
   def test_demo_tool_activity_uses_production_compact_structure_without_fake_output
     javascript = File.read(JAVASCRIPT)
 
