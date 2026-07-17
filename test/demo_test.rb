@@ -59,7 +59,7 @@ class DemoTest < Minitest::Test
       .app-shell>.session-sidebar .session-sidebar-content_.recent-sessions
       .sidebar-project-filter .sessions-list .conversation-panel>.session-header
       .conversation-scroll>#history-output
-      .current-session-find .jump-controls .message.message--user
+      .current-session-find .message.message--user
       .message.message--assistant.message--thinking .message.message--assistant:not(.message--thinking)
       .composer>.composer-inner .command-list .prompt-form_.attachment-tray
       .session-status-bar_.model-settings-chip[data-status-key=model]
@@ -72,7 +72,8 @@ class DemoTest < Minitest::Test
     end
     refute body.at_css(".current-session-section, .session-relation-tree")
     refute body.at_css(".session.unread, .mobile-sessions-unread-badge")
-    refute body.at_css(".jump-controls.is-visible, .jump-button.is-visible")
+    refute body.at_css(".jump-controls, .jump-button, .conversation-history-status")
+    refute_includes body.text, "Earlier messages available in a connected gateway"
     assert_equal "pi", body.at_css(".message--assistant.message--thinking .role").text
     assert_equal "pi", body.at_css(".message--assistant:not(.message--thinking):not(.message--tool-call) .role").text
   end
@@ -159,27 +160,6 @@ class DemoTest < Minitest::Test
     assert_equal "1 hour ago", ages.fetch("Does this look 1:1 realistic as the real product?")
     assert_equal "yesterday", ages.fetch("Investigate flaky checkout spec")
     assert_equal "2026-06-17", ages.fetch("Simplify documentation navigation")
-  end
-
-  def test_demo_jump_controls_use_delayed_reveal_like_real_gripi
-    javascript = File.read(JAVASCRIPT)
-
-    assert_includes javascript, 'let lastRevealAt = 0;'
-    assert_includes javascript, 'scrollRevealDelayTimer = setTimeout(() => {'
-    assert_includes javascript, 'if (Date.now() - lastRevealAt > 120) return;'
-    assert_includes javascript, '}, 300);'
-    assert_includes javascript, 'resetJumpControlsReveal();'
-    assert_includes javascript, 'if (!visible) return;'
-    assert_includes javascript, 'if (!visible.top && !visible.bottom) { resetJumpControlsReveal(); return; }'
-    assert_includes javascript, 'latestReadableAssistantMessageIsVisible()'
-  end
-
-  def test_demo_jump_controls_do_not_hide_during_programmatic_scroll
-    javascript = File.read(JAVASCRIPT)
-
-    assert_includes javascript, 'function programmaticScrollTo(options) {'
-    refute_includes javascript, 'programmaticScroll = true;\n    setJumpControls(false, false);\n    element.scroll.scrollTo(options);'
-    refute_includes javascript, 'if (programmaticScroll) { lastScrollTop = current; setJumpControls(false, false); finishProgrammaticScrollSoon(); return; }'
   end
 
   def test_demo_sidebar_preserves_scroll_when_rerendering_sessions
@@ -331,26 +311,6 @@ class DemoTest < Minitest::Test
     assert_includes javascript, "if (!prompt || streamController || switching) return;"
     assert_includes javascript, "appendStreamEvent(event, streamSession)"
     assert_includes javascript, "if (generation !== switchGeneration) return;"
-  end
-
-  def test_jump_arrows_only_appear_for_intentional_scroll_direction
-    result = run_javascript(<<~JS)
-      console.log(JSON.stringify({
-        up: GripiDemo.jumpControlVisibility(500, 300, 900),
-        down: GripiDemo.jumpControlVisibility(300, 500, 900),
-        downLatestVisible: GripiDemo.jumpControlVisibility(300, 500, 900, true),
-        unchanged: GripiDemo.jumpControlVisibility(500, 500, 900),
-        top: GripiDemo.jumpControlVisibility(200, 50, 900),
-        bottom: GripiDemo.jumpControlVisibility(700, 850, 900)
-      }));
-    JS
-
-    assert_equal({ "top" => true, "bottom" => false }, result.fetch("up"))
-    assert_equal({ "top" => false, "bottom" => true }, result.fetch("down"))
-    assert_equal({ "top" => false, "bottom" => false }, result.fetch("downLatestVisible"))
-    assert_nil result.fetch("unchanged")
-    assert_equal({ "top" => false, "bottom" => false }, result.fetch("top"))
-    assert_equal({ "top" => false, "bottom" => false }, result.fetch("bottom"))
   end
 
   def test_demo_includes_a_full_session_list_without_unread_state

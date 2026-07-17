@@ -157,14 +157,6 @@
     };
   }
 
-  function jumpControlVisibility(previous, current, maximum, latestReadableAssistantVisible = false) {
-    if (current === previous) return null;
-    const direction = current < previous ? "up" : "down";
-    const nearTop = current < 120;
-    const nearBottom = maximum - current < 120;
-    return { top: direction === "up" && !nearTop, bottom: direction === "down" && !nearBottom && !latestReadableAssistantVisible };
-  }
-
   function responseScript(prompt) {
     const safePrompt = String(prompt || "your question").trim() || "your question";
     const answer = `This is a prerecorded response to “${safePrompt}”. In a real Gripi session, Pi would now continue with full access to the selected project and its tools.\n\nThe static demo still mirrors the experience: messages appear live, tool activity is visible, and you can stop a response while it is streaming.`;
@@ -206,7 +198,7 @@
 
   const defaultSessionId = "welcome";
   const sessionCatalog = initialSessions.map(({ id, name, project, age, pinned }) => ({ id, name, project, age, pinned }));
-  global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, jumpControlVisibility, inlineCodeParts, formatDemoTimestamp: timeLabel, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
+  global.GripiDemo = { playScript, responseScript, safeIdentityColor, safeGuideLink, inlineCodeParts, formatDemoTimestamp: timeLabel, defaultSessionId, sessionCatalog, demoSessionCount: initialSessions.length, hasUnreadSessions: false };
   if (typeof document === "undefined") return;
 
   const storageKey = "gripi:static-demo:v12";
@@ -223,9 +215,6 @@
   let findMatches = [];
   let findIndex = -1;
   let lastScrollTop = 0;
-  let lastRevealAt = 0;
-  let scrollRevealTimer = null;
-  let scrollRevealDelayTimer = null;
   let programmaticScroll = false;
   let programmaticScrollTimer = null;
   let autoScrollEnabled = true;
@@ -246,7 +235,6 @@
     searchForm: document.getElementById("sidebar-session-search"), search: document.querySelector('#sidebar-session-search input[type="search"]'), clearFilters: document.querySelector("[data-sidebar-filters-clear]"),
     headerName: document.querySelector(".session-header-name"), headerProject: document.querySelector(".session-header-project"), form: document.getElementById("prompt-form"), prompt: document.querySelector(".prompt-form textarea"),
     state: document.querySelector(".composer-state"), stop: document.getElementById("stop-button"), commands: document.getElementById("command-list"), attachmentTray: document.querySelector(".attachment-tray"),
-    jumpTop: document.querySelector(".jump-controls--top"), jumpFirst: document.querySelector(".jump-to-first"), jumpBottom: document.querySelector(".jump-controls--bottom"), jumpLatest: document.querySelector(".jump-to-latest"),
     treeTarget: document.querySelector("[data-demo-tree-target]"), treeTargetTitle: document.querySelector("[data-demo-tree-target-title]"), treeCurrentTitle: document.querySelector("[data-demo-tree-current-title]")
   };
 
@@ -404,22 +392,13 @@
     if (element.sidebarScroll) element.sidebarScroll.scrollTop = scrollTop;
   }
 
-  function setJumpControls(top, bottom) {
-    element.jumpTop.classList.toggle("is-visible", top);
-    element.jumpFirst.classList.toggle("is-visible", top);
-    element.jumpBottom.classList.toggle("is-visible", bottom);
-    element.jumpLatest.classList.toggle("is-visible", bottom);
-  }
-
   function renderConversation() {
-    resetJumpControlsReveal();
     element.history.replaceChildren(); element.live.replaceChildren();
     currentSession().messages.forEach((message) => element.history.append(messageArticle(message, false)));
     requestAnimationFrame(() => {
       element.scroll.scrollTop = element.scroll.scrollHeight;
       lastScrollTop = element.scroll.scrollTop;
       autoScrollEnabled = true;
-      setJumpControls(false, false);
     });
   }
 
@@ -464,44 +443,6 @@
     target.scrollIntoView({ block: "center" });
     finishProgrammaticScrollSoon();
   }
-  function latestReadableAssistantMessageIsVisible() {
-    const messages = element.scroll.querySelectorAll('[data-role="assistant"].message--assistant:not(.message--thinking):not(.message--compact)');
-    const latest = messages[messages.length - 1];
-    if (!latest) return false;
-    const scrollRect = element.scroll.getBoundingClientRect();
-    const messageRect = latest.getBoundingClientRect();
-    return messageRect.bottom > scrollRect.top && messageRect.top < scrollRect.bottom;
-  }
-
-  function hideJumpControlsSoon() {
-    clearTimeout(scrollRevealTimer);
-    scrollRevealTimer = setTimeout(() => document.body.classList.remove("is-conversation-scrolling"), 1400);
-  }
-
-  function revealJumpControlsSoon() {
-    lastRevealAt = Date.now();
-    if (document.body.classList.contains("is-conversation-scrolling")) {
-      hideJumpControlsSoon();
-      return;
-    }
-    if (scrollRevealDelayTimer) return;
-    scrollRevealDelayTimer = setTimeout(() => {
-      scrollRevealDelayTimer = null;
-      if (Date.now() - lastRevealAt > 120) return;
-      document.body.classList.add("is-conversation-scrolling");
-      hideJumpControlsSoon();
-    }, 300);
-  }
-
-  function resetJumpControlsReveal() {
-    clearTimeout(scrollRevealTimer);
-    clearTimeout(scrollRevealDelayTimer);
-    scrollRevealTimer = null;
-    scrollRevealDelayTimer = null;
-    lastRevealAt = 0;
-    document.body.classList.remove("is-conversation-scrolling");
-  }
-
   function scrollLatest(force = false) {
     if (!autoScrollEnabled && !force) return;
     if (force) autoScrollEnabled = true;
@@ -656,8 +597,6 @@
     }
     if (!event.target.closest("[data-project-select]") && !element.projectList.hidden) { element.projectList.hidden = true; element.projectTrigger.setAttribute("aria-expanded", "false"); }
     if (event.target.closest("[data-demo-disabled]")) event.preventDefault();
-    if (event.target.closest(".jump-to-first")) { autoScrollEnabled = false; programmaticScrollTo({ top: 0, behavior: "smooth" }); }
-    if (event.target.closest(".jump-to-latest")) scrollLatest(true);
   });
 
   element.scroll.addEventListener("scroll", () => {
@@ -665,12 +604,7 @@
     if (programmaticScroll) { lastScrollTop = current; finishProgrammaticScrollSoon(); return; }
     const maximum = Math.max(0, element.scroll.scrollHeight - element.scroll.clientHeight);
     autoScrollEnabled = maximum - current < 120;
-    const visible = jumpControlVisibility(lastScrollTop, current, maximum, latestReadableAssistantMessageIsVisible());
     lastScrollTop = current;
-    if (!visible) return;
-    setJumpControls(visible.top, visible.bottom);
-    if (!visible.top && !visible.bottom) { resetJumpControlsReveal(); return; }
-    revealJumpControlsSoon();
   }, { passive: true });
   ["wheel", "touchstart", "pointerdown", "keydown"].forEach((type) => element.scroll.addEventListener(type, cancelProgrammaticScroll, { passive: true }));
 
