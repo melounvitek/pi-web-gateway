@@ -115,8 +115,8 @@ class DemoTest < Minitest::Test
 
     body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
     javascript = File.read(JAVASCRIPT)
-    refute_includes javascript, 'gripi:static-demo:v10'
-    assert_includes javascript, 'gripi:static-demo:v11'
+    refute_includes javascript, 'gripi:static-demo:v11'
+    assert_includes javascript, 'gripi:static-demo:v12'
     assert_includes javascript, "does not alter Pi’s system prompt"
     assert_includes javascript, "not as polished here as they are in the real app"
     assert_includes javascript, "Custom TUI components, overlays, widgets, editors"
@@ -147,6 +147,18 @@ class DemoTest < Minitest::Test
     refute_includes javascript, 'time: "Guide"'
     refute_includes html, '<div class="message-meta">Welcome</div>'
     assert_equal "2026-07-17 16:36", result.fetch("formatted")
+  end
+
+  def test_demo_sidebar_uses_activity_timestamps_in_session_meta
+    result = run_javascript("console.log(JSON.stringify(GripiDemo.sessionCatalog));")
+    ages = result.to_h { |session| [session.fetch("name"), session.fetch("age")] }
+
+    assert_equal "just now", ages.fetch("Welcome to Gripi")
+    assert_equal "22 minutes ago", ages.fetch("Access Gripi remotely with Tailscale")
+    assert_equal "31 minutes ago", ages.fetch("Use Gripi from a phone or tablet")
+    assert_equal "1 hour ago", ages.fetch("Does this look 1:1 realistic as the real product?")
+    assert_equal "yesterday", ages.fetch("Investigate flaky checkout spec")
+    assert_equal "2026-06-17", ages.fetch("Simplify documentation navigation")
   end
 
   def test_demo_sidebar_preserves_scroll_when_rerendering_sessions
