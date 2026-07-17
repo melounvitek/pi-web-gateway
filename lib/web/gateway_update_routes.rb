@@ -26,6 +26,12 @@ module Web
       app.get "/gateway-update" do
         headers "Cache-Control" => "no-store"
         content_type :json
+        gateway_update_json(settings.gateway_update_coordinator.cached_status)
+      end
+
+      app.post "/gateway-update/check" do
+        headers "Cache-Control" => "no-store"
+        content_type :json
         gateway_update_json(settings.gateway_update_coordinator.status)
       end
 

@@ -20,6 +20,10 @@ class GatewayUpdateRoutesTest < Minitest::Test
       @start_calls = 0
     end
 
+    def cached_status
+      snapshot
+    end
+
     def status
       @status_calls += 1
       snapshot
@@ -56,7 +60,7 @@ class GatewayUpdateRoutesTest < Minitest::Test
     FileUtils.remove_entry(@sessions_root) if Dir.exist?(@sessions_root)
   end
 
-  def test_get_returns_the_coordinator_status_as_json
+  def test_get_returns_the_cached_coordinator_status_as_json
     response = @request.get("/gateway-update")
 
     assert_equal 200, response.status
@@ -75,6 +79,14 @@ class GatewayUpdateRoutesTest < Minitest::Test
       },
       JSON.parse(response.body)
     )
+    assert_equal 0, @coordinator.status_calls
+  end
+
+  def test_post_check_refreshes_the_coordinator_status
+    response = @request.post("/gateway-update/check")
+
+    assert_equal 200, response.status
+    assert_equal "available", JSON.parse(response.body).fetch("state")
     assert_equal 1, @coordinator.status_calls
   end
 
@@ -104,9 +116,11 @@ class GatewayUpdateRoutesTest < Minitest::Test
     Gripi.set :gateway_admin_password, "secret"
 
     get_response = @request.get("/gateway-update")
+    check_response = @request.post("/gateway-update/check")
     post_response = @request.post("/gateway-update")
 
     assert_equal 403, get_response.status
+    assert_equal 403, check_response.status
     assert_equal 403, post_response.status
     assert_equal 0, @coordinator.status_calls
     assert_equal 0, @coordinator.start_calls
@@ -118,9 +132,11 @@ class GatewayUpdateRoutesTest < Minitest::Test
     Gripi.set :multi_user_mode, true
 
     get_response = @request.get("/gateway-update")
+    check_response = @request.post("/gateway-update/check")
     post_response = @request.post("/gateway-update")
 
     assert_equal 403, get_response.status
+    assert_equal 403, check_response.status
     assert_equal 403, post_response.status
     assert_equal 0, @coordinator.status_calls
     assert_equal 0, @coordinator.start_calls

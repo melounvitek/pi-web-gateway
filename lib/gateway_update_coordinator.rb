@@ -27,6 +27,12 @@ class GatewayUpdateCoordinator
     @restart_pending = false
   end
 
+  def cached_status
+    @mutex.synchronize do
+      @snapshot || Snapshot.new(state: :unknown)
+    end
+  end
+
   def status
     @mutex.synchronize do
       return @snapshot if @running || @finished

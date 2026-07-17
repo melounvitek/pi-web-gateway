@@ -18,6 +18,28 @@ class GatewayUpdateCoordinatorTest < Minitest::Test
     end
   end
 
+  def test_cached_status_is_cheap_before_refresh
+    updater = FakeUpdater.new(status(:available), -> {})
+    coordinator = GatewayUpdateCoordinator.new(updater:, restarter: -> {})
+
+    snapshot = coordinator.cached_status
+
+    assert_equal :unknown, snapshot.state
+    assert_equal 0, updater.status_calls.to_i
+  end
+
+  def test_cached_status_reuses_last_refreshed_status
+    updater = FakeUpdater.new(status(:available, target_sha: "target"), -> {})
+    coordinator = GatewayUpdateCoordinator.new(updater:, restarter: -> {})
+
+    coordinator.status
+    snapshot = coordinator.cached_status
+
+    assert_equal :available, snapshot.state
+    assert_equal "target", snapshot.target_sha
+    assert_equal 1, updater.status_calls
+  end
+
   def test_checks_status_synchronously_when_idle
     updater = FakeUpdater.new(status(:available, target_sha: "target", behind_count: 2), -> {})
     coordinator = GatewayUpdateCoordinator.new(updater:, restarter: -> {})

@@ -2577,7 +2577,7 @@ function initializeSessionView({ focus = true, scrollSnapshot = null } = {}) {
     });
   }
   sidebarController.scheduleRefresh();
-  gatewayUpdateController.check().catch(() => {});
+  gatewayUpdateController.check({ refresh: true }).catch(() => {});
 }
 
 window.addEventListener("resize", updatePromptPlaceholder);

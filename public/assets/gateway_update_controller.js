@@ -20,10 +20,10 @@ export class GatewayUpdateController {
       this.poll();
     });
     ["pageshow", "focus", "online"].forEach((eventName) => {
-      window.addEventListener(eventName, () => this.check().catch(() => {}));
+      window.addEventListener(eventName, () => this.check({ refresh: true }).catch(() => {}));
     });
     window.addEventListener("visibilitychange", () => {
-      if (!document.hidden) this.check().catch(() => {});
+      if (!document.hidden) this.check({ refresh: true }).catch(() => {});
     });
   }
 
@@ -52,8 +52,10 @@ export class GatewayUpdateController {
     }
   }
 
-  async check() {
-    const response = await fetch("/gateway-update", { headers: { "Accept": "application/json" }, cache: "no-store" });
+  async check({ refresh = true } = {}) {
+    const url = refresh ? "/gateway-update/check" : "/gateway-update";
+    const method = refresh ? "POST" : "GET";
+    const response = await fetch(url, { method, headers: { "Accept": "application/json" }, cache: "no-store" });
     if (!response.ok) throw new Error("Could not check for gateway updates");
     const payload = await response.json();
     if (payload.instanceId && payload.instanceId !== this.instanceId) {
@@ -84,7 +86,7 @@ export class GatewayUpdateController {
   }
 
   resume() {
-    if (!this.checkInterval) this.checkInterval = setInterval(() => this.check().catch(() => {}), 5 * 60 * 1000);
+    if (!this.checkInterval) this.checkInterval = setInterval(() => this.check({ refresh: true }).catch(() => {}), 5 * 60 * 1000);
   }
 
   cleanNavigation() {
@@ -98,7 +100,7 @@ export class GatewayUpdateController {
     clearTimeout(this.pollTimer);
     this.pollTimer = setTimeout(async () => {
       try {
-        await this.check();
+        await this.check({ refresh: false });
       } catch (_error) {
       }
       if (this.inProgress) this.poll();

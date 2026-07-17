@@ -48,10 +48,15 @@ Make Gripi safer to announce for trusted localhost/Tailscale usage by reducing b
 
 ### 3. Reduce side effects from GET routes
 
-- [ ] Audit all GET routes and classify them as cheap read-only, expensive read-only, or side-effectful.
-- [ ] Avoid starting Pi RPC clients from GET routes where reasonable.
-- [ ] Consider making `/gateway-update` status use cached/freshness-limited data instead of `git fetch` on every GET.
-- [ ] Keep UI behavior unchanged or explicitly document any refresh button/polling changes.
+- [x] Audit all GET routes and classify them as cheap read-only, expensive read-only, or side-effectful.
+  - Cheap/static/status reads: PWA/icon routes, browser/workspace access status and pending lists, attachments, older conversation windows, cwd validation.
+  - Filesystem/UI reads: `/`, `/sidebar`, `/new_session_modal`, `/session_fragment`, `/sessions/browse_cwd`.
+  - Existing-client reads: `/events`, `/status`.
+  - RPC-starting reads: `/sessions/model_settings`, `/sessions/fork_messages`, `/sessions/tree_entries`, `/commands`.
+  - External side effect: `/gateway-update` previously ran `git fetch` through the status check.
+- [ ] Avoid starting Pi RPC clients from GET routes where reasonable. Deferred for RPC-backed UI endpoints because they are authenticated UI reads and changing them is more likely to break normal flows.
+- [x] Consider making `/gateway-update` status use cached/freshness-limited data instead of `git fetch` on every GET.
+- [x] Keep UI behavior unchanged or explicitly document any refresh button/polling changes.
 
 ### 4. Safer default bind address
 
@@ -99,10 +104,10 @@ Make Gripi safer to announce for trusted localhost/Tailscale usage by reducing b
 
 ### Round 3 — GET side-effect reduction
 
-- [ ] Add regression tests around the selected GET behavior.
-- [ ] Refactor only endpoints where there is a clear low-risk improvement.
-- [ ] Verify sidebar/update/model/settings UI paths still work.
-- [ ] Run full Ruby suite and targeted JS/Electron checks if touched.
+- [x] Add regression tests around the selected GET behavior.
+- [x] Refactor only endpoints where there is a clear low-risk improvement.
+- [x] Verify sidebar/update/model/settings UI paths still work.
+- [ ] Run full Ruby suite and targeted JS/Electron checks if touched. Targeted Ruby and JS controller tests pass; full suite still has the existing unrelated DemoTest stylesheet mismatch.
 
 ### Round 4 — docs and final review
 

@@ -18,6 +18,10 @@ class RequestOriginProtectionTest < Minitest::Test
       @status_calls = 0
     end
 
+    def cached_status
+      Snapshot.new(state: :available, message: "Update available", target_sha: "target")
+    end
+
     def status
       @status_calls += 1
       Snapshot.new(state: :available, message: "Update available", target_sha: "target")
@@ -68,6 +72,13 @@ class RequestOriginProtectionTest < Minitest::Test
     assert_equal 0, @coordinator.start_calls
   end
 
+  def test_rejects_update_check_with_cross_origin
+    response = @request.post("/gateway-update/check", "HTTP_ORIGIN" => "http://evil.example")
+
+    assert_equal 403, response.status
+    assert_equal 0, @coordinator.status_calls
+  end
+
   def test_rejects_unsafe_request_with_cross_site_fetch_metadata
     response = @request.post("/gateway-update", "HTTP_SEC_FETCH_SITE" => "cross-site")
 
@@ -100,7 +111,7 @@ class RequestOriginProtectionTest < Minitest::Test
     response = @request.get("/gateway-update", "HTTP_ORIGIN" => "http://evil.example", "HTTP_SEC_FETCH_SITE" => "cross-site")
 
     assert_equal 200, response.status
-    assert_equal 1, @coordinator.status_calls
+    assert_equal 0, @coordinator.status_calls
   end
 
   def test_allows_forwarded_https_origin
