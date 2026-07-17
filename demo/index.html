@@ -14,7 +14,7 @@
     .demo-about-button:focus-visible { color: var(--text); outline: 2px solid var(--accent-bright); outline-offset: 2px; }
     .demo-intro-copy { display: grid; gap: 0.75rem; line-height: 1.55; }
     .demo-intro-copy p { margin: 0; }
-    .attach-button.is-disabled[data-demo-disabled] { pointer-events: auto; cursor: not-allowed; }
+    .attach-button.is-disabled[data-modal-open] { pointer-events: auto; cursor: help; }
   </style>
   <style data-production-styles>
     :root {
@@ -687,7 +687,7 @@ GRIPI_HOST=127.0.0.1 mise run start</code></pre><p><a href="https://github.com/m
           <div class="session-sync-banner" role="status" data-demo-secondary-state hidden><div><strong>Session changed outside the gateway.</strong> <span>Finish using this session in Pi CLI before continuing here.</span></div><button type="button" class="secondary" data-demo-disabled>Take over in gateway</button></div>
           <span class="composer-state" data-state="idle" aria-live="polite"></span>
           <div class="attachment-tray" aria-live="polite"></div>
-          <div class="composer-input-row"><input class="image-input" id="image-input" type="file" accept="image/*" multiple disabled><label for="image-input" class="attach-button is-disabled" title="Image attachments require a connected gateway" aria-label="Image attachments require a connected gateway and are disabled in the static demo" aria-disabled="true" data-demo-disabled>＋</label><textarea name="message" rows="1" placeholder="Ask Pi…"></textarea><button type="submit" class="send-button">Send</button></div>
+          <div class="composer-input-row"><input class="image-input" id="image-input" type="file" accept="image/*" multiple disabled><button type="button" class="attach-button is-disabled" title="Learn why image uploads are disabled in this demo" aria-label="Learn why image uploads are disabled in this demo" data-modal-open="demo-images-modal">＋</button><textarea name="message" rows="1" placeholder="Ask Pi…"></textarea><button type="submit" class="send-button">Send</button></div>
           <div class="composer-controls"><div class="session-status-bar" id="session-status-bar"><span class="session-status-item" data-status-key="ctx"><span class="session-status-label">CTX</span> <span class="session-status-value">18%</span></span><button type="button" class="session-status-item model-settings-chip" data-status-key="model" data-modal-open="model-settings-modal"><span class="session-status-label">Model</span> <span class="session-status-value">anthropic/claude-sonnet-4 (high)</span></button></div></div>
         </form>
       </div></div>
@@ -704,6 +704,15 @@ GRIPI_HOST=127.0.0.1 mise run start</code></pre><p><a href="https://github.com/m
         <p><a class="demo-repository-link" href="https://github.com/melounvitek/gripi">View Gripi on GitHub →</a></p>
       </div>
       <div class="modal-actions"><button type="button" data-modal-close data-modal-default-focus>Explore demo</button></div>
+    </div>
+  </div>
+  <div class="modal-overlay" data-modal="demo-images-modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="demo-images-title">
+      <div class="modal-header"><h2 id="demo-images-title">Images are supported in Gripi</h2><button type="button" class="modal-close-button secondary" aria-label="Close image attachment note" data-modal-close>×</button></div>
+      <div class="demo-intro-copy">
+        <p>A connected Gripi gateway can send image attachments to Pi when the selected model supports images. This static demo runs entirely in your browser, so image uploads are disabled here.</p>
+      </div>
+      <div class="modal-actions"><button type="button" data-modal-close data-modal-default-focus>Got it</button></div>
     </div>
   </div>
   <div class="modal-overlay" data-modal="new-session-modal" hidden>

@@ -287,18 +287,32 @@ class DemoTest < Minitest::Test
 
     attachment_tray = body.at_css(".attachment-tray")
     attach_input = body.at_css("#image-input")
-    attach_button = body.at_css(".attach-button")
+    attach_button = body.at_css("button.attach-button")
     refute attachment_tray["class"].to_s.split.include?("has-attachments")
     assert_empty attachment_tray.css(".attachment")
     assert attach_input.key?("disabled")
     assert_includes attach_button["class"], "is-disabled"
-    assert_equal "true", attach_button["aria-disabled"]
-    assert_equal "Image attachments require a connected gateway and are disabled in the static demo", attach_button["aria-label"]
-    assert attach_button.key?("data-demo-disabled")
-    assert_includes html, ".attach-button.is-disabled[data-demo-disabled] { pointer-events: auto; cursor: not-allowed; }"
+    assert_equal "button", attach_button["type"]
+    assert_equal "Learn why image uploads are disabled in this demo", attach_button["aria-label"]
+    assert_equal "demo-images-modal", attach_button["data-modal-open"]
+    assert_includes html, ".attach-button.is-disabled[data-modal-open] { pointer-events: auto; cursor: help; }"
     assert_equal "Ask Pi…", body.at_css('.prompt-form textarea')["placeholder"]
     assert_includes html, "@media (max-width: 760px)"
     assert_includes html, ".composer-controls { display: none; }"
+  end
+
+  def test_demo_image_attachment_note_explains_static_demo_limitation
+    body = Nokogiri::HTML5(File.read(HTML)).at_css("body")
+    modal = body.at_css('[data-modal="demo-images-modal"]')
+    dialog = modal&.at_css('[role="dialog"][aria-modal="true"][aria-labelledby="demo-images-title"]')
+
+    refute_nil dialog
+    assert modal.key?("hidden")
+    assert_equal "Images are supported in Gripi", body.at_css("#demo-images-title").text
+    assert_includes dialog.text, "A connected Gripi gateway can send image attachments to Pi"
+    assert_includes dialog.text, "when the selected model supports images"
+    assert_includes dialog.text, "This static demo runs entirely in your browser"
+    assert_equal "Got it", dialog.at_css('button[data-modal-close][data-modal-default-focus]').text.strip
   end
 
   def test_streams_are_bound_to_the_originating_session_and_blocked_while_switching
