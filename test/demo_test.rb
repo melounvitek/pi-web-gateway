@@ -286,8 +286,16 @@ class DemoTest < Minitest::Test
     body = Nokogiri::HTML5(html).at_css("body")
 
     attachment_tray = body.at_css(".attachment-tray")
+    attach_input = body.at_css("#image-input")
+    attach_button = body.at_css(".attach-button")
     refute attachment_tray["class"].to_s.split.include?("has-attachments")
     assert_empty attachment_tray.css(".attachment")
+    assert attach_input.key?("disabled")
+    assert_includes attach_button["class"], "is-disabled"
+    assert_equal "true", attach_button["aria-disabled"]
+    assert_equal "Image attachments require a connected gateway and are disabled in the static demo", attach_button["aria-label"]
+    assert attach_button.key?("data-demo-disabled")
+    assert_includes html, ".attach-button.is-disabled[data-demo-disabled] { pointer-events: auto; cursor: not-allowed; }"
     assert_equal "Ask Pi…", body.at_css('.prompt-form textarea')["placeholder"]
     assert_includes html, "@media (max-width: 760px)"
     assert_includes html, ".composer-controls { display: none; }"

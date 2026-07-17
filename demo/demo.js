@@ -559,7 +559,7 @@
     const streamSession = currentSession();
     const message = { role: "user", text: prompt, time: timeLabel() };
     streamSession.messages.push(message); touchSessionActivity(streamSession); renderSidebar(); element.live.append(messageArticle(message, true)); element.prompt.value = ""; persistDraft();
-    element.attachmentTray.replaceChildren(); element.attachmentTray.classList.remove("has-attachments"); document.getElementById("image-input").value = "";
+    element.attachmentTray.replaceChildren(); element.attachmentTray.classList.remove("has-attachments");
     setRunning(true, "Sending…"); persist(); scrollLatest(true);
     streamController = new AbortController();
     await playScript(responseScript(prompt), { signal: streamController.signal, onEvent: (event) => appendStreamEvent(event, streamSession) });
@@ -654,7 +654,6 @@
       const fallback = () => { const textarea = document.createElement("textarea"); textarea.value = text; textarea.className = "visually-hidden"; document.body.append(textarea); textarea.select(); const copied = document.execCommand("copy"); textarea.remove(); return copied; };
       Promise.resolve(navigator.clipboard?.writeText ? navigator.clipboard.writeText(text).then(() => true).catch(fallback) : fallback()).then((copied) => { copy.textContent = copied ? "Copied" : "Copy failed"; setTimeout(() => { copy.textContent = "Copy"; }, 1200); }); return;
     }
-    const removeAttachment = event.target.closest("[data-remove-attachment]"); if (removeAttachment) { removeAttachment.closest(".attachment")?.remove(); element.attachmentTray.classList.toggle("has-attachments", !!element.attachmentTray.children.length); document.getElementById("image-input").value = ""; return; }
     if (!event.target.closest("[data-project-select]") && !element.projectList.hidden) { element.projectList.hidden = true; element.projectTrigger.setAttribute("aria-expanded", "false"); }
     if (event.target.closest("[data-demo-disabled]")) event.preventDefault();
     if (event.target.closest(".jump-to-first")) { autoScrollEnabled = false; programmaticScrollTo({ top: 0, behavior: "smooth" }); }
@@ -693,7 +692,6 @@
   element.prompt.addEventListener("input", () => { const slash = element.prompt.value.startsWith("/"); element.commands.classList.toggle("is-visible", slash); if (slash) element.commands.open = true; persistDraft(); });
   element.prompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitPrompt(); } });
   element.stop.addEventListener("click", cancelStream);
-  document.getElementById("image-input").addEventListener("change", (event) => { element.attachmentTray.replaceChildren(); [...event.target.files].forEach((file) => { const attachment = document.createElement("span"); attachment.className = "attachment"; const name = document.createElement("span"); name.textContent = file.name; const remove = document.createElement("button"); remove.type = "button"; remove.dataset.removeAttachment = ""; remove.textContent = "Remove"; attachment.append(name, remove); element.attachmentTray.append(attachment); }); element.attachmentTray.classList.toggle("has-attachments", event.target.files.length > 0); });
 
   document.querySelector("[data-current-session-find-input]").addEventListener("input", updateFind);
   document.querySelector("[data-current-session-find-conversation-only]").addEventListener("change", updateFind);
