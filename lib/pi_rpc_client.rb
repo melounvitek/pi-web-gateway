@@ -144,13 +144,20 @@ class PiRpcClient
   end
 
   def follow_up(message, images = [])
+    response = queue_follow_up_during_compaction(message, images)
+    return response if response
+
     payload = { message: message }
     payload[:images] = images unless images.empty?
-    if queue_follow_up_during_compaction(payload)
-      return { "type" => "response", "command" => "follow_up", "success" => true, "queued" => true, "compacting" => true }
-    end
-
     request("follow_up", id: next_id("follow_up"), **payload)
+  end
+
+  def queue_follow_up_during_compaction(message, images = [])
+    payload = { message: message }
+    payload[:images] = images unless images.empty?
+    return unless queue_compaction_follow_up_payload(payload)
+
+    { "type" => "response", "command" => "follow_up", "success" => true, "queued" => true, "compacting" => true }
   end
 
   def abort
@@ -444,7 +451,7 @@ class PiRpcClient
     @stdin.flush if @stdin.respond_to?(:flush)
   end
 
-  def queue_follow_up_during_compaction(payload)
+  def queue_compaction_follow_up_payload(payload)
     @mutex.synchronize do
       return false unless @compacting || @flushing_compaction_follow_ups
 

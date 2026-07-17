@@ -231,12 +231,16 @@ module Web
 
       app.post "/prompt" do
         session_path = require_current_workspace_session!(canonical_rpc_session_path(params.fetch("session")))
-        halt_if_session_sync_blocked(session_path)
         message = params.fetch("message").to_s
         images = prompt_images_from(params["images"])
         halt 400, "Message cannot be empty" if message.strip.empty? && images.empty?
 
         follow_up_prompt = params["streaming_behavior"].to_s == "follow_up"
+        if follow_up_prompt && rpc_clients.compacting?(session_path)
+          halt_if_known_session_sync_blocked(session_path)
+        else
+          halt_if_session_sync_blocked(session_path)
+        end
         slash_command = follow_up_prompt ? nil : Prompts::SlashCommand.parse(message)
         branch_response = nil
         name_response = nil
@@ -245,11 +249,21 @@ module Web
           submitted_at = Time.now
           attachment_paths = []
           rpc_message = message
-          response = with_synchronized_rpc_client(session_path) do |client|
+          prepare_follow_up_payload = lambda do
+            next unless attachment_paths.empty? && rpc_message == message
+
             attachment_paths = attachment_store.persist_prompt_images(session_path, images)
             rpc_message = message_with_attachment_paths(message, attachment_paths)
+          end
+          submit_follow_up = lambda do |client|
+            prepare_follow_up_payload.call
             client.follow_up(rpc_message, images)
           end
+          response = with_compacting_rpc_client(session_path) do |client|
+            prepare_follow_up_payload.call
+            client.queue_follow_up_during_compaction(rpc_message, images) if client.respond_to?(:queue_follow_up_during_compaction)
+          end
+          response ||= with_synchronized_rpc_client(session_path, &submit_follow_up)
           halt_failed_rpc_prompt(response)
           attachment_store.record_prompt(session_path, rpc_message, images.length, timestamp: submitted_at, paths: attachment_paths, mime_types: images.map { |image| image[:mimeType] })
         elsif slash_command&.type == :name && slash_command.name

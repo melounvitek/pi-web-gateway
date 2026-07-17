@@ -43,6 +43,13 @@ module Sessions
       conflict_result(session_path, "Session file could not be read: #{error.message}")
     end
 
+    def known_blocked_result(session_path)
+      @mutex.synchronize do
+        state = @states[session_path]
+        result_for(state) if state && [:external_follow, :conflict].include?(state.mode)
+      end
+    end
+
     def inspect_if_available(session_path, include_position: false)
       lock = lock_for(session_path)
       return unless lock.try_lock

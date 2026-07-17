@@ -997,6 +997,55 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_follow_up_prompt_during_compaction_does_not_wait_for_synchronized_operation
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      client = FakeRpcClient.new(calls, [], path)
+      def client.compacting? = true
+      def client.busy? = true
+      def client.follow_up(message, images = [])
+        @calls << (images.empty? ? [:follow_up, message] : [:follow_up, message, images])
+        { "success" => true, "compacting" => true }
+      end
+      def client.queue_follow_up_during_compaction(message, images = [])
+        @calls << (images.empty? ? [:queue_follow_up_during_compaction, message] : [:queue_follow_up_during_compaction, message, images])
+        { "success" => true, "compacting" => true }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      request = Rack::MockRequest.new(Gripi)
+      request.get("/events", params: { "session" => path, "after" => "0" })
+      operation_started = Queue.new
+      release_operation = Queue.new
+      operation_thread = Thread.new do
+        Gripi.settings.session_synchronizer.with_mutable_client(path) do
+          operation_started << true
+          release_operation.pop
+        end
+      end
+      operation_started.pop
+
+      response = Timeout.timeout(1) do
+        request.post(
+          "/prompt",
+          params: { "session" => path, "message" => "Actually do this", "streaming_behavior" => "follow_up" },
+          "HTTP_ACCEPT" => "application/json"
+        )
+      end
+
+      assert_equal 200, response.status
+      assert_includes calls, [:queue_follow_up_during_compaction, "Actually do this"]
+      assert operation_thread.alive?
+    ensure
+      release_operation << true if operation_thread&.alive?
+      operation_thread&.join
+    end
+  end
+
   def test_follow_up_prompt_treats_rename_slash_command_as_message
     Dir.mktmpdir do |dir|
       path = write_session(dir)

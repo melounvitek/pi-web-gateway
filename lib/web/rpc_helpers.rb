@@ -50,11 +50,30 @@ module Web
       halt_session_sync_error(error)
     end
 
+    def with_compacting_rpc_client(session_path)
+      return unless rpc_clients.compacting?(session_path)
+
+      rpc_clients.with_active_client(session_path) { |client| yield client }
+    rescue IOError, Errno::EPIPE
+      nil
+    end
+
     def halt_if_session_sync_blocked(session_path)
       return unless File.exist?(session_path)
 
       state = session_sync_state(session_path)
       return unless state.blocked?
+
+      halt_session_sync_error(
+        Sessions::SessionSynchronizer::BlockedError.new(session_sync_error_message(state), mode: state.mode)
+      )
+    end
+
+    def halt_if_known_session_sync_blocked(session_path)
+      return unless File.exist?(session_path)
+
+      state = session_synchronizer.known_blocked_result(session_path)
+      return unless state
 
       halt_session_sync_error(
         Sessions::SessionSynchronizer::BlockedError.new(session_sync_error_message(state), mode: state.mode)
