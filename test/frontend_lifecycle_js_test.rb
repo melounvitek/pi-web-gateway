@@ -13,6 +13,7 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_match(/if \(promptTextarea\.value\.startsWith\("\/"\).*?selectHighlightedCommand\(\);.*?if \(composerAutocompleteController\.handleKeydown\(event\)\) return;.*?cycleThinkingShortcut.*?toggleConversationPromptFocus.*?keyboardStreamingBehaviorOverride = event\.altKey/m, source)
     assert_includes source, 'if (event.key === "Escape" && !event.defaultPrevented && confirmOrStopRunningTask(event)) return;'
     assert_match(/event\.type === "compaction_end".*?composerCompacting = "false";.*?setComposerState\("running"/m, source)
+    assert_match(/let touchSendMenuPointerDown = false;.*?addEventListener\("click", \(event\).*?event\.detail === 0.*?\.focus\(\);.*?addEventListener\("focusout".*?if \(touchSendMenuPointerDown\) return;.*?addEventListener\("keydown".*?touchSendMenuPointerDown = false;.*?addEventListener\("pointerdown".*?event\.pointerType === "touch".*?addEventListener\("pointercancel"/m, source)
   end
 
   def test_streaming_send_control_selects_follow_up_without_submitting_and_can_reset_to_steer

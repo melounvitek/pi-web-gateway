@@ -2002,19 +2002,33 @@ function bindSessionControls() {
   });
 
   reconnectButton?.addEventListener("click", reconnectSession);
-  sendMenuToggle?.addEventListener("click", () => {
+  let touchSendMenuPointerDown = false;
+  sendMenuToggle?.addEventListener("click", (event) => {
     const opening = sendMenu?.hidden === true;
     closeSendMenu();
     if (!opening || !sendMenu) return;
     sendMenu.hidden = false;
     sendMenuToggle.setAttribute("aria-expanded", "true");
-    sendMenu.querySelector('[data-streaming-behavior][aria-pressed="true"]')?.focus();
+    if (event.detail === 0) sendMenu.querySelector('[data-streaming-behavior][aria-pressed="true"]')?.focus();
   });
   sendControl?.addEventListener("focusout", (event) => {
+    if (touchSendMenuPointerDown) return;
     if (!sendControl.contains(event.relatedTarget)) closeSendMenu(null);
   });
+  sendControl?.addEventListener("keydown", () => {
+    touchSendMenuPointerDown = false;
+  });
   sendMenu?.querySelectorAll("[data-streaming-behavior]").forEach((button) => {
-    button.addEventListener("click", () => selectStreamingBehavior(button.dataset.streamingBehavior));
+    button.addEventListener("pointerdown", (event) => {
+      touchSendMenuPointerDown = event.pointerType === "touch";
+    });
+    button.addEventListener("pointercancel", () => {
+      touchSendMenuPointerDown = false;
+    });
+    button.addEventListener("click", () => {
+      selectStreamingBehavior(button.dataset.streamingBehavior);
+      touchSendMenuPointerDown = false;
+    });
   });
   promptTextarea?.addEventListener("input", () => {
     resizePromptTextarea();
