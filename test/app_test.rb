@@ -3289,10 +3289,12 @@ class AppTest < Minitest::Test
       Gripi.set :sessions_root, dir
       Gripi.set :rpc_client_registry, registry
 
-      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
+      replace_instance_method(PiSessionStore, :status, ->(_path) { raise "disk status should not be read" }) do
+        response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
 
-      assert_equal 200, response.status
-      assert_equal({ "context" => "2.3%/372.0k", "model" => "openai-codex/gpt-5.6-sol", "thinking" => "high" }, JSON.parse(response.body))
+        assert_equal 200, response.status
+        assert_equal({ "context" => "2.3%/372.0k", "model" => "openai-codex/gpt-5.6-sol", "thinking" => "high" }, JSON.parse(response.body))
+      end
       assert_equal [[:get_state], [:get_session_stats]], calls
     end
   end
@@ -3318,11 +3320,49 @@ class AppTest < Minitest::Test
       Gripi.set :sessions_root, dir
       Gripi.set :rpc_client_registry, registry
 
+      disk_status_reads = 0
+      original_status = PiSessionStore.instance_method(:status)
+      replacement = lambda do |session_path|
+        disk_status_reads += 1
+        original_status.bind_call(self, session_path)
+      end
+      replace_instance_method(PiSessionStore, :status, replacement) do
+        response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
+
+        assert_equal 200, response.status
+        assert_equal({ "context" => "25%/200.0k", "model" => "anthropic/claude-sonnet-4", "thinking" => nil }, JSON.parse(response.body))
+      end
+      assert_equal 1, disk_status_reads
+      assert_equal [[:get_state], [:get_session_stats]], calls
+    end
+  end
+
+  def test_falls_back_to_disk_for_malformed_live_context
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [
+        { type: "model_change", provider: "old-provider", modelId: "old-model" },
+        { type: "thinking_level_change", thinkingLevel: "medium" },
+        { type: "message", message: { role: "assistant", content: [], usage: { totalTokens: 12_345 } } }
+      ])
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:get_state) do
+        {
+          "success" => true,
+          "data" => { "model" => { "provider" => "openai-codex", "id" => "gpt-5.6-sol" }, "thinkingLevel" => "high" }
+        }
+      end
+      client.define_singleton_method(:get_session_stats) do
+        { "success" => true, "data" => { "contextUsage" => { "tokens" => "invalid", "contextWindow" => "invalid" } } }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
       response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path })
 
       assert_equal 200, response.status
-      assert_equal({ "context" => "25%/200.0k", "model" => "anthropic/claude-sonnet-4", "thinking" => nil }, JSON.parse(response.body))
-      assert_equal [[:get_state], [:get_session_stats]], calls
+      assert_equal({ "context" => "12.3k", "model" => "openai-codex/gpt-5.6-sol", "thinking" => "high" }, JSON.parse(response.body))
     end
   end
 
@@ -3542,7 +3582,10 @@ class AppTest < Minitest::Test
       }
       client = FakeRpcClient.new([], [user_event])
       client.define_singleton_method(:event_sequence) { 2 }
-      client.define_singleton_method(:event_replay_cursor) { 1 }
+      client.define_singleton_method(:live_snapshot) do
+        { event_sequence: 2, event_replay_cursor: 1, active_tool_events: [] }
+      end
+      client.define_singleton_method(:event_replay_cursor) { 2 }
       client.define_singleton_method(:events_after) do |after_seq|
         { events: after_seq.to_i < 2 ? [user_event] : [], last_seq: 2, missed: false }
       end
@@ -6635,19 +6678,55 @@ class AppTest < Minitest::Test
       Gripi.set :sessions_root, dir
       Gripi.set :rpc_client_registry, registry
 
-      response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
+      replace_instance_method(PiSessionStore, :subagent_tool_call_context, ->(_path, _ids) { raise "session should not be reread" }) do
+        response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
 
-      assert_equal 200, response.status
-      document = Nokogiri::HTML(response.body)
-      live_output = document.at_css("#live-output")
-      assert_equal "7", live_output["data-events-after"]
-      assert_equal "call-1", JSON.parse(live_output["data-active-tool-events"]).first["toolCallId"]
-      assert_equal({ "call-1" => "2026-06-13T10:00:00.000Z" }, JSON.parse(live_output["data-active-tool-timestamps"]))
-      assert_equal({ "call-1" => "Review the diff" }, JSON.parse(live_output["data-active-tool-prompts"]))
+        assert_equal 200, response.status
+        document = Nokogiri::HTML(response.body)
+        live_output = document.at_css("#live-output")
+        assert_equal "7", live_output["data-events-after"]
+        assert_equal "call-1", JSON.parse(live_output["data-active-tool-events"]).first["toolCallId"]
+        assert_equal({ "call-1" => "2026-06-13T10:00:00.000Z" }, JSON.parse(live_output["data-active-tool-timestamps"]))
+        assert_equal({ "call-1" => "Review the diff" }, JSON.parse(live_output["data-active-tool-prompts"]))
+      end
       assert_includes APP_JAVASCRIPT, "restoreActiveToolExecutions()"
       assert_includes APP_JAVASCRIPT, "restoreActiveToolExecutions();"
       assert_includes APP_JAVASCRIPT, "events.forEach((event) => this.renderToolExecutionEvent(event, timestamps[event.toolCallId], false, prompts[event.toolCallId]));"
       assert_includes APP_JAVASCRIPT, "formatTimestamp(timestamp, options.timestampFallback !== false)"
+    end
+  end
+
+  def test_live_output_loads_context_for_a_tool_started_while_the_conversation_was_rendered
+    Dir.mktmpdir do |dir|
+      path = write_session_with_raw_messages(dir, [])
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:live_snapshot) do
+        File.open(path, "a") do |file|
+          file.puts JSON.generate({
+            type: "message",
+            timestamp: "2026-06-13T10:00:00Z",
+            message: {
+              role: "assistant",
+              content: [{ type: "toolCall", id: "call-1", name: "subagent", arguments: { task: "Review the race" } }]
+            }
+          })
+        end
+        {
+          event_sequence: 1,
+          active_tool_events: [{ "type" => "tool_execution_start", "toolCallId" => "call-1", "toolName" => "subagent" }]
+        }
+      end
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      live_output = Nokogiri::HTML(response.body).at_css("#live-output")
+      assert_equal({ "call-1" => "2026-06-13T10:00:00.000Z" }, JSON.parse(live_output["data-active-tool-timestamps"]))
+      assert_equal({ "call-1" => "Review the race" }, JSON.parse(live_output["data-active-tool-prompts"]))
     end
   end
 
@@ -8480,6 +8559,14 @@ class AppTest < Minitest::Test
     def close
       @calls << [:close]
     end
+  end
+
+  def replace_instance_method(receiver, name, replacement)
+    original = receiver.instance_method(name)
+    receiver.define_method(name, replacement)
+    yield
+  ensure
+    receiver.define_method(name, original)
   end
 
   def native_tree_from_file(path)

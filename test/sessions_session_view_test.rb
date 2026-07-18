@@ -362,6 +362,10 @@ class SessionsSessionViewTest < Minitest::Test
       def active?(_path)
         false
       end
+
+      def live_snapshot(_path)
+        { event_sequence: 0, active_tool_events: [] }
+      end
     end.new
   end
 

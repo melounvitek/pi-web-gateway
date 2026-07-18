@@ -29,7 +29,9 @@ module Sessions
       :conversation_older_message_count,
       :attachment_counts,
       :attachment_images,
-      :session_status
+      :session_status,
+      :subagent_tool_call_context,
+      :live_snapshot
 
     def self.build(**kwargs)
       new(**kwargs).build
@@ -153,7 +155,9 @@ module Sessions
         :@conversation_older_message_count => @conversation_older_message_count,
         :@attachment_counts => @attachment_counts,
         :@attachment_images => @attachment_images,
-        :@session_status => @session_status
+        :@session_status => @session_status,
+        :@subagent_tool_call_context => @subagent_tool_call_context,
+        :@live_snapshot => @live_snapshot
       }
     end
 
@@ -224,10 +228,15 @@ module Sessions
       @attachment_counts = {}
       @attachment_images = {}
       @session_status = nil
+      @subagent_tool_call_context = {}
+      @live_snapshot = nil
       return unless @include_conversation
 
       @conversation_history_persisted = selected_existing_session?
-      return unless @conversation_history_persisted
+      unless @conversation_history_persisted
+        @live_snapshot = @rpc_clients.live_snapshot(@selected_session.path) if @selected_session
+        return
+      end
 
       sync_state = synchronized_session_state
       @session_sync_mode = sync_state&.mode || :available
@@ -253,6 +262,13 @@ module Sessions
       @attachment_counts = @attachment_store.counts_for_messages(@selected_session.path, @messages)
       @attachment_images = @attachment_store.images_for_messages(@selected_session.path, @messages)
       @session_status = conversation.status
+      @live_snapshot = @rpc_clients.live_snapshot(@selected_session.path)
+      active_tool_call_ids = @live_snapshot.fetch(:active_tool_events).filter_map { |event| event["toolCallId"] }.uniq
+      @subagent_tool_call_context = conversation.subagent_tool_call_context.slice(*active_tool_call_ids)
+      missing_tool_call_ids = active_tool_call_ids - @subagent_tool_call_context.keys
+      if missing_tool_call_ids.any?
+        @subagent_tool_call_context.merge!(@store.subagent_tool_call_context(@selected_session.path, missing_tool_call_ids))
+      end
     end
 
     def latest_conversation_window(messages)

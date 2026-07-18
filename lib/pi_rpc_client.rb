@@ -253,6 +253,7 @@ class PiRpcClient
     @mutex.synchronize do
       snapshot = {
         event_sequence: @event_sequence,
+        event_replay_cursor: @event_replay_floor,
         active_tool_events: @active_tool_events.values
       }
       snapshot[:busy] = true if @busy

@@ -24,7 +24,7 @@ class PiSessionStore
 
   Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, :compaction, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
-  Conversation = Struct.new(:messages, :latest_stable_tree_position_id, :current_stable_tree_position_id, :status, keyword_init: true)
+  Conversation = Struct.new(:messages, :latest_stable_tree_position_id, :current_stable_tree_position_id, :status, :subagent_tool_call_context, keyword_init: true)
   MAX_SESSION_CACHE_ENTRIES = 10_000
   # Unknown layouts fall back to JSON parsing; only Pi's native key order takes this metadata fast path.
   NATIVE_TOOL_RESULT_PREFIX = /\A\{"type":"message","id":"[^"]+","parentId":(?:null|"[^"]+"),"timestamp":"[^"]+","message":\{"role":"toolResult"/.freeze
@@ -93,7 +93,8 @@ class PiSessionStore
       messages: messages_from_entries(session_entries(entries, current_leaf_id: current_leaf_id)),
       latest_stable_tree_position_id: stable_tree_position_id(entries, latest_leaf_id_from_entries(entries)),
       current_stable_tree_position_id: stable_tree_position_id(entries, current_leaf_id),
-      status: status_from_entries(entries)
+      status: status_from_entries(entries),
+      subagent_tool_call_context: normalized_subagent_tool_call_context(subagent_tool_calls_from_entries(entries))
     )
   end
 
@@ -112,11 +113,8 @@ class PiSessionStore
     requested_ids = Array(tool_call_ids).to_h { |tool_call_id| [tool_call_id, true] }
     return {} if requested_ids.empty?
 
-    subagent_tool_calls_from_entries(read_entries(path))
-      .select { |tool_call_id, _details| requested_ids[tool_call_id] }
-      .transform_values do |details|
-        { timestamp: details[:timestamp]&.utc&.iso8601(3), prompt: details[:prompt] }
-      end
+    tool_calls = subagent_tool_calls_from_entries(read_entries(path))
+    normalized_subagent_tool_call_context(tool_calls.select { |tool_call_id, _details| requested_ids[tool_call_id] })
   rescue SystemCallError
     {}
   end
@@ -303,6 +301,12 @@ class PiSessionStore
           prompt: subagent_prompt(part["arguments"])
         }
       end
+    end
+  end
+
+  def normalized_subagent_tool_call_context(tool_calls)
+    tool_calls.transform_values do |details|
+      { timestamp: details[:timestamp]&.utc&.iso8601(3), prompt: details[:prompt] }
     end
   end
 

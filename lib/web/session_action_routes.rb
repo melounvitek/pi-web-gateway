@@ -162,34 +162,51 @@ module Web
         Rpc::CommandCatalog.builtin_commands
       end
 
-      def live_session_status(session_path, status)
+      def live_session_status(session_path)
         responses = rpc_clients.with_existing_client(session_path, touch: false) do |client|
           [client.get_state, client.get_session_stats]
         end
-        return status unless responses
+        return unless responses
 
         state_response, stats_response = responses
         state = state_response["data"] if state_response.is_a?(Hash) && state_response["success"] == true
         stats = stats_response["data"] if stats_response.is_a?(Hash) && stats_response["success"] == true
-
-        if state.is_a?(Hash)
-          model = state["model"]
-          if model.is_a?(Hash)
-            status.provider = model["provider"] unless model["provider"].to_s.empty?
-            status.model_id = model["id"] unless model["id"].to_s.empty?
-          end
-          status.thinking_level = state["thinkingLevel"] unless state["thinkingLevel"].to_s.empty?
-        end
-
         context = stats["contextUsage"] if stats.is_a?(Hash)
+        model = state["model"] if state.is_a?(Hash)
+        if model.is_a?(Hash)
+          provider = model["provider"] if model["provider"].is_a?(String) && !model["provider"].empty?
+          model_id = model["id"] if model["id"].is_a?(String) && !model["id"].empty?
+        end
+        if state.is_a?(Hash)
+          thinking_level = state["thinkingLevel"] if state["thinkingLevel"].is_a?(String) && !state["thinkingLevel"].empty?
+        end
+        context_values = [context["tokens"], context["contextWindow"], context["percent"]] if context.is_a?(Hash)
+        context = nil unless context_values&.all? { |value| value.nil? || value.is_a?(Numeric) }
+        {
+          provider: provider,
+          model_id: model_id,
+          thinking_level: thinking_level,
+          context: context,
+          disk_independent: !!(provider && model_id && thinking_level && context)
+        }
+      rescue Errno::EPIPE, IOError
+        nil
+      end
+
+      def apply_live_session_status(status, live_status)
+        return status unless live_status
+
+        status.provider = live_status[:provider] if live_status[:provider]
+        status.model_id = live_status[:model_id] if live_status[:model_id]
+        status.thinking_level = live_status[:thinking_level] if live_status[:thinking_level]
+
+        context = live_status[:context]
         if context.is_a?(Hash)
           status.context_tokens = context["tokens"]
           status.context_limit = context["contextWindow"]
           status.context_percent = context["percent"]
           status.context_estimated = false
         end
-        status
-      rescue Errno::EPIPE, IOError
         status
       end
 
@@ -627,12 +644,15 @@ module Web
         halt 404 unless command_session_available?(session_path)
 
         content_type :json
-        status = if File.exist?(session_path)
+        live_status = live_session_status(session_path)
+        status = if live_status&.fetch(:disk_independent)
+          PiSessionStore::Status.new
+        elsif File.exist?(session_path)
           PiSessionStore.new(root: settings.sessions_root).status(session_path)
         else
           PiSessionStore::Status.new
         end
-        status = live_session_status(session_path, status)
+        status = apply_live_session_status(status, live_status)
         JSON.generate(
           context: format_context_usage(status),
           model: format_model(status),

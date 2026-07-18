@@ -271,13 +271,13 @@ class PiRpcClientTest < Minitest::Test
     writer.puts JSON.generate({ id: "state-1", type: "state" })
     client.request("get_state", id: "state-1")
 
-    assert_equal({ event_sequence: 4, active_tool_events: [JSON.parse(JSON.generate(latest_update))] }, client.live_snapshot)
+    assert_equal({ event_sequence: 4, event_replay_cursor: 0, active_tool_events: [JSON.parse(JSON.generate(latest_update))] }, client.live_snapshot)
 
     writer.puts JSON.generate({ type: "tool_execution_end", toolCallId: "call-1", toolName: "subagent", result: { content: [{ type: "text", text: "done" }] } })
     writer.puts JSON.generate({ id: "state-2", type: "state" })
     client.request("get_state", id: "state-2")
 
-    assert_equal({ event_sequence: 5, active_tool_events: [] }, client.live_snapshot)
+    assert_equal({ event_sequence: 5, event_replay_cursor: 0, active_tool_events: [] }, client.live_snapshot)
   ensure
     writer&.close
     reader&.close
@@ -314,7 +314,7 @@ class PiRpcClientTest < Minitest::Test
     writer.puts JSON.generate({ id: "state-1", type: "state" })
     client.request("get_state", id: "state-1")
 
-    assert_equal({ event_sequence: 2, active_tool_events: [] }, client.live_snapshot)
+    assert_equal({ event_sequence: 2, event_replay_cursor: 0, active_tool_events: [] }, client.live_snapshot)
   ensure
     writer&.close
     reader&.close
@@ -765,6 +765,7 @@ class PiRpcClientTest < Minitest::Test
     client.request("get_state", id: "state-1")
 
     assert_equal 1, client.event_replay_cursor
+    assert_equal 1, client.live_snapshot.fetch(:event_replay_cursor)
     assert_equal({ events: [], last_seq: 2, missed: true }, client.events_after(0))
     assert_equal ["two"], client.events_after(client.event_replay_cursor).fetch(:events).map { |event| event.fetch("name") }
   end
