@@ -290,6 +290,8 @@ export class TreeSessionController {
         row.className = "tree-session-row";
         row.classList.toggle("is-active", entry.entryId === this.model.selectedId);
         row.classList.toggle("is-current", !!entry.current);
+        row.classList.toggle("is-user-message", entry.messageKind === "user");
+        row.classList.toggle("is-final-assistant", entry.messageKind === "assistant-final");
 
         const visual = structure.visual.get(entry.entryId);
         const leading = this.document.createElement("span");

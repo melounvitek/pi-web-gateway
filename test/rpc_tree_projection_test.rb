@@ -33,6 +33,34 @@ module Rpc
       assert result.fetch(:entries).last.fetch(:current)
     end
 
+    def test_marks_user_messages_and_only_completed_assistant_text_as_distinct_conversation_entries
+      commentary_signature = JSON.generate("v" => 1, "id" => "message-1", "phase" => "commentary")
+      assistant = ->(content, stop_reason = nil) {
+        message = { "role" => "assistant", "content" => content }
+        message["stopReason"] = stop_reason if stop_reason
+        message
+      }
+      tree = [
+        node(entry("user", nil, "message", message: { "role" => "user", "content" => "Prompt" })),
+        node(entry("stop", nil, "message", message: assistant.call("Answer", "stop"))),
+        node(entry("length", nil, "message", message: assistant.call("Answer", "length"))),
+        node(entry("legacy", nil, "message", message: assistant.call("Answer"))),
+        node(entry("tool", nil, "message", message: assistant.call("Working", "toolUse"))),
+        node(entry("aborted", nil, "message", message: assistant.call("Partial", "aborted"))),
+        node(entry("error", nil, "message", message: assistant.call("Failed", "error"))),
+        node(entry("blank", nil, "message", message: assistant.call("  ", "stop"))),
+        node(entry("commentary", nil, "message", message: assistant.call([
+          { "type" => "text", "text" => "Working", "textSignature" => commentary_signature }
+        ], "stop")))
+      ]
+
+      entries = TreeProjection.call({ "tree" => tree, "leafId" => "stop" }, filter_mode: "all").fetch(:entries)
+      kinds = entries.to_h { |entry| [entry.fetch(:entryId), entry[:messageKind]] }
+
+      assert_equal "user", kinds.fetch("user")
+      assert_equal %w[legacy length stop], kinds.filter_map { |id, kind| id if kind == "assistant-final" }.sort
+    end
+
     def test_normalizes_preview_text_without_projecting_editor_text
       tree = [
         node(entry("user-1", nil, "message", message: {

@@ -159,6 +159,44 @@ class TreeSessionControllerJsTest < Minitest::Test
     assert_equal "true", result.fetch("selected")
   end
 
+  def test_controller_marks_user_and_final_assistant_rows
+    result = run_javascript(<<~JS)
+      const { TreeSessionController, TreeSessionModel } = await import(#{ASSET_URL.to_json});
+      const makeNode = (tag) => ({
+        tag, children: [], dataset: {}, attributes: {}, textContent: "", tabIndex: null,
+        classList: {
+          values: [],
+          toggle(name, enabled) {
+            this.values = this.values.filter((value) => value !== name);
+            if (enabled) this.values.push(name);
+          }
+        },
+        setAttribute(name, value) { this.attributes[name] = value; },
+        append(...children) { this.children.push(...children); },
+        replaceChildren(...children) { this.children = children; }
+      });
+      const viewport = makeNode("ul");
+      const modal = {
+        querySelector: (selector) => selector === "[data-tree-viewport]" ? viewport : null,
+        querySelectorAll: () => []
+      };
+      const document = { addEventListener() {}, querySelector: () => modal, createElement: makeNode };
+      const controller = new TreeSessionController(document, {});
+      controller.model = new TreeSessionModel([
+        { entryId: "user", parentId: null, messageKind: "user" },
+        { entryId: "tool", parentId: null, role: "assistant" },
+        { entryId: "final", parentId: null, messageKind: "assistant-final" }
+      ]);
+      controller.render();
+      console.log(JSON.stringify(viewport.children.map((item) => item.children[0].classList.values)));
+    JS
+
+    assert_includes result[0], "is-user-message"
+    refute_includes result[1], "is-user-message"
+    refute_includes result[1], "is-final-assistant"
+    assert_includes result[2], "is-final-assistant"
+  end
+
   def test_controller_only_shows_current_and_distinct_latest_badges
     result = run_javascript(<<~JS)
       const { TreeSessionController, TreeSessionModel } = await import(#{ASSET_URL.to_json});
@@ -667,6 +705,8 @@ class TreeSessionControllerJsTest < Minitest::Test
     assert_includes css, ".tree-session-connector-level:nth-last-child(n + 4)"
     assert_match(/\.tree-session-card\.is-summary-step \{[^}]*height: auto;[^}]*grid-template-rows: auto auto;[^}]*overflow-y: auto;/, css)
     assert_includes css, "env(safe-area-inset-bottom)"
+    assert_includes css, ".tree-session-row.is-user-message"
+    assert_includes css, ".tree-session-row.is-final-assistant"
   end
 
   def test_app_only_prefills_an_empty_composer_after_navigation

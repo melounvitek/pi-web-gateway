@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Rpc
   class TreeProjection
     ENTRY_LIMIT = 1_000
@@ -147,9 +149,43 @@ module Rpc
         current: false,
         latest: false
       }
+      message_kind = message_kind(entry)
+      payload[:messageKind] = message_kind if message_kind
       payload[:label] = bounded_text(node["label"], PREVIEW_TEXT_BYTES) unless node["label"].nil?
       payload[:labelTimestamp] = bounded_metadata(node["labelTimestamp"]) unless node["labelTimestamp"].nil?
       payload
+    end
+
+    def message_kind(entry)
+      return unless entry["type"] == "message"
+
+      message = entry["message"]
+      return unless message.is_a?(Hash)
+      return "user" if message["role"] == "user"
+      return unless message["role"] == "assistant" && [nil, "stop", "length"].include?(message["stopReason"])
+
+      parts = message["content"].is_a?(Array) ? message["content"] : [message["content"]]
+      final_text = parts.filter_map do |part|
+        next part if part.is_a?(String)
+        next unless part.is_a?(Hash) && part["type"] == "text"
+        next if assistant_text_phase(part) == "commentary"
+
+        part["text"]
+      end.join("\n").strip
+      "assistant-final" unless final_text.empty?
+    end
+
+    def assistant_text_phase(part)
+      signature = part["textSignature"]
+      return unless signature.is_a?(String) && signature.start_with?("{")
+
+      parsed = JSON.parse(signature)
+      return unless parsed.is_a?(Hash) && parsed["v"] == 1 && parsed["id"].is_a?(String)
+
+      phase = parsed["phase"]
+      phase if %w[commentary final_answer].include?(phase)
+    rescue JSON::ParserError
+      nil
     end
 
     def entry_role(entry)

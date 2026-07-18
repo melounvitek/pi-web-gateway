@@ -473,6 +473,8 @@
     .tree-session-node { min-width: 0; outline: none; }
     .tree-session-node:focus > .tree-session-row { box-shadow: inset 0 0 0 2px var(--focus-ring); }
     .tree-session-row { min-width: 0; display: grid; grid-template-columns: auto 1.7rem minmax(0, 1fr); align-items: stretch; gap: 0.2rem; margin: 0.12rem 0; border: 1px solid transparent; border-radius: 0.3rem; }
+    .tree-session-row.is-user-message { background: #81a2be0f; }
+    .tree-session-row.is-final-assistant { background: #b5bd680f; }
     .tree-session-row.is-active { border-color: var(--accent-line-55); background: var(--accent-tint-08); }
     .tree-session-row.is-current:not(.is-active) { border-color: #f0c67447; }
     .tree-session-connectors { display: flex; align-items: stretch; color: var(--accent-line-55); font-family: var(--mono); font-size: 0.78rem; line-height: 1; }
@@ -484,6 +486,8 @@
     .tree-session-entry:hover { background: var(--accent-tint-04); color: var(--text); outline: none; }
     .tree-session-entry-heading { min-width: 0; display: flex; align-items: baseline; gap: 0.45rem; }
     .tree-session-role { flex: 0 0 auto; color: var(--muted); font-family: var(--mono); font-size: 0.61rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+    .tree-session-row.is-user-message .tree-session-role { color: var(--link); }
+    .tree-session-row.is-final-assistant .tree-session-role { color: var(--success); }
     .tree-session-text { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tree-session-meta { color: var(--muted); font-family: var(--mono); font-size: 0.67rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tree-session-badge { flex: 0 0 auto; display: inline-block; padding: 0.08rem 0.32rem; border-radius: 0.2rem; background: var(--accent-tint-08); color: var(--accent); font-family: var(--mono); font-size: 0.56rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; }
