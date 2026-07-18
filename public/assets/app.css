@@ -75,10 +75,10 @@
     .focus-activity-spinner { flex: 0 0 auto; width: 0.72rem; height: 0.72rem; border: 1.5px solid var(--accent-tint-14); border-top-color: var(--accent); border-radius: 999px; animation: session-switch-spin 800ms linear infinite; }
     .focus-activity-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .focus-activity-error-count { flex: 0 0 auto; padding: 0.12rem 0.35rem; border: 1px solid #cc666659; border-radius: 0.2rem; background: var(--danger-soft); color: var(--danger); font-family: var(--mono); font-size: 0.64rem; font-weight: 600; }
-    .focus-activity-list { display: grid; gap: 0.08rem; margin: 0; padding: 0.38rem 0.7rem 0.48rem; border-top: 1px solid var(--border); background: var(--accent-tint-04); list-style: none; }
-    .focus-activity-item { min-width: 0; display: flex; align-items: baseline; gap: 0.42rem; padding: 0.15rem 0; color: var(--text); font-family: var(--mono); font-size: 0.7rem; line-height: 1.35; }
+    .focus-activity-list { display: grid; gap: 0.08rem; margin: 0; padding: 0.38rem 0.7rem 0.48rem; overflow-x: auto; overflow-y: hidden; border-top: 1px solid var(--border); background: var(--accent-tint-04); scrollbar-width: thin; scrollbar-color: var(--accent-tint-14) transparent; list-style: none; }
+    .focus-activity-item { width: max-content; min-width: 100%; display: flex; align-items: baseline; gap: 0.42rem; padding: 0.15rem 0; color: var(--text); font-family: var(--mono); font-size: 0.7rem; line-height: 1.35; }
     .focus-activity-item-marker { flex: 0 0 auto; color: var(--accent); font-weight: 700; }
-    .focus-activity-item-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-activity-item-text { white-space: nowrap; }
     .focus-activity-item--error, .focus-activity-item--error .focus-activity-item-marker { color: var(--danger); }
     .conversation-panel.is-conversation-focused .conversation-scroll .message:not([data-role="user"]):not([data-final-assistant-response="true"]) { display: none; }
     .conversation-scroll:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-tint-14); }

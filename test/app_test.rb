@@ -5180,6 +5180,8 @@ class AppTest < Minitest::Test
       assert_includes APP_STYLESHEET, ".conversation-panel.is-conversation-focused .focus-activity-summary {"
       assert_includes APP_STYLESHEET, '.message:not([data-role="user"]):not([data-final-assistant-response="true"])'
       assert_includes APP_STYLESHEET, ".focus-activity-list {"
+      assert_includes APP_STYLESHEET, "overflow-x: auto;"
+      assert_includes APP_STYLESHEET, ".focus-activity-item { width: max-content; min-width: 100%;"
       assert_includes APP_STYLESHEET, ".focus-activity-error-count {"
       assert_includes APP_STYLESHEET, ".focus-activity-spinner {"
       assert_includes APP_STYLESHEET, ".session-header-focus-action { width: 2.4rem;"
