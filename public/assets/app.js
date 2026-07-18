@@ -42,8 +42,10 @@ import { eventPollingDelay } from "./polling.js";
 import { TreeSessionController } from "./tree_session_controller.js";
 
 const gatewayUpdateController = new GatewayUpdateController(document, window);
-const browserAccessController = new BrowserAccessRequestController(document);
-const workspaceAccessController = new WorkspaceAccessRequestController(document);
+const notifyAccessRequest = (title, body, tag) =>
+  showGripiNotification(title, body, window.location.href, tag).catch(() => {});
+const browserAccessController = new BrowserAccessRequestController(document, notifyAccessRequest);
+const workspaceAccessController = new WorkspaceAccessRequestController(document, notifyAccessRequest);
 const projectSelectController = new ProjectSelectController(document, window);
 const newSessionFormController = new NewSessionFormController(document, window, projectSelectController);
 const sidebarController = new SidebarController(

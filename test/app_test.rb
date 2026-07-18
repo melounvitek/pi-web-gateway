@@ -6549,6 +6549,13 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_access_request_controllers_use_gripi_notifications
+    assert_includes APP_JAVASCRIPT, "const notifyAccessRequest = (title, body, tag) =>"
+    assert_includes APP_JAVASCRIPT, "showGripiNotification(title, body, window.location.href, tag).catch(() => {});"
+    assert_includes APP_JAVASCRIPT, "new BrowserAccessRequestController(document, notifyAccessRequest)"
+    assert_includes APP_JAVASCRIPT, "new WorkspaceAccessRequestController(document, notifyAccessRequest)"
+  end
+
   def test_sidebar_refresh_notifies_for_background_final_replies
     Dir.mktmpdir do |dir|
       path = write_session(dir)

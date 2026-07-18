@@ -339,6 +339,54 @@ class FrontendControllersJsTest < Minitest::Test
     assert_equal 1, results.fetch("timers")
   end
 
+  def test_access_controllers_notify_once_for_each_new_pending_request
+    results = run_javascript(<<~JS)
+      const { BrowserAccessRequestController, WorkspaceAccessRequestController } = await import(#{module_url("access_request_controllers.js").to_json});
+      const notifications = [];
+      const responses = {
+        browser: [
+          [{ code: "B7", ip: "127.0.0.1", user_agent: "Browser" }],
+          [{ code: "B7", ip: "127.0.0.1", user_agent: "Browser" }, { code: "B8", ip: "10.0.0.2" }]
+        ],
+        workspace: [[{ code: "W9" }]]
+      };
+      globalThis.fetch = async (url) => {
+        const kind = url.includes("browser") ? "browser" : "workspace";
+        return { ok: true, json: async () => ({ requests: responses[kind].shift() || [] }) };
+      };
+      globalThis.setTimeout = () => 1;
+      globalThis.clearTimeout = () => {};
+
+      const notify = (title, body, tag) => notifications.push({ title, body, tag });
+      const browser = new BrowserAccessRequestController(accessDocument("browser"), notify);
+      const workspace = new WorkspaceAccessRequestController(accessDocument("workspace"), notify);
+      await browser.resume();
+      await workspace.resume();
+      await browser.poll();
+
+      console.log(JSON.stringify(notifications));
+
+      function accessDocument(kind) {
+        const elements = {
+          [`[data-${kind}-access-overlay]`]: { classList: { add() {}, remove() {} } },
+          [`[data-${kind}-access-title]`]: { textContent: "" },
+          [`[data-${kind}-access-meta]`]: { textContent: "" }
+        };
+        return {
+          body: { dataset: { [`${kind}AccessEnabled`]: "true" } },
+          addEventListener() {},
+          querySelector: (selector) => selector === "[data-modal]:not([hidden])" ? null : elements[selector]
+        };
+      }
+    JS
+
+    assert_equal [
+      { "title" => "Browser access requested", "body" => "Code B7 · 127.0.0.1 · Browser", "tag" => "gripi-browser-access:B7" },
+      { "title" => "Workspace access requested", "body" => "Code W9 · Approve only if a trusted colleague is waiting for this code.", "tag" => "gripi-workspace-access:W9" },
+      { "title" => "Browser access requested", "body" => "Code B8 · 10.0.0.2", "tag" => "gripi-browser-access:B8" }
+    ], results
+  end
+
   def test_workspace_access_controller_preserves_workspace_copy_and_endpoint
     results = run_javascript(<<~JS)
       const { WorkspaceAccessRequestController } = await import(#{module_url("access_request_controllers.js").to_json});

@@ -1,8 +1,10 @@
 class AccessRequestController {
-  constructor(document, kind) {
+  constructor(document, kind, notify = () => {}) {
     this.document = document;
     this.kind = kind;
+    this.notify = notify;
     this.currentCode = null;
+    this.pendingCodes = new Set();
     this.pollTimer = null;
     this.pollPromise = null;
     this.pollAbortController = null;
@@ -85,7 +87,9 @@ class AccessRequestController {
       if (response.ok) {
         const payload = await response.json();
         if (generation !== this.pollGeneration || !this.active) return;
-        this.show((payload.requests || [])[0]);
+        const requests = payload.requests || [];
+        this.show(requests[0]);
+        this.notifyNewRequests(requests);
       }
     } catch (_error) {
     } finally {
@@ -98,6 +102,20 @@ class AccessRequestController {
         }, 3000);
       }
     }
+  }
+
+  notifyNewRequests(requests) {
+    const pendingCodes = new Set(requests.map((request) => request.code));
+    for (const request of requests) {
+      if (this.pendingCodes.has(request.code)) continue;
+      const meta = this.requestMeta(request);
+      this.notify(
+        `${this.kind[0].toUpperCase()}${this.kind.slice(1)} access requested`,
+        [`Code ${request.code}`, meta].filter(Boolean).join(" · "),
+        `gripi-${this.kind}-access:${request.code}`
+      );
+    }
+    this.pendingCodes = pendingCodes;
   }
 
   show(request) {
@@ -117,8 +135,8 @@ class AccessRequestController {
 }
 
 export class BrowserAccessRequestController extends AccessRequestController {
-  constructor(document) {
-    super(document, "browser");
+  constructor(document, notify) {
+    super(document, "browser", notify);
   }
 
   requestMeta(request) {
@@ -127,8 +145,8 @@ export class BrowserAccessRequestController extends AccessRequestController {
 }
 
 export class WorkspaceAccessRequestController extends AccessRequestController {
-  constructor(document) {
-    super(document, "workspace");
+  constructor(document, notify) {
+    super(document, "workspace", notify);
   }
 
   requestMeta() {
