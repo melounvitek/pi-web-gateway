@@ -8,6 +8,7 @@ class PiRpcClient
   class RequestTimeout < IOError; end
 
   DEFAULT_EVENT_BUFFER_LIMIT = 5_000
+  DEFAULT_EVENT_BUFFER_BYTES = 8 * 1024 * 1024
   TREE_BRIDGE_TIMEOUT = 5
   MAX_ACTIVE_TOOL_SNAPSHOTS = 16
   MAX_ACTIVE_TOOL_SNAPSHOT_BYTES = 64 * 1024
@@ -52,7 +53,7 @@ class PiRpcClient
     [node_path, pi_path]
   end
 
-  def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, clock: -> { Time.now }, monotonic_clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, tree_bridge_timeout: TREE_BRIDGE_TIMEOUT)
+  def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, event_buffer_bytes: DEFAULT_EVENT_BUFFER_BYTES, clock: -> { Time.now }, monotonic_clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, tree_bridge_timeout: TREE_BRIDGE_TIMEOUT)
     @stdin = stdin
     @stdout = stdout
     @stderr = stderr
@@ -63,6 +64,9 @@ class PiRpcClient
     @bridge_statuses = {}
     @pending_bridge_status_keys = {}
     @events = []
+    @event_buffer_bytesize = 0
+    @event_replay_floor = 0
+    @coalesced_events = {}
     @event_sequence = 0
     @active_tool_events = {}
     @queued_messages = { "steering" => [], "followUp" => [] }
@@ -71,6 +75,7 @@ class PiRpcClient
     @extension_widgets = {}
     @extension_title = nil
     @event_buffer_limit = event_buffer_limit
+    @event_buffer_bytes = event_buffer_bytes
     @clock = clock
     @monotonic_clock = monotonic_clock
     @tree_bridge_timeout = tree_bridge_timeout
@@ -231,7 +236,7 @@ class PiRpcClient
   end
 
   def event_replay_cursor
-    @mutex.synchronize { @events.first ? @events.first.first - 1 : @event_sequence }
+    @mutex.synchronize { @event_replay_floor }
   end
 
   def live_snapshot
@@ -286,12 +291,11 @@ class PiRpcClient
     after_seq = after_seq.to_i
     @mutex.synchronize do
       prune_expired_extension_ui_dialogs
-      oldest_seq = @events.first&.first
-      missed = oldest_seq && after_seq < oldest_seq - 1
+      missed = after_seq < @event_replay_floor
       events = if missed
         []
       else
-        @events.select { |seq, _event| seq > after_seq }.filter_map { |_seq, event| extension_ui_event_for_delivery(event) }
+        @events.select { |seq, _event, _bytes| seq > after_seq }.filter_map { |_seq, event, _bytes| extension_ui_event_for_delivery(event) }
       end
       { events: events, last_seq: @event_sequence, missed: !!missed }
     end
@@ -488,8 +492,7 @@ class PiRpcClient
           if @pending_extension_ui_dialogs[id].equal?(dialog)
             dialog[:answering] = false
             @event_sequence += 1
-            @events << [@event_sequence, dialog[:event]]
-            @events.shift while @events.length > @event_buffer_limit
+            append_replay_event(dialog[:event], JSON.generate(dialog[:event]).bytesize)
             @condition.broadcast
           end
         end
@@ -594,6 +597,7 @@ class PiRpcClient
       if store_as_event
         if ["agent_start", "agent_settled", "turn_start", "compaction_start"].include?(response["type"])
           response = response.merge("gatewayTimestamp" => (@clock.call.to_f * 1000).to_i)
+          serialized_bytesize = JSON.generate(response).bytesize
         end
         update_busy_state(response)
         update_queued_messages(response)
@@ -603,9 +607,14 @@ class PiRpcClient
           first_follow_up_type = "follow_up" if response["type"] == "compaction_end" && response["willRetry"] == true
         end
         update_active_tool_events(response, serialized_bytesize)
+        discard_superseded_replay_updates(response)
         @event_sequence += 1
-        @events << [@event_sequence, response]
-        @events.shift while @events.length > @event_buffer_limit
+        replay_event, replay_bytes = bounded_replay_event(response, serialized_bytesize)
+        if replay_event
+          append_replay_event(replay_event, replay_bytes, coalesce_key: replay_coalesce_key(response))
+        else
+          discard_replay_buffer
+        end
       end
       @condition.broadcast
     end
@@ -681,6 +690,73 @@ class PiRpcClient
 
     status_key = response["statusKey"]
     status_key if status_key.to_s.match?(/\Agripi_tree_(?:snapshot|leaf|navigate|label):[a-f0-9]+\z/i)
+  end
+
+  def discard_superseded_replay_updates(response)
+    case response["type"]
+    when "message_start", "message_end"
+      remove_coalesced_replay_event(:message_update)
+    when "tool_execution_start", "tool_execution_end"
+      remove_coalesced_replay_event(tool_replay_key(response["toolCallId"]))
+    when "agent_end"
+      @coalesced_events.keys.each { |key| remove_coalesced_replay_event(key) }
+    end
+  end
+
+  def replay_coalesce_key(response)
+    case response["type"]
+    when "message_update"
+      :message_update
+    when "tool_execution_update"
+      tool_replay_key(response["toolCallId"])
+    end
+  end
+
+  def tool_replay_key(tool_call_id)
+    return unless tool_call_id.is_a?(String) && tool_call_id.bytesize <= MAX_ACTIVE_TOOL_SNAPSHOT_ID_BYTES
+
+    [:tool_update, tool_call_id]
+  end
+
+  def bounded_replay_event(response, serialized_bytesize)
+    return [response, serialized_bytesize] unless response["type"] == "tool_execution_update" && response["toolName"] == SNAPSHOT_TOOL_NAME
+
+    event = bounded_active_tool_event(response, serialized_bytesize)
+    [event, event.equal?(response) ? serialized_bytesize : JSON.generate(event).bytesize]
+  end
+
+  def append_replay_event(event, bytes, coalesce_key: nil)
+    remove_coalesced_replay_event(coalesce_key) if coalesce_key
+    entry = [@event_sequence, event, bytes, coalesce_key]
+    @events << entry
+    @event_buffer_bytesize += bytes
+    @coalesced_events[coalesce_key] = entry if coalesce_key
+    prune_replay_events
+  end
+
+  def remove_coalesced_replay_event(key)
+    return unless key
+
+    entry = @coalesced_events.delete(key)
+    return unless entry && @events.delete(entry)
+
+    @event_buffer_bytesize -= entry.fetch(2)
+  end
+
+  def prune_replay_events
+    while @events.length > @event_buffer_limit || @event_buffer_bytesize > @event_buffer_bytes
+      sequence, _event, bytes, coalesce_key = @events.shift
+      @event_buffer_bytesize -= bytes
+      @event_replay_floor = [@event_replay_floor, sequence].max
+      @coalesced_events.delete(coalesce_key) if coalesce_key
+    end
+  end
+
+  def discard_replay_buffer
+    @events.clear
+    @coalesced_events.clear
+    @event_buffer_bytesize = 0
+    @event_replay_floor = @event_sequence
   end
 
   def update_active_tool_events(response, serialized_bytesize)

@@ -459,6 +459,138 @@ class PiRpcClientTest < Minitest::Test
     reader&.close
   end
 
+  def test_coalesces_cumulative_tool_updates_and_discards_them_when_the_tool_finishes
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({ type: "tool_execution_start", toolCallId: "call-1", toolName: "subagent", args: {} }),
+      JSON.generate({ type: "tool_execution_update", toolCallId: "call-1", toolName: "subagent", partialResult: { content: [{ type: "text", text: "first" }] } }),
+      JSON.generate({ type: "tool_execution_update", toolCallId: "call-1", toolName: "subagent", partialResult: { content: [{ type: "text", text: "latest" }] } }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal ["tool_execution_start", "tool_execution_update"], replay.fetch(:events).map { |event| event.fetch("type") }
+    assert_equal "latest", replay.dig(:events, 1, "partialResult", "content", 0, "text")
+    assert_equal ["latest"], client.events_after(2).fetch(:events).map { |event| event.dig("partialResult", "content", 0, "text") }
+    assert_equal 3, replay.fetch(:last_seq)
+
+    reader, writer = IO.pipe
+    client = PiRpcClient.new(stdin: StringIO.new, stdout: reader)
+    writer.puts JSON.generate({ type: "tool_execution_start", toolCallId: "call-1", toolName: "subagent", args: {} })
+    writer.puts JSON.generate({ type: "tool_execution_update", toolCallId: "call-1", toolName: "subagent", partialResult: { content: [{ type: "text", text: "progress" }] } })
+    writer.puts JSON.generate({ type: "tool_execution_end", toolCallId: "call-1", toolName: "subagent", result: { content: [{ type: "text", text: "done" }] } })
+    writer.puts JSON.generate({ id: "state-2", type: "state" })
+    client.request("get_state", id: "state-2")
+
+    assert_equal ["tool_execution_start", "tool_execution_end"], client.events_after(0).fetch(:events).map { |event| event.fetch("type") }
+  ensure
+    writer&.close
+    reader&.close
+  end
+
+  def test_coalesces_cumulative_message_updates_and_discards_them_when_the_message_finishes
+    message = ->(text) { { role: "assistant", content: [{ type: "text", text: text }] } }
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({ type: "message_start", message: message.call("") }),
+      JSON.generate({ type: "message_update", message: message.call("first") }),
+      JSON.generate({ type: "message_update", message: message.call("latest") }),
+      JSON.generate({ type: "message_end", message: message.call("done") }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal ["message_start", "message_end"], replay.fetch(:events).map { |event| event.fetch("type") }
+    assert_equal "done", replay.dig(:events, 1, "message", "content", 0, "text")
+    assert_equal 4, replay.fetch(:last_seq)
+  end
+
+  def test_compacts_oversized_subagent_updates_in_the_replay_buffer
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({
+        type: "tool_execution_update",
+        toolCallId: "call-1",
+        toolName: "subagent",
+        partialResult: {
+          content: [{ type: "text", text: "Latest progress" }],
+          details: { customProgress: "x" * PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES }
+        }
+      }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    event = client.events_after(0).fetch(:events).first
+    assert_operator JSON.generate(event).bytesize, :<=, PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES
+    assert_equal "Latest progress", event.dig("partialResult", "content", 0, "text")
+    assert_nil event.dig("partialResult", "details")
+  end
+
+  def test_discards_an_oversized_subagent_update_that_cannot_be_compacted_safely
+    oversized_id = "x" * (PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES + 1)
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({
+        type: "tool_execution_update",
+        toolCallId: oversized_id,
+        toolName: "subagent",
+        partialResult: { content: [{ type: "text", text: "Latest progress" }] }
+      }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    assert_equal 1, client.event_replay_cursor
+    assert_equal({ events: [], last_seq: 1, missed: true }, client.events_after(0))
+  end
+
+  def test_reports_missed_events_when_byte_budget_discards_replay
+    first = { type: "event", name: "one", payload: "x" * 40 }
+    second = { type: "event", name: "two", payload: "y" * 40 }
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(first),
+      JSON.generate(second),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(
+      stdin: input,
+      stdout: output,
+      event_buffer_bytes: JSON.generate(second).bytesize + 1
+    )
+
+    client.request("get_state", id: "state-1")
+
+    assert_equal 1, client.event_replay_cursor
+    assert_equal({ events: [], last_seq: 2, missed: true }, client.events_after(0))
+    assert_equal ["two"], client.events_after(client.event_replay_cursor).fetch(:events).map { |event| event.fetch("name") }
+  end
+
+  def test_reports_missed_events_when_one_event_exceeds_the_byte_budget
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate({ type: "event", payload: "x" * 100 }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, event_buffer_bytes: 10)
+
+    client.request("get_state", id: "state-1")
+
+    assert_equal 1, client.event_replay_cursor
+    assert_equal({ events: [], last_seq: 1, missed: true }, client.events_after(0))
+  end
+
   def test_reports_missed_events_when_cursor_precedes_buffer
     input = StringIO.new
     output = StringIO.new([
