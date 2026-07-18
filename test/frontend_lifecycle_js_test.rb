@@ -10,35 +10,47 @@ class FrontendLifecycleJsTest < Minitest::Test
 
     assert_includes source, 'composerAutocompleteController.bind(promptTextarea, document.getElementById("composer-path-list"));'
     assert_match(/function resetSessionViewState\(\) \{.*?composerAutocompleteController\.destroy\(\);/m, source)
-    assert_match(/if \(promptTextarea\.value\.startsWith\("\/"\).*?selectHighlightedCommand\(\);.*?if \(composerAutocompleteController\.handleKeydown\(event\)\) return;.*?cycleThinkingShortcut.*?toggleConversationPromptFocus.*?streamingBehaviorOverride = event\.altKey/m, source)
+    assert_match(/if \(promptTextarea\.value\.startsWith\("\/"\).*?selectHighlightedCommand\(\);.*?if \(composerAutocompleteController\.handleKeydown\(event\)\) return;.*?cycleThinkingShortcut.*?toggleConversationPromptFocus.*?keyboardStreamingBehaviorOverride = event\.altKey/m, source)
     assert_includes source, 'if (event.key === "Escape" && !event.defaultPrevented && confirmOrStopRunningTask(event)) return;'
     assert_match(/event\.type === "compaction_end".*?composerCompacting = "false";.*?setComposerState\("running"/m, source)
   end
 
-  def test_streaming_send_control_steers_by_default_and_submits_follow_up_immediately
+  def test_streaming_send_control_selects_follow_up_without_submitting_and_can_reset_to_steer
     app_source = File.read(File.join(ASSETS, "app.js"))
     helper_source = app_source.match(/function selectedStreamingBehavior\(\).*?(?=\nfunction updatePromptPlaceholder)/m).to_s
 
     results = run_javascript(<<~JS)
-      let streamingBehaviorOverride = null;
+      let keyboardStreamingBehaviorOverride = null;
+      let streamingBehaviorSelection = "steer";
       let composerState = { dataset: { state: "running" } };
       let liveOutput = { dataset: { composerCompacting: "false" } };
-      let submissions = 0;
       let promptFocuses = 0;
       let sendFocuses = 0;
+      let placeholderBehavior = null;
       const menuItem = {};
       const document = { activeElement: null };
-      const promptForm = { requestSubmit() { submissions += 1; } };
       const promptTextarea = { focus() { promptFocuses += 1; } };
-      const sendButton = { focus() { sendFocuses += 1; } };
+      const sendButton = { textContent: "", setAttribute() {}, focus() { sendFocuses += 1; } };
       const sendControl = { classList: { toggle() {} } };
       const sendMenuToggle = { hidden: false, setAttribute() {}, focus() {} };
-      const sendMenu = { hidden: false, contains(element) { return element === menuItem; } };
-      eval(#{(helper_source + "\nglobalThis.selected = selectedStreamingBehavior; globalThis.submitted = submittedStreamingBehavior; globalThis.closeMenu = closeSendMenu; globalThis.updateControl = updateStreamingSendControl; globalThis.submitFollowUp = () => submitStreamingBehavior(\"follow_up\");").to_json});
+      const behaviorButtons = ["steer", "follow_up"].map((behavior) => ({ dataset: { streamingBehavior: behavior }, setAttribute(name, value) { this[name] = value; } }));
+      const sendMenu = {
+        hidden: false,
+        contains(element) { return element === menuItem; },
+        querySelectorAll() { return behaviorButtons; }
+      };
+      const updatePromptPlaceholder = () => { placeholderBehavior = streamingBehaviorSelection; };
+      eval(#{(helper_source + "\nglobalThis.selected = selectedStreamingBehavior; globalThis.submitted = submittedStreamingBehavior; globalThis.selectBehavior = selectStreamingBehavior; globalThis.closeMenu = closeSendMenu; globalThis.updateControl = updateStreamingSendControl;").to_json});
 
       const defaultBehavior = globalThis.selected();
-      globalThis.submitFollowUp();
-      const followUpBehavior = globalThis.submitted();
+      globalThis.selectBehavior("follow_up");
+      const selectedFollowUp = globalThis.selected();
+      const submittedFollowUp = globalThis.submitted();
+      const followUpLabel = sendButton.textContent;
+      const followUpPlaceholder = placeholderBehavior;
+      const selectedStates = behaviorButtons.map((button) => button["aria-pressed"]);
+      globalThis.selectBehavior("steer", { focus: false });
+      const resetBehavior = globalThis.selected();
       document.activeElement = menuItem;
       globalThis.closeMenu();
       document.activeElement = sendMenuToggle;
@@ -48,14 +60,18 @@ class FrontendLifecycleJsTest < Minitest::Test
       composerState.dataset.state = "idle";
       const idleBehavior = globalThis.submitted();
 
-      console.log(JSON.stringify({ defaultBehavior, followUpBehavior, compactingBehavior, idleBehavior, submissions, menuHidden: sendMenu.hidden, promptFocuses, sendFocuses }));
+      console.log(JSON.stringify({ defaultBehavior, selectedFollowUp, submittedFollowUp, followUpLabel, followUpPlaceholder, selectedStates, resetBehavior, compactingBehavior, idleBehavior, menuHidden: sendMenu.hidden, promptFocuses, sendFocuses }));
     JS
 
     assert_equal "steer", results.fetch("defaultBehavior")
-    assert_equal "follow_up", results.fetch("followUpBehavior")
+    assert_equal "follow_up", results.fetch("selectedFollowUp")
+    assert_equal "follow_up", results.fetch("submittedFollowUp")
+    assert_equal "Queue", results.fetch("followUpLabel")
+    assert_equal ["false", "true"], results.fetch("selectedStates")
+    assert_equal "follow_up", results.fetch("followUpPlaceholder")
+    assert_equal "steer", results.fetch("resetBehavior")
     assert_equal "follow_up", results.fetch("compactingBehavior")
     assert_nil results.fetch("idleBehavior")
-    assert_equal 1, results.fetch("submissions")
     assert_equal true, results.fetch("menuHidden")
     assert_equal 1, results.fetch("promptFocuses")
     assert_equal 2, results.fetch("sendFocuses")
@@ -257,6 +273,7 @@ class FrontendLifecycleJsTest < Minitest::Test
       const currentSessionPath = () => "session-a";
       const classList = { toggle() {} };
       const composerState = { dataset: { state: "running" }, textContent: "Pi is running…" };
+      let streamingBehaviorSelection = "steer";
       const abortButton = { disabled: false };
       const sendButton = { hidden: false, disabled: false, textContent: "", setAttribute() {} };
       const updateStreamingSendControl = () => {};

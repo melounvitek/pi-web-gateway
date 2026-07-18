@@ -147,7 +147,10 @@
                 <div class="send-control">
                   <button type="submit" class="send-button"<%= " disabled" if session_sync_blocked %>>Send</button>
                   <button type="button" class="send-menu-toggle" data-send-menu-toggle aria-label="More send options" aria-controls="send-options" aria-expanded="false" hidden<%= " disabled" if session_sync_blocked %>>⌄</button>
-                  <div class="send-menu" id="send-options" data-send-menu hidden><button type="button" data-streaming-submit="follow_up">Queue follow-up</button></div>
+                  <div class="send-menu" id="send-options" data-send-menu hidden>
+                    <button type="button" data-streaming-behavior="steer" aria-pressed="true">Steer</button>
+                    <button type="button" data-streaming-behavior="follow_up" aria-pressed="false">Queue follow-up</button>
+                  </div>
                 </div>
               </div>
               <div class="extension-widgets" data-extension-widgets-below hidden></div>

@@ -67,7 +67,8 @@ let sendButton = null;
 let sendControl = null;
 let sendMenuToggle = null;
 let sendMenu = null;
-let streamingBehaviorOverride = null;
+let streamingBehaviorSelection = "steer";
+let keyboardStreamingBehaviorOverride = null;
 let composerStopButton = null;
 let attachButton = null;
 let attachmentTray = null;
@@ -134,6 +135,7 @@ let lastBoundSessionPath = null;
 let emptyEventPollCount = 0;
 let sessionViewGeneration = 0;
 let sessionSwitchGeneration = 0;
+let promptSubmissionGeneration = 0;
 let sessionStatusRequestVersion = 0;
 let notificationRegistration = null;
 const notifiedFinalReplyKeys = new Set();
@@ -190,7 +192,8 @@ function bindSessionDom() {
   sendControl = promptForm?.querySelector(".send-control") || null;
   sendMenuToggle = promptForm?.querySelector("[data-send-menu-toggle]") || null;
   sendMenu = promptForm?.querySelector("[data-send-menu]") || null;
-  streamingBehaviorOverride = null;
+  streamingBehaviorSelection = "steer";
+  keyboardStreamingBehaviorOverride = null;
   composerStopButton = document.querySelector(".session-header .composer-stop-button") || null;
   attachButton = promptForm?.querySelector(".attach-button") || null;
   attachmentTray = promptForm?.querySelector(".attachment-tray") || null;
@@ -299,12 +302,12 @@ function toggleConversationPromptFocus(event, nextElement) {
 }
 
 function selectedStreamingBehavior() {
-  return liveOutput?.dataset.composerCompacting === "true" ? "follow_up" : "steer";
+  return liveOutput?.dataset.composerCompacting === "true" ? "follow_up" : streamingBehaviorSelection;
 }
 
 function submittedStreamingBehavior() {
-  const override = streamingBehaviorOverride;
-  streamingBehaviorOverride = null;
+  const override = keyboardStreamingBehaviorOverride;
+  keyboardStreamingBehaviorOverride = null;
   if (composerState?.dataset.state !== "running") return null;
   return override || selectedStreamingBehavior();
 }
@@ -317,17 +320,25 @@ function closeSendMenu(focusTarget = undefined) {
   (focusTarget === undefined ? defaultFocusTarget : focusTarget)?.focus();
 }
 
-function submitStreamingBehavior(behavior) {
-  closeSendMenu(promptTextarea);
-  streamingBehaviorOverride = behavior;
-  promptForm?.requestSubmit();
+function selectStreamingBehavior(behavior, { focus = true } = {}) {
+  if (!["steer", "follow_up"].includes(behavior)) return;
+  streamingBehaviorSelection = behavior;
+  closeSendMenu(focus ? promptTextarea : null);
+  updateStreamingSendControl();
+  updatePromptPlaceholder();
 }
 
 function updateStreamingSendControl(state = composerState?.dataset.state) {
   const running = state === "running";
   const forcedFollowUp = liveOutput?.dataset.composerCompacting === "true";
+  const behavior = selectedStreamingBehavior();
   if (sendControl) sendControl.classList.toggle("is-streaming", running);
   if (sendMenuToggle) sendMenuToggle.hidden = !running || forcedFollowUp;
+  sendMenu?.querySelectorAll("[data-streaming-behavior]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.streamingBehavior === behavior)));
+  if (sendButton && running) {
+    sendButton.textContent = behavior === "follow_up" ? "Queue" : "Steer";
+    sendButton.setAttribute("aria-label", behavior === "follow_up" ? "Queue follow-up" : "Send steer");
+  }
   if (!running || forcedFollowUp) closeSendMenu();
 }
 
@@ -755,14 +766,16 @@ function setComposerState(state, label = "", { since = null, focus = true } = {}
   const agentBusy = ["running", "sending", "stopping"].includes(state);
   const submitting = state === "sending";
   const stopping = state === "stopping";
+  if (!["running", "sending"].includes(state)) streamingBehaviorSelection = "steer";
   updateStreamingSendControl(state);
   if (abortButton) abortButton.disabled = !agentBusy || stopping;
   if (sendButton) {
     sendButton.hidden = submitting || stopping;
     sendButton.disabled = stopping || sessionSyncBlocked();
-    const streamingBehavior = selectedStreamingBehavior();
-    sendButton.textContent = state === "running" ? streamingBehavior === "follow_up" ? "Queue" : "Steer" : state === "sending" ? "Sending…" : "Send";
-    sendButton.setAttribute("aria-label", state === "running" ? streamingBehavior === "follow_up" ? "Queue follow-up" : "Send steer" : "Send message");
+    if (state !== "running") {
+      sendButton.textContent = state === "sending" ? "Sending…" : "Send";
+      sendButton.setAttribute("aria-label", "Send message");
+    }
   }
   if (composerStopButton) {
     composerStopButton.hidden = !agentBusy;
@@ -1557,6 +1570,9 @@ async function submitPrompt(event) {
   const message = promptTextarea.value.trim();
   const submittedImageFiles = pendingImages.map((entry) => entry.file);
   if (!message && submittedImageFiles.length === 0) return;
+  const submissionGeneration = ++promptSubmissionGeneration;
+  const submittedPromptSuperseded = () => submissionGeneration !== promptSubmissionGeneration;
+  if (streamingBehavior) selectStreamingBehavior("steer", { focus: false });
 
   const formData = new FormData(promptForm);
   addSessionViewFormParams(formData);
@@ -1614,7 +1630,9 @@ async function submitPrompt(event) {
   const showPromptFailure = (errorMessage) => {
     restoreSubmittedComposerInput();
     if (queuedPrompt) {
-      setComposerState("running", compactingFollowUp ? "Compacting…" : "Pi is running…", { since: previousWaitingForOutputSince });
+      const currentState = composerState?.dataset.state;
+      if (["running", "sending"].includes(currentState)) selectStreamingBehavior(streamingBehavior, { focus: false });
+      if (currentState === "sending") setComposerState("running", compactingFollowUp ? "Compacting…" : "Pi is running…", { since: previousWaitingForOutputSince });
       showStatus(errorMessage, true);
       return;
     }
@@ -1629,6 +1647,7 @@ async function submitPrompt(event) {
     response = await fetch(promptForm.action, { method: "POST", body: formData, headers: { "Accept": "application/json" }, redirect: "manual" });
   } catch (_error) {
     if (stopHandlingChangedSubmittedView()) return;
+    if (submittedPromptSuperseded()) return;
     if (nameCommand) {
       restoreSubmittedComposerInput();
       setComposerState("error", "Session name could not be changed");
@@ -1639,10 +1658,12 @@ async function submitPrompt(event) {
     return;
   }
   if (stopHandlingChangedSubmittedView()) return;
+  if (submittedPromptSuperseded()) return;
 
   if (!response.ok && response.type !== "opaqueredirect") {
     const payload = await response.json().catch(() => null);
     if (stopHandlingChangedSubmittedView()) return;
+    if (submittedPromptSuperseded()) return;
     if (cloneCommand && payload?.cancelled) {
       restoreSubmittedComposerInput();
       setComposerState("idle");
@@ -1659,6 +1680,7 @@ async function submitPrompt(event) {
   } else if (response.ok) {
     const payload = await response.json().catch(() => null);
     if (stopHandlingChangedSubmittedView()) return;
+    if (submittedPromptSuperseded()) return;
     if (cloneCommand && payload?.cancelled) {
       restoreSubmittedComposerInput();
       setComposerState("idle");
@@ -1948,7 +1970,7 @@ function bindSessionControls() {
 
     if (event.key === "Enter" && !event.shiftKey && automaticComposerFocusEnabled()) {
       event.preventDefault();
-      streamingBehaviorOverride = event.altKey ? "follow_up" : null;
+      keyboardStreamingBehaviorOverride = event.altKey ? "follow_up" : null;
       promptForm.requestSubmit();
     }
   });
@@ -1986,12 +2008,14 @@ function bindSessionControls() {
     if (!opening || !sendMenu) return;
     sendMenu.hidden = false;
     sendMenuToggle.setAttribute("aria-expanded", "true");
-    sendMenu.querySelector('[data-streaming-submit="follow_up"]')?.focus();
+    sendMenu.querySelector('[data-streaming-behavior][aria-pressed="true"]')?.focus();
   });
   sendControl?.addEventListener("focusout", (event) => {
     if (!sendControl.contains(event.relatedTarget)) closeSendMenu(null);
   });
-  sendMenu?.querySelector('[data-streaming-submit="follow_up"]')?.addEventListener("click", () => submitStreamingBehavior("follow_up"));
+  sendMenu?.querySelectorAll("[data-streaming-behavior]").forEach((button) => {
+    button.addEventListener("click", () => selectStreamingBehavior(button.dataset.streamingBehavior));
+  });
   promptTextarea?.addEventListener("input", () => {
     resizePromptTextarea();
     persistStoredComposerDraft();
