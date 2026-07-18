@@ -3671,6 +3671,7 @@ class AppTest < Minitest::Test
       refute_includes response.body, "Ready"
       assert_includes response.body, "composer-input-row"
       assert_includes response.body, "composer-textarea-wrap"
+      assert_includes APP_STYLESHEET, ".composer-textarea-wrap textarea { display: block; }"
       assert_includes response.body, "id=\"composer-path-list\" role=\"listbox\" aria-label=\"Path suggestions\" hidden"
       assert_includes APP_STYLESHEET, ".composer-path-list { position: absolute;"
       assert_includes response.body, "Attach images"
