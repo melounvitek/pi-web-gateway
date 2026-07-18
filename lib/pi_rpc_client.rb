@@ -9,6 +9,14 @@ class PiRpcClient
 
   DEFAULT_EVENT_BUFFER_LIMIT = 5_000
   DEFAULT_EVENT_BUFFER_BYTES = 8 * 1024 * 1024
+  RPC_READ_CHUNK_BYTES = 64 * 1024
+  MAX_SAMPLED_TOOL_UPDATE_BYTES = 1024 * 1024
+  DEFAULT_OVERSIZED_TOOL_UPDATE_SAMPLE_INTERVAL_SECONDS = 2
+  MAX_OVERSIZED_TOOL_UPDATE_SAMPLE_KEYS = 64
+  # Native Pi emits these keys first. Other JSON layouts retain the existing unbounded compatibility path.
+  NATIVE_TOOL_UPDATE_PREFIX = /\A\{"type":"tool_execution_update","toolCallId":"((?:\\.|[^"\\])*)"/.freeze
+  NATIVE_TOOL_UPDATE_START = '{"type":"tool_execution_update","toolCallId":"'.freeze
+  UNTRACKABLE_TOOL_UPDATE_ID = Object.new.freeze
   TREE_BRIDGE_TIMEOUT = 5
   MAX_ACTIVE_TOOL_SNAPSHOTS = 16
   MAX_ACTIVE_TOOL_SNAPSHOT_BYTES = 64 * 1024
@@ -53,7 +61,7 @@ class PiRpcClient
     [node_path, pi_path]
   end
 
-  def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, event_buffer_bytes: DEFAULT_EVENT_BUFFER_BYTES, clock: -> { Time.now }, monotonic_clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, tree_bridge_timeout: TREE_BRIDGE_TIMEOUT)
+  def initialize(stdin:, stdout:, stderr: nil, wait_thread: nil, event_buffer_limit: DEFAULT_EVENT_BUFFER_LIMIT, event_buffer_bytes: DEFAULT_EVENT_BUFFER_BYTES, clock: -> { Time.now }, monotonic_clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, tree_bridge_timeout: TREE_BRIDGE_TIMEOUT, oversized_tool_update_sample_interval_seconds: DEFAULT_OVERSIZED_TOOL_UPDATE_SAMPLE_INTERVAL_SECONDS)
     @stdin = stdin
     @stdout = stdout
     @stderr = stderr
@@ -69,6 +77,7 @@ class PiRpcClient
     @coalesced_events = {}
     @event_sequence = 0
     @active_tool_events = {}
+    @oversized_tool_update_sampled_at = {}
     @queued_messages = { "steering" => [], "followUp" => [] }
     @pending_extension_ui_dialogs = {}
     @extension_statuses = {}
@@ -79,6 +88,7 @@ class PiRpcClient
     @clock = clock
     @monotonic_clock = monotonic_clock
     @tree_bridge_timeout = tree_bridge_timeout
+    @oversized_tool_update_sample_interval_seconds = oversized_tool_update_sample_interval_seconds
     @mutex = Mutex.new
     @write_mutex = Mutex.new
     @condition = ConditionVariable.new
@@ -430,9 +440,83 @@ class PiRpcClient
     end
   end
 
+  def each_stdout_line
+    chunk = +"".b
+    line = +"".b
+    mode = :unclassified
+
+    loop do
+      @stdout.readpartial(RPC_READ_CHUNK_BYTES, chunk)
+      chunk.force_encoding(Encoding::BINARY)
+      offset = 0
+      while offset < chunk.bytesize
+        newline = chunk.index("\n", offset)
+        length = (newline ? newline + 1 : chunk.bytesize) - offset
+
+        unless mode == :discard
+          if offset.zero? && length == chunk.bytesize
+            line << chunk
+          else
+            line << chunk.byteslice(offset, length)
+          end
+
+          if mode == :unclassified && line.bytesize >= RPC_READ_CHUNK_BYTES
+            tool_call_id = native_oversized_tool_update_id(line)
+            mode = if tool_call_id.equal?(UNTRACKABLE_TOOL_UPDATE_ID)
+              :discard
+            elsif tool_call_id
+              sample_oversized_tool_update?(tool_call_id) ? :sampled : :discard
+            else
+              :fallback
+            end
+            line.clear if mode == :discard
+          elsif mode == :sampled && line.bytesize > MAX_SAMPLED_TOOL_UPDATE_BYTES
+            mode = :discard
+            line.clear
+          end
+        end
+
+        if newline
+          yield line unless mode == :discard
+          line.clear
+          mode = :unclassified
+        end
+        offset += length
+      end
+    end
+  rescue EOFError
+    yield line unless line.empty? || mode == :discard
+  end
+
+  def native_oversized_tool_update_id(fragment)
+    return unless fragment.start_with?(NATIVE_TOOL_UPDATE_START)
+
+    encoded_id = fragment.match(NATIVE_TOOL_UPDATE_PREFIX)&.[](1)
+    return UNTRACKABLE_TOOL_UPDATE_ID unless encoded_id
+
+    tool_call_id = JSON.parse(%("#{encoded_id}"))
+    return UNTRACKABLE_TOOL_UPDATE_ID if tool_call_id.bytesize > MAX_ACTIVE_TOOL_SNAPSHOT_ID_BYTES
+
+    tool_call_id
+  rescue JSON::ParserError
+    UNTRACKABLE_TOOL_UPDATE_ID
+  end
+
+  def sample_oversized_tool_update?(tool_call_id)
+    now = monotonic_time
+    @oversized_tool_update_sampled_at.delete_if do |_id, sampled_at|
+      now - sampled_at >= @oversized_tool_update_sample_interval_seconds
+    end
+    return false if @oversized_tool_update_sampled_at.key?(tool_call_id)
+    return false if @oversized_tool_update_sampled_at.length >= MAX_OVERSIZED_TOOL_UPDATE_SAMPLE_KEYS
+
+    @oversized_tool_update_sampled_at[tool_call_id] = now
+    true
+  end
+
   def read_stdout
-    while (line = @stdout.gets)
-      next if line.strip.empty?
+    each_stdout_line do |line|
+      next if line.match?(/\A[[:space:]]*\z/)
 
       begin
         response = JSON.parse(line)
@@ -577,6 +661,12 @@ class PiRpcClient
   end
 
   def store_response(response, serialized_bytesize:)
+    if response["type"] == "agent_end"
+      @oversized_tool_update_sampled_at.clear
+    elsif response["type"] == "tool_execution_end"
+      @oversized_tool_update_sampled_at.delete(response["toolCallId"])
+    end
+
     follow_ups_to_flush = nil
     first_follow_up_type = "prompt"
     @mutex.synchronize do

@@ -459,6 +459,198 @@ class PiRpcClientTest < Minitest::Test
     reader&.close
   end
 
+  def test_samples_rapid_oversized_tool_updates
+    now = -1
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(oversized_tool_update("first")),
+      JSON.generate(oversized_tool_update("second")),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { now += 1 })
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal 1, replay.fetch(:last_seq)
+    assert_equal "first", replay.dig(:events, 0, "partialResult", "content", 0, "text")
+  end
+
+  def test_samples_each_oversized_tool_call_independently
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(oversized_tool_update("first one", tool_call_id: "call-1")),
+      JSON.generate(oversized_tool_update("first two", tool_call_id: "call-2")),
+      JSON.generate(oversized_tool_update("later one", tool_call_id: "call-1")),
+      JSON.generate(oversized_tool_update("later two", tool_call_id: "call-2")),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { 0 })
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal 2, replay.fetch(:last_seq)
+    assert_equal ["first one", "first two"], replay.fetch(:events).map { |event| event.dig("partialResult", "content", 0, "text") }
+  end
+
+  def test_samples_another_oversized_update_after_the_interval
+    now = -2
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(oversized_tool_update("first")),
+      JSON.generate(oversized_tool_update("latest")),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { now += 2 })
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal 2, replay.fetch(:last_seq)
+    assert_equal "latest", replay.dig(:events, 0, "partialResult", "content", 0, "text")
+  end
+
+  def test_preserves_complete_tool_end_after_sampling_progress
+    update = oversized_tool_update("progress")
+    final_text = "complete" * (PiRpcClient::RPC_READ_CHUNK_BYTES / 8)
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(update),
+      JSON.generate(update),
+      JSON.generate({ type: "tool_execution_end", toolCallId: "call-1", toolName: "subagent", result: { content: [{ type: "text", text: final_text }] } }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { 0 })
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal ["tool_execution_end"], replay.fetch(:events).map { |event| event.fetch("type") }
+    assert_equal final_text, replay.dig(:events, 0, "result", "content", 0, "text")
+  end
+
+  def test_preserves_oversized_command_responses
+    payload = "x" * PiRpcClient::RPC_READ_CHUNK_BYTES
+    input = StringIO.new
+    output = StringIO.new(JSON.generate({ id: "state-1", type: "state", data: payload }) + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    response = client.request("get_state", id: "state-1")
+
+    assert_equal payload, response.fetch("data")
+  end
+
+  def test_discards_sampled_tool_updates_above_the_hard_limit
+    update = oversized_tool_update("progress", payload_bytes: PiRpcClient::MAX_SAMPLED_TOOL_UPDATE_BYTES)
+    final_text = "complete"
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(update),
+      JSON.generate({ type: "tool_execution_end", toolCallId: "call-1", toolName: "subagent", result: { content: [{ type: "text", text: final_text }] } }),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal 1, replay.fetch(:last_seq)
+    assert_equal final_text, replay.dig(:events, 0, "result", "content", 0, "text")
+  end
+
+  def test_samples_oversized_updates_with_heavily_escaped_bounded_ids
+    escaped_id = "\n" * 600
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(oversized_tool_update("progress", tool_call_id: escaped_id)),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal 1, replay.fetch(:last_seq)
+    assert_equal escaped_id, replay.dig(:events, 0, "toolCallId")
+  end
+
+  def test_handles_utf8_split_across_rpc_read_chunks
+    emoji = "😀"
+    emoji_offset = JSON.generate(oversized_tool_update(emoji)).b.index(emoji.b)
+    text = ("x" * (PiRpcClient::RPC_READ_CHUNK_BYTES - 1 - emoji_offset)) + emoji
+    line = JSON.generate(oversized_tool_update(text))
+    assert_equal PiRpcClient::RPC_READ_CHUNK_BYTES - 1, line.b.index(emoji.b)
+    input = StringIO.new
+    output = StringIO.new([line, JSON.generate({ id: "state-1", type: "state" })].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output)
+
+    client.request("get_state", id: "state-1")
+
+    assert_includes client.events_after(0).dig(:events, 0, "partialResult", "content", 0, "text"), emoji
+  end
+
+  def test_falls_back_to_parsing_oversized_updates_with_unrecognized_key_order
+    update = ->(text) do
+      {
+        toolCallId: "call-1",
+        type: "tool_execution_update",
+        toolName: "subagent",
+        partialResult: {
+          content: [{ type: "text", text: text }],
+          details: { cumulativeState: "x" * PiRpcClient::RPC_READ_CHUNK_BYTES }
+        }
+      }
+    end
+    input = StringIO.new
+    output = StringIO.new([
+      JSON.generate(update.call("first")),
+      JSON.generate(update.call("latest")),
+      JSON.generate({ id: "state-1", type: "state" })
+    ].join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { 0 })
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal 2, replay.fetch(:last_seq)
+    assert_equal "latest", replay.dig(:events, 0, "partialResult", "content", 0, "text")
+  end
+
+  def test_bounds_sampling_with_more_active_tool_calls_than_tracking_slots
+    updates = 2.times.flat_map do
+      (PiRpcClient::MAX_OVERSIZED_TOOL_UPDATE_SAMPLE_KEYS + 1).times.map do |index|
+        JSON.generate(oversized_tool_update("progress", tool_call_id: "call-#{index}"))
+      end
+    end
+    input = StringIO.new
+    output = StringIO.new((updates + [JSON.generate({ id: "state-1", type: "state" })]).join("\n") + "\n")
+    client = PiRpcClient.new(stdin: input, stdout: output, monotonic_clock: -> { 0 })
+
+    client.request("get_state", id: "state-1")
+
+    replay = client.events_after(0)
+    assert_equal PiRpcClient::MAX_OVERSIZED_TOOL_UPDATE_SAMPLE_KEYS, replay.fetch(:last_seq)
+    assert_equal PiRpcClient::MAX_OVERSIZED_TOOL_UPDATE_SAMPLE_KEYS, replay.fetch(:events).length
+  end
+
+  def test_bounds_the_number_of_parsed_oversized_updates_in_a_long_stream
+    now = -20
+    update = oversized_tool_update("progress")
+    input = StringIO.new
+    output = StringIO.new((Array.new(100, JSON.generate(update)) + [JSON.generate({ id: "state-1", type: "state" })]).join("\n") + "\n")
+    client = PiRpcClient.new(
+      stdin: input,
+      stdout: output,
+      monotonic_clock: -> { now += 1 },
+      oversized_tool_update_sample_interval_seconds: 20
+    )
+
+    client.request("get_state", id: "state-1")
+
+    assert_equal 5, client.events_after(0).fetch(:last_seq)
+  end
+
   def test_coalesces_cumulative_tool_updates_and_discards_them_when_the_tool_finishes
     input = StringIO.new
     output = StringIO.new([
@@ -535,7 +727,7 @@ class PiRpcClientTest < Minitest::Test
     assert_nil event.dig("partialResult", "details")
   end
 
-  def test_discards_an_oversized_subagent_update_that_cannot_be_compacted_safely
+  def test_discards_an_oversized_subagent_update_with_an_untrackable_tool_call_id
     oversized_id = "x" * (PiRpcClient::MAX_ACTIVE_TOOL_SNAPSHOT_BYTES + 1)
     input = StringIO.new
     output = StringIO.new([
@@ -551,8 +743,8 @@ class PiRpcClientTest < Minitest::Test
 
     client.request("get_state", id: "state-1")
 
-    assert_equal 1, client.event_replay_cursor
-    assert_equal({ events: [], last_seq: 1, missed: true }, client.events_after(0))
+    assert_equal 0, client.event_replay_cursor
+    assert_equal({ events: [], last_seq: 0, missed: false }, client.events_after(0))
   end
 
   def test_reports_missed_events_when_byte_budget_discards_replay
@@ -1445,6 +1637,18 @@ class PiRpcClientTest < Minitest::Test
   end
 
   private
+
+  def oversized_tool_update(text, tool_call_id: "call-1", payload_bytes: PiRpcClient::RPC_READ_CHUNK_BYTES)
+    {
+      type: "tool_execution_update",
+      toolCallId: tool_call_id,
+      toolName: "subagent",
+      partialResult: {
+        content: [{ type: "text", text: text }],
+        details: { cumulativeState: "x" * payload_bytes }
+      }
+    }
+  end
 
   def decode_extension_command(message, name)
     command, request_id, encoded_payload = message.split(" ", 3)
