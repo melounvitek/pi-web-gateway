@@ -12,7 +12,53 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_match(/function resetSessionViewState\(\) \{.*?composerAutocompleteController\.destroy\(\);/m, source)
     assert_match(/if \(promptTextarea\.value\.startsWith\("\/"\).*?selectHighlightedCommand\(\);.*?if \(composerAutocompleteController\.handleKeydown\(event\)\) return;.*?cycleThinkingShortcut.*?toggleConversationPromptFocus.*?streamingBehaviorOverride = event\.altKey/m, source)
     assert_includes source, 'if (event.key === "Escape" && !event.defaultPrevented && confirmOrStopRunningTask(event)) return;'
-    assert_match(/event\.type === "compaction_end".*?composerCompacting = "false";.*?selectSteeringBehavior\(\);.*?setComposerState\("running"/m, source)
+    assert_match(/event\.type === "compaction_end".*?composerCompacting = "false";.*?setComposerState\("running"/m, source)
+  end
+
+  def test_streaming_send_control_steers_by_default_and_submits_follow_up_immediately
+    app_source = File.read(File.join(ASSETS, "app.js"))
+    helper_source = app_source.match(/function selectedStreamingBehavior\(\).*?(?=\nfunction updatePromptPlaceholder)/m).to_s
+
+    results = run_javascript(<<~JS)
+      let streamingBehaviorOverride = null;
+      let composerState = { dataset: { state: "running" } };
+      let liveOutput = { dataset: { composerCompacting: "false" } };
+      let submissions = 0;
+      let promptFocuses = 0;
+      let sendFocuses = 0;
+      const menuItem = {};
+      const document = { activeElement: null };
+      const promptForm = { requestSubmit() { submissions += 1; } };
+      const promptTextarea = { focus() { promptFocuses += 1; } };
+      const sendButton = { focus() { sendFocuses += 1; } };
+      const sendControl = { classList: { toggle() {} } };
+      const sendMenuToggle = { hidden: false, setAttribute() {}, focus() {} };
+      const sendMenu = { hidden: false, contains(element) { return element === menuItem; } };
+      eval(#{(helper_source + "\nglobalThis.selected = selectedStreamingBehavior; globalThis.submitted = submittedStreamingBehavior; globalThis.closeMenu = closeSendMenu; globalThis.updateControl = updateStreamingSendControl; globalThis.submitFollowUp = () => submitStreamingBehavior(\"follow_up\");").to_json});
+
+      const defaultBehavior = globalThis.selected();
+      globalThis.submitFollowUp();
+      const followUpBehavior = globalThis.submitted();
+      document.activeElement = menuItem;
+      globalThis.closeMenu();
+      document.activeElement = sendMenuToggle;
+      liveOutput.dataset.composerCompacting = "true";
+      globalThis.updateControl();
+      const compactingBehavior = globalThis.selected();
+      composerState.dataset.state = "idle";
+      const idleBehavior = globalThis.submitted();
+
+      console.log(JSON.stringify({ defaultBehavior, followUpBehavior, compactingBehavior, idleBehavior, submissions, menuHidden: sendMenu.hidden, promptFocuses, sendFocuses }));
+    JS
+
+    assert_equal "steer", results.fetch("defaultBehavior")
+    assert_equal "follow_up", results.fetch("followUpBehavior")
+    assert_equal "follow_up", results.fetch("compactingBehavior")
+    assert_nil results.fetch("idleBehavior")
+    assert_equal 1, results.fetch("submissions")
+    assert_equal true, results.fetch("menuHidden")
+    assert_equal 1, results.fetch("promptFocuses")
+    assert_equal 2, results.fetch("sendFocuses")
   end
 
   def test_conversation_rebinding_detaches_old_scroll_events_and_timers
@@ -213,9 +259,7 @@ class FrontendLifecycleJsTest < Minitest::Test
       const composerState = { dataset: { state: "running" }, textContent: "Pi is running…" };
       const abortButton = { disabled: false };
       const sendButton = { hidden: false, disabled: false, textContent: "", setAttribute() {} };
-      const streamingBehaviorControls = null;
-      const selectSteeringBehavior = () => {};
-      const updateStreamingBehaviorControls = () => {};
+      const updateStreamingSendControl = () => {};
       const selectedStreamingBehavior = () => "steer";
       const composerStopButton = { hidden: false, disabled: false, classList };
       const promptTextarea = { disabled: false };

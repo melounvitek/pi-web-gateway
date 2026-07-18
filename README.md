@@ -82,7 +82,7 @@ Gripi is intentionally thin around Pi. It uses Pi’s existing runtime, sessions
 
 If a project uses project-local `.pi/settings.json`, `.pi/extensions/`, `.pi/skills/`, `.pi/prompts/`, `.pi/themes/`, `SYSTEM.md`, `APPEND_SYSTEM.md`, or `.agents/skills/`, trust the project in Pi CLI before opening or starting it in Gripi. This also covers project packages configured through `.pi/settings.json`. Pi owns this trust workflow; Gripi neither grants trust nor loads untrusted project resources. If Gripi already opened the project before it was trusted, restart the gateway after active work finishes so Pi reloads those resources.
 
-The composer supports Pi-style `@` file search and path completion. While Pi is running, use the **Steer** or **Follow-up** control to choose how the message is delivered. On desktop, Enter steers by default, Alt+Enter queues a follow-up, and Shift+Enter inserts a newline.
+The composer supports Pi-style `@` file search and path completion. While Pi is running, the send button steers by default; open its menu to queue a follow-up instead. On desktop, Enter steers by default, Alt+Enter queues a follow-up, and Shift+Enter inserts a newline.
 
 Gripi supports RPC-compatible extension UI such as select, confirm, input, editor, notify, status, title, and editor-prefill requests. If a workflow depends on Pi’s native terminal UI, custom TUI components, terminal keybindings, or `ctx.mode === "tui"`, use Pi CLI directly.
 

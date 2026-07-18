@@ -40,7 +40,8 @@ class ConfigurationDocsTest < Minitest::Test
     readme = File.read(File.expand_path("../README.md", __dir__))
 
     assert_includes readme, "Pi-style `@` file search and path completion"
-    assert_includes readme, "use the **Steer** or **Follow-up** control"
+    assert_includes readme, "the send button steers by default"
+    assert_includes readme, "open its menu to queue a follow-up"
     assert_includes readme, "Enter steers by default"
     assert_includes readme, "Alt+Enter"
     assert_includes readme, "Shift+Enter inserts a newline"

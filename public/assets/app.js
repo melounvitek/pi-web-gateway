@@ -64,7 +64,9 @@ let abortForm = null;
 let promptTextarea = null;
 let promptSessionInput = null;
 let sendButton = null;
-let streamingBehaviorControls = null;
+let sendControl = null;
+let sendMenuToggle = null;
+let sendMenu = null;
 let streamingBehaviorOverride = null;
 let composerStopButton = null;
 let attachButton = null;
@@ -185,7 +187,9 @@ function bindSessionDom() {
   extensionWidgetsBelowContainer = document.querySelector("[data-extension-widgets-below]");
   promptSessionInput = promptForm?.querySelector('input[name="session"]') || null;
   sendButton = promptForm?.querySelector(".send-button") || null;
-  streamingBehaviorControls = promptForm?.querySelector("[data-streaming-behavior]") || null;
+  sendControl = promptForm?.querySelector(".send-control") || null;
+  sendMenuToggle = promptForm?.querySelector("[data-send-menu-toggle]") || null;
+  sendMenu = promptForm?.querySelector("[data-send-menu]") || null;
   streamingBehaviorOverride = null;
   composerStopButton = document.querySelector(".session-header .composer-stop-button") || null;
   attachButton = promptForm?.querySelector(".attach-button") || null;
@@ -295,8 +299,7 @@ function toggleConversationPromptFocus(event, nextElement) {
 }
 
 function selectedStreamingBehavior() {
-  if (liveOutput?.dataset.composerCompacting === "true") return "follow_up";
-  return streamingBehaviorControls?.querySelector('input[name="streaming_behavior"]:checked')?.value || "steer";
+  return liveOutput?.dataset.composerCompacting === "true" ? "follow_up" : "steer";
 }
 
 function submittedStreamingBehavior() {
@@ -306,20 +309,26 @@ function submittedStreamingBehavior() {
   return override || selectedStreamingBehavior();
 }
 
-function selectSteeringBehavior() {
-  const steerInput = streamingBehaviorControls?.querySelector('input[value="steer"]');
-  if (steerInput) steerInput.checked = true;
+function closeSendMenu(focusTarget = undefined) {
+  const activeElementWillBeHidden = sendMenu?.contains(document.activeElement) || (sendMenuToggle?.hidden && document.activeElement === sendMenuToggle);
+  if (sendMenu) sendMenu.hidden = true;
+  sendMenuToggle?.setAttribute("aria-expanded", "false");
+  const defaultFocusTarget = activeElementWillBeHidden ? (composerState?.dataset.state === "running" ? sendButton : promptTextarea) : null;
+  (focusTarget === undefined ? defaultFocusTarget : focusTarget)?.focus();
 }
 
-function updateStreamingBehaviorControls(state = composerState?.dataset.state) {
-  if (!streamingBehaviorControls) return;
+function submitStreamingBehavior(behavior) {
+  closeSendMenu(promptTextarea);
+  streamingBehaviorOverride = behavior;
+  promptForm?.requestSubmit();
+}
+
+function updateStreamingSendControl(state = composerState?.dataset.state) {
+  const running = state === "running";
   const forcedFollowUp = liveOutput?.dataset.composerCompacting === "true";
-  const steerInput = streamingBehaviorControls.querySelector('input[value="steer"]');
-  const followUpInput = streamingBehaviorControls.querySelector('input[value="follow_up"]');
-  streamingBehaviorControls.hidden = state !== "running";
-  streamingBehaviorControls.disabled = state !== "running";
-  if (steerInput) steerInput.disabled = forcedFollowUp;
-  if (forcedFollowUp && followUpInput) followUpInput.checked = true;
+  if (sendControl) sendControl.classList.toggle("is-streaming", running);
+  if (sendMenuToggle) sendMenuToggle.hidden = !running || forcedFollowUp;
+  if (!running || forcedFollowUp) closeSendMenu();
 }
 
 function updatePromptPlaceholder() {
@@ -746,8 +755,7 @@ function setComposerState(state, label = "", { since = null, focus = true } = {}
   const agentBusy = ["running", "sending", "stopping"].includes(state);
   const submitting = state === "sending";
   const stopping = state === "stopping";
-  if (state === "running" && previousState !== "running" && liveOutput?.dataset.composerCompacting !== "true") selectSteeringBehavior();
-  updateStreamingBehaviorControls(state);
+  updateStreamingSendControl(state);
   if (abortButton) abortButton.disabled = !agentBusy || stopping;
   if (sendButton) {
     sendButton.hidden = submitting || stopping;
@@ -1220,7 +1228,6 @@ function renderEvent(event) {
 
   if (event.type === "compaction") {
     if (liveOutput) liveOutput.dataset.composerCompacting = "false";
-    selectSteeringBehavior();
     liveMessageRenderer.renderCompactionEvent(event);
     showStatus("Compaction finished");
     if (liveAgentRunning) setComposerState("running", "Pi is running…", { since: liveBusySince });
@@ -1276,7 +1283,6 @@ function renderEvent(event) {
     }
     if (event.type === "compaction_end") {
       if (liveOutput) liveOutput.dataset.composerCompacting = "false";
-      selectSteeringBehavior();
       liveMessageRenderer.removePendingCompactionMessage();
       if (!event.aborted && !liveMessageRenderer.liveCompactionRendered) liveMessageRenderer.renderCompactionEvent(event);
       if (liveAgentRunning) setComposerState("running", "Pi is running…", { since: liveBusySince });
@@ -1609,9 +1615,6 @@ async function submitPrompt(event) {
     restoreSubmittedComposerInput();
     if (queuedPrompt) {
       setComposerState("running", compactingFollowUp ? "Compacting…" : "Pi is running…", { since: previousWaitingForOutputSince });
-      const restoredInput = streamingBehaviorControls?.querySelector(`input[value="${streamingBehavior}"]`);
-      if (restoredInput && !restoredInput.disabled) restoredInput.checked = true;
-      updateComposerStreamingBehavior();
       showStatus(errorMessage, true);
       return;
     }
@@ -1778,16 +1781,6 @@ function confirmOrStopRunningTask(event) {
 
 function composingQueuedMessage() {
   return composerState?.dataset.state === "running";
-}
-
-function updateComposerStreamingBehavior() {
-  updateStreamingBehaviorControls();
-  if (sendButton && composerState?.dataset.state === "running") {
-    const followUp = selectedStreamingBehavior() === "follow_up";
-    sendButton.textContent = followUp ? "Queue" : "Steer";
-    sendButton.setAttribute("aria-label", followUp ? "Queue follow-up" : "Send steer");
-  }
-  updatePromptPlaceholder();
 }
 
 function visibleCommands() {
@@ -1987,7 +1980,18 @@ function bindSessionControls() {
   });
 
   reconnectButton?.addEventListener("click", reconnectSession);
-  streamingBehaviorControls?.addEventListener("change", updateComposerStreamingBehavior);
+  sendMenuToggle?.addEventListener("click", () => {
+    const opening = sendMenu?.hidden === true;
+    closeSendMenu();
+    if (!opening || !sendMenu) return;
+    sendMenu.hidden = false;
+    sendMenuToggle.setAttribute("aria-expanded", "true");
+    sendMenu.querySelector('[data-streaming-submit="follow_up"]')?.focus();
+  });
+  sendControl?.addEventListener("focusout", (event) => {
+    if (!sendControl.contains(event.relatedTarget)) closeSendMenu(null);
+  });
+  sendMenu?.querySelector('[data-streaming-submit="follow_up"]')?.addEventListener("click", () => submitStreamingBehavior("follow_up"));
   promptTextarea?.addEventListener("input", () => {
     resizePromptTextarea();
     persistStoredComposerDraft();
@@ -2649,6 +2653,12 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (event.key === "Escape" && sendMenu && !sendMenu.hidden) {
+    event.preventDefault();
+    closeSendMenu(sendMenuToggle);
+    return;
+  }
+
   if (event.key === "Escape" && !event.defaultPrevented && confirmOrStopRunningTask(event)) return;
 
   if (event.key === "Control") {
@@ -2679,6 +2689,7 @@ document.addEventListener("keyup", (event) => {
 window.addEventListener("blur", exitSessionShortcutMode);
 
 document.addEventListener("click", (event) => {
+  if (!event.target.closest(".send-control")) closeSendMenu();
   if (!event.target.closest(".session-sidebar")) exitSessionShortcutMode();
 });
 
