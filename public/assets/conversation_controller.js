@@ -140,8 +140,8 @@ export class ConversationController {
     this.focusToggle?.setAttribute("aria-label", description);
     const condenseIcon = this.focusToggle?.querySelector("[data-condense-details-icon]");
     const expandIcon = this.focusToggle?.querySelector("[data-expand-details-icon]");
-    if (condenseIcon) condenseIcon.hidden = this.focusedView;
-    if (expandIcon) expandIcon.hidden = !this.focusedView;
+    condenseIcon?.toggleAttribute("hidden", this.focusedView);
+    expandIcon?.toggleAttribute("hidden", !this.focusedView);
   }
 
   setAgentRunning(running) {

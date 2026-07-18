@@ -1110,8 +1110,13 @@ class FrontendLifecycleJsTest < Minitest::Test
         toggle(name, enabled) { enabled ? this.add(name) : this.remove(name); }
         contains(name) { return this.values.has(name); }
       }
+      class Icon {
+        constructor() { this.attributes = new Set(); }
+        toggleAttribute(name, enabled) { enabled ? this.attributes.add(name) : this.attributes.delete(name); }
+        hasAttribute(name) { return this.attributes.has(name); }
+      }
       class Toggle {
-        constructor() { this.classList = new ClassList(); this.attributes = {}; this.listeners = []; this.condenseIcon = {}; this.expandIcon = {}; }
+        constructor() { this.classList = new ClassList(); this.attributes = {}; this.listeners = []; this.condenseIcon = new Icon(); this.expandIcon = new Icon(); }
         addEventListener(type, listener) { if (type === "click") this.listeners.push(listener); }
         removeEventListener(type, listener) { if (type === "click") this.listeners = this.listeners.filter((item) => item !== listener); }
         setAttribute(name, value) { this.attributes[name] = value; }
@@ -1137,11 +1142,11 @@ class FrontendLifecycleJsTest < Minitest::Test
       const controller = new ConversationController(document, window);
       controller.bind();
       const initialTitle = toggle.attributes.title;
-      const initialIcons = [toggle.condenseIcon.hidden, toggle.expandIcon.hidden];
+      const initialIcons = [toggle.condenseIcon.hasAttribute("hidden"), toggle.expandIcon.hasAttribute("hidden")];
       toggle.click();
       const firstPanelFocused = panel.classList.contains("is-conversation-focused");
       const focusedTitle = toggle.attributes.title;
-      const focusedIcons = [toggle.condenseIcon.hidden, toggle.expandIcon.hidden];
+      const focusedIcons = [toggle.condenseIcon.hasAttribute("hidden"), toggle.expandIcon.hasAttribute("hidden")];
 
       controller.reset();
       panel = { classList: new ClassList() };

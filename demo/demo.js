@@ -273,8 +273,8 @@
     const description = `${action} reasoning, tools, statuses, and errors`;
     element.focusToggle.setAttribute("title", description);
     element.focusToggle.setAttribute("aria-label", description);
-    element.focusToggle.querySelector("[data-condense-details-icon]").hidden = focusedView;
-    element.focusToggle.querySelector("[data-expand-details-icon]").hidden = !focusedView;
+    element.focusToggle.querySelector("[data-condense-details-icon]").toggleAttribute("hidden", focusedView);
+    element.focusToggle.querySelector("[data-expand-details-icon]").toggleAttribute("hidden", !focusedView);
   }
   function focusedConversationMessage(message) {
     const error = message.classList.contains("message--error") || message.classList.contains("message--tool-error");
