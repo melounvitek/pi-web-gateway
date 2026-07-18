@@ -283,6 +283,27 @@ class PiRpcClientTest < Minitest::Test
     reader&.close
   end
 
+  def test_snapshots_latest_native_message_queues_with_order_and_duplicates
+    input = StringIO.new
+    reader, writer = IO.pipe
+    client = PiRpcClient.new(stdin: input, stdout: reader)
+
+    writer.puts JSON.generate({ type: "queue_update", steering: ["First", "First"], followUp: ["Later"] })
+    writer.puts JSON.generate({ id: "state-1", type: "state" })
+    client.request("get_state", id: "state-1")
+
+    assert_equal({ "steering" => ["First", "First"], "followUp" => ["Later"] }, client.live_snapshot.fetch(:queued_messages))
+
+    writer.puts JSON.generate({ type: "queue_update", steering: [], followUp: [] })
+    writer.puts JSON.generate({ id: "state-2", type: "state" })
+    client.request("get_state", id: "state-2")
+
+    refute client.live_snapshot.key?(:queued_messages)
+  ensure
+    writer&.close
+    reader&.close
+  end
+
   def test_clears_running_tool_snapshots_when_the_agent_ends
     input = StringIO.new
     reader, writer = IO.pipe

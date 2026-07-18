@@ -50,7 +50,8 @@ module Web
         return if BrowserAccess::ACCESS_ENDPOINTS.include?(request.path_info)
         return if approved_browser?
 
-        @access_request = ensure_browser_pending
+        @access_request = browser_access_store.pending_request(browser_token)
+        @access_return_to = request.fullpath
         @access_error = nil
         status 403
         halt erb(:access_blocked)
@@ -65,15 +66,6 @@ module Web
 
       def client_rate_limit_key
         request.env["REMOTE_ADDR"].to_s
-      end
-
-      def ensure_browser_pending
-        unless browser_access_store.pending?(browser_token)
-          halt 429, "Too many access requests" unless settings.access_request_rate_limiter.allow?(client_rate_limit_key)
-        end
-        browser_access_store.ensure_pending(token: browser_token, ip: request.ip, user_agent: request.user_agent)
-      rescue BrowserAccessStore::PendingRequestsFull
-        halt 503, "Too many pending browser access requests"
       end
 
       def valid_access_code?(code)
@@ -98,7 +90,11 @@ module Web
         begin
           browser_access_store.request_access(browser_token, ip: request.ip, user_agent: request.user_agent)
         rescue BrowserAccessStore::PendingRequestsFull
-          halt 503, "Too many pending browser access requests"
+          @access_request = nil
+          @access_return_to = safe_return_to
+          @access_error = "Too many pending browser access requests. Try again after an existing request is approved or denied."
+          status 503
+          halt erb(:access_blocked)
         end
         redirect safe_return_to
       end
@@ -112,7 +108,8 @@ module Web
           browser_access_store.approve_current_browser(browser_token, label: request.user_agent)
           redirect safe_return_to
         else
-          @access_request = ensure_browser_pending
+          @access_request = browser_access_store.pending_request(browser_token)
+          @access_return_to = safe_return_to
           @access_error = "Admin password did not match."
           status 403
           erb :access_blocked

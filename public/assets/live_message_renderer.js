@@ -9,6 +9,7 @@ export class LiveMessageRenderer {
     this.markdownRenderer = markdownRenderer;
     this.liveOutput = null;
     this.conversationScroll = null;
+    this.pendingMessages = null;
     this.liveCompactionRendered = false;
     this.resetLiveAssistantTracking();
   }
@@ -17,8 +18,34 @@ export class LiveMessageRenderer {
     this.markdownRenderer.bind();
     this.liveOutput = this.document.getElementById("live-output");
     this.conversationScroll = this.conversationController.element;
+    this.pendingMessages = this.document.querySelector("[data-pending-messages]");
     this.liveCompactionRendered = false;
     this.resetLiveAssistantTracking();
+    try {
+      this.renderQueuedMessages(JSON.parse(this.liveOutput?.dataset.queuedMessages || "{}"));
+    } catch (_error) {
+      this.renderQueuedMessages({});
+    }
+  }
+
+  renderQueuedMessages(queues = {}) {
+    if (!this.pendingMessages) return;
+
+    const rows = [];
+    const appendRows = (messages, label, modifier) => {
+      if (!Array.isArray(messages)) return;
+      messages.forEach((message) => {
+        if (typeof message !== "string") return;
+        const row = this.document.createElement("div");
+        row.className = `pending-message pending-message--${modifier}`;
+        row.textContent = `${label}: ${message}`;
+        rows.push(row);
+      });
+    };
+    appendRows(queues.steering, "Steering", "steering");
+    appendRows(queues.followUp, "Follow-up", "follow-up");
+    this.pendingMessages.replaceChildren(...rows);
+    this.pendingMessages.hidden = rows.length === 0;
   }
 
   liveMessageAlreadyRendered(roleName, text, timestampKey) {

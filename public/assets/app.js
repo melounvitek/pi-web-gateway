@@ -1283,7 +1283,13 @@ function renderEvent(event) {
     }
   }
 
-  if (["custom", "custom_message", "session_info", "session_info_changed", "queue_update", "compaction_start", "compaction_end"].includes(event.type)) {
+  if (event.type === "queue_update") {
+    liveMessageRenderer.renderQueuedMessages(event);
+    showStatus(eventStatusText(event));
+    return;
+  }
+
+  if (["custom", "custom_message", "session_info", "session_info_changed", "compaction_start", "compaction_end"].includes(event.type)) {
     updateSessionHeaderName(sessionNameFromEvent(event));
     if (["session_info", "session_info_changed"].includes(event.type)) sidebarController.refresh().catch(() => {});
     showStatus(eventStatusText(event));

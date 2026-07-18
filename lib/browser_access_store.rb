@@ -81,8 +81,8 @@ class BrowserAccessStore
     end
   end
 
-  def pending?(token)
-    data.fetch("pending_requests", []).any? { |request| request["token"] == token && !request["denied_at"] }
+  def pending_request(token)
+    data.fetch("pending_requests", []).find { |request| request["token"] == token && !request["denied_at"] }
   end
 
   def pending_requests

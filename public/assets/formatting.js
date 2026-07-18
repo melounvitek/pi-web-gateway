@@ -120,7 +120,7 @@ export function eventStatusText(event) {
   if (["session_info", "session_info_changed"].includes(event.type) && event.name) return `Session renamed to “${event.name}”`;
   if (event.type === "custom_message" && event.content) return event.content;
   if (event.type === "custom" && event.customType) return `${event.customType} updated`;
-  if (event.type === "queue_update") return "Queued follow-up work updated";
+  if (event.type === "queue_update") return "Queued messages updated";
   if (event.type === "compaction_start") return "Compaction started";
   if (event.type === "compaction_end") return event.aborted ? "Compaction aborted" : "Compaction finished";
   return event.message || event.text || event.type || "Status update";

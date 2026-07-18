@@ -65,6 +65,7 @@ class PiRpcClient
     @events = []
     @event_sequence = 0
     @active_tool_events = {}
+    @queued_messages = { "steering" => [], "followUp" => [] }
     @pending_extension_ui_dialogs = {}
     @extension_statuses = {}
     @extension_widgets = {}
@@ -244,6 +245,9 @@ class PiRpcClient
       snapshot[:agent_running] = true if @agent_running
       snapshot[:compacting] = true if @compacting
       snapshot[:compacting_since] = @compacting_since if @compacting_since
+      if @queued_messages.values.any?(&:any?)
+        snapshot[:queued_messages] = @queued_messages.transform_values(&:dup)
+      end
       prune_expired_extension_ui_dialogs
       if @pending_extension_ui_dialogs.any? || @extension_statuses.any? || @extension_widgets.any? || @extension_title
         snapshot[:extension_ui] = {
@@ -445,6 +449,7 @@ class PiRpcClient
       @flushing_compaction_follow_ups = false
       @deferred_command_ids.clear
       @active_tool_events.clear
+      @queued_messages = { "steering" => [], "followUp" => [] }
       @pending_extension_ui_dialogs.clear
       @extension_statuses.clear
       @extension_widgets.clear
@@ -591,6 +596,7 @@ class PiRpcClient
           response = response.merge("gatewayTimestamp" => (@clock.call.to_f * 1000).to_i)
         end
         update_busy_state(response)
+        update_queued_messages(response)
         update_extension_ui_state(response)
         if ["compaction", "compaction_end"].include?(response["type"])
           follow_ups_to_flush = begin_compaction_follow_up_flush
@@ -604,6 +610,15 @@ class PiRpcClient
       @condition.broadcast
     end
     flush_compaction_follow_ups(follow_ups_to_flush, first_follow_up_type) if follow_ups_to_flush&.any?
+  end
+
+  def update_queued_messages(response)
+    return unless response["type"] == "queue_update"
+
+    @queued_messages = {
+      "steering" => Array(response["steering"]).select { |message| message.is_a?(String) },
+      "followUp" => Array(response["followUp"]).select { |message| message.is_a?(String) }
+    }
   end
 
   def update_extension_ui_state(response)

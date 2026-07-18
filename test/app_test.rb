@@ -520,10 +520,55 @@ class AppTest < Minitest::Test
       assert_includes response.body, "Browser access required"
       assert_includes response.body, "Ask access"
       assert_includes response["Set-Cookie"], "max-age=31536000"
-      state = JSON.parse(File.read(Gripi.settings.browser_access_path))
-      assert_equal 1, state.fetch("pending_requests").length
-      refute state.fetch("pending_requests").first.fetch("requested")
+      refute File.exist?(Gripi.settings.browser_access_path)
+      refute_includes response.body, "class=\"code\""
     end
+  end
+
+  def test_passive_browser_visits_do_not_exhaust_pending_access_requests
+    Gripi.set :gateway_admin_password, "secret"
+    request = Rack::MockRequest.new(Gripi)
+
+    (BrowserAccessStore::MAX_PENDING_REQUESTS + 1).times do
+      response = request.get("/")
+      assert_equal 403, response.status
+    end
+
+    refute File.exist?(Gripi.settings.browser_access_path)
+  end
+
+  def test_full_browser_access_queue_renders_gate_and_friendly_request_error
+    Gripi.set :gateway_admin_password, "secret"
+    store = BrowserAccessStore.new(path: Gripi.settings.browser_access_path)
+    BrowserAccessStore::MAX_PENDING_REQUESTS.times do |index|
+      store.request_access("token-#{index}")
+    end
+    request = Rack::MockRequest.new(Gripi)
+
+    blocked = request.get("/?session=original", "HTTP_COOKIE" => "gripi_browser=new-token")
+    requested = request.post(
+      "/browser-access/request",
+      params: { "return_to" => "/?session=original" },
+      "HTTP_COOKIE" => "gripi_browser=new-token"
+    )
+
+    assert_equal 403, blocked.status
+    assert_includes blocked.body, "Browser access required"
+    assert_equal 503, requested.status
+    assert_includes requested.body, "Browser access required"
+    assert_includes requested.body, "Too many pending browser access requests"
+    document = Nokogiri::HTML(requested.body)
+    return_targets = document.css('input[name="return_to"]').map { |input| input["value"] }
+    assert_equal ["/?session=original", "/?session=original"], return_targets
+
+    approved = request.post(
+      "/browser-access/admin-login",
+      params: { "password" => "secret", "return_to" => return_targets.last },
+      "HTTP_COOKIE" => "gripi_browser=new-token"
+    )
+    assert_equal 303, approved.status
+    assert_equal "http://example.org/?session=original", approved["Location"]
+    assert store.approved?("new-token")
   end
 
   def test_browser_auth_disabled_opens_single_user_gateway_without_browser_approval
@@ -656,10 +701,12 @@ class AppTest < Minitest::Test
     request = Rack::MockRequest.new(Gripi)
     cookie = Array(request.get("/")["Set-Cookie"]).first.split(";", 2).first
 
-    allowed = request.post("/browser-access/request", "HTTP_COOKIE" => cookie)
+    first = request.post("/browser-access/request", "HTTP_COOKIE" => cookie)
+    second = request.post("/browser-access/request", "HTTP_COOKIE" => cookie)
     limited = request.post("/browser-access/request", "HTTP_COOKIE" => cookie)
 
-    assert_equal 303, allowed.status
+    assert_equal 303, first.status
+    assert_equal 303, second.status
     assert_equal 429, limited.status
   end
 
@@ -6480,6 +6527,31 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_live_output_hydrates_pending_message_queue
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      client = FakeRpcClient.new([])
+      def client.live_snapshot
+        {
+          event_sequence: 5,
+          active_tool_events: [],
+          queued_messages: { "steering" => ["First", "First"], "followUp" => ["Later"] }
+        }
+      end
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      live_output = Nokogiri::HTML(response.body).at_css("#live-output")
+      assert_equal({ "steering" => ["First", "First"], "followUp" => ["Later"] }, JSON.parse(live_output["data-queued-messages"]))
+      assert_includes response.body, "data-pending-messages"
+    end
+  end
+
   def test_live_output_restores_running_tool_progress_with_the_current_event_cursor
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
@@ -6680,7 +6752,8 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "function updateSessionHeaderName(name)"
       assert_includes APP_JAVASCRIPT, "function sessionNameFromEvent(event)"
       assert_includes APP_JAVASCRIPT, "return [\"session_info\", \"session_info_changed\"].includes(event.type) ? event.name : null;"
-      assert_includes APP_JAVASCRIPT, "[\"custom\", \"custom_message\", \"session_info\", \"session_info_changed\", \"queue_update\""
+      assert_includes APP_JAVASCRIPT, "if (event.type === \"queue_update\")"
+      assert_includes APP_JAVASCRIPT, "liveMessageRenderer.renderQueuedMessages(event);"
       refute_includes APP_JAVASCRIPT, "pi-extensions-session-title"
       refute_includes APP_JAVASCRIPT, "session-title-update"
       assert_includes APP_JAVASCRIPT, "updateSessionHeaderName(sessionNameFromEvent(event));"

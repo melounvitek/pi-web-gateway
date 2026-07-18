@@ -30,21 +30,21 @@
   <main>
     <h1>Browser access required</h1>
     <p>This browser is not approved for Gripi yet.</p>
-    <div class="code"><%= h @access_request.fetch("code") %></div>
+    <% if @access_request %><div class="code"><%= h @access_request.fetch("code") %></div><% end %>
     <% if @access_error %><div class="error"><%= h @access_error %></div><% end %>
 
     <form method="post" action="/browser-access/request">
-      <input type="hidden" name="return_to" value="<%= h request.fullpath %>">
+      <input type="hidden" name="return_to" value="<%= h @access_return_to %>">
       <button type="submit">Ask access</button>
     </form>
 
     <form method="post" action="/browser-access/admin-login">
-      <input type="hidden" name="return_to" value="<%= h request.fullpath %>">
+      <input type="hidden" name="return_to" value="<%= h @access_return_to %>">
       <input type="password" name="password" placeholder="Admin password" autocomplete="current-password">
       <button class="secondary" type="submit">Approve this browser</button>
     </form>
 
-    <p class="muted">SSH fallback: edit <code><%= h settings.browser_access_path %></code>, copy the pending request with this code into <code>approved_browsers</code>, remove it from <code>pending_requests</code>, then reload.</p>
+    <% if @access_request %><p class="muted">SSH fallback: edit <code><%= h settings.browser_access_path %></code>, copy the pending request with this code into <code>approved_browsers</code>, remove it from <code>pending_requests</code>, then reload.</p><% end %>
   </main>
   <script nonce="<%= h csp_nonce %>">
     async function pollAccessStatus() {

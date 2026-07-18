@@ -367,6 +367,38 @@ Extract PDFs.
     assert_equal "Legacy summary", result.dig("legacy", "text")
   end
 
+  def test_pending_message_queue_hydrates_and_tracks_authoritative_updates
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const makeElement = () => ({ className: "", textContent: "", children: [], append(...children) { this.children.push(...children); } });
+      const pending = { hidden: true, children: [], replaceChildren(...children) { this.children = children; } };
+      const liveOutput = { dataset: { queuedMessages: JSON.stringify({ steering: ["First", "First"], followUp: ["Later"] }) } };
+      const document = {
+        getElementById(id) { return id === "live-output" ? liveOutput : null; },
+        querySelector(selector) { return selector === "[data-pending-messages]" ? pending : null; },
+        createElement: makeElement
+      };
+      const renderer = new LiveMessageRenderer(document, { element: {} }, {}, { bind() {} });
+
+      renderer.bind();
+      const hydrated = pending.children.map((row) => ({ className: row.className, text: row.textContent }));
+      renderer.renderQueuedMessages({ steering: ["Next"], followUp: [] });
+      const updated = pending.children.map((row) => row.textContent);
+      renderer.renderQueuedMessages({ steering: [], followUp: [] });
+
+      console.log(JSON.stringify({ hydrated, updated, hiddenAfterClear: pending.hidden, countAfterClear: pending.children.length }));
+    JS
+
+    assert_equal [
+      { "className" => "pending-message pending-message--steering", "text" => "Steering: First" },
+      { "className" => "pending-message pending-message--steering", "text" => "Steering: First" },
+      { "className" => "pending-message pending-message--follow-up", "text" => "Follow-up: Later" }
+    ], result.fetch("hydrated")
+    assert_equal ["Steering: Next"], result.fetch("updated")
+    assert_equal true, result.fetch("hiddenAfterClear")
+    assert_equal 0, result.fetch("countAfterClear")
+  end
+
   def test_parser_semantics_cover_representative_ssr_message_shapes
     result = run_javascript(<<~JS)
       const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
