@@ -167,6 +167,7 @@ export class ComposerAutocompleteController {
     if (!event.shiftKey && event.key === "Tab" && !this.open) {
       const currentLine = this.textarea.value.slice(0, this.textarea.selectionStart).split("\n").pop();
       if (currentLine.trimStart().startsWith("/") && !/\s/.test(currentLine.trim())) return false;
+      if (!this.textarea.value.trim()) return false;
       const context = composerPathContext(this.textarea.value, this.textarea.selectionStart, { force: true });
       if (!context) return false;
       event.preventDefault();

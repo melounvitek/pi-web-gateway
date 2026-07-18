@@ -139,6 +139,15 @@ class ComposerAutocompleteControllerJsTest < Minitest::Test
       const enter = key("Enter");
       const handledEnter = controller.handleKeydown(enter);
       const accepted = { value: textarea.value, caret: textarea.selectionStart };
+      textarea.value = ""; textarea.selectionStart = 0; textarea.selectionEnd = 0;
+      const emptyTab = key("Tab");
+      const handledEmptyTab = controller.handleKeydown(emptyTab);
+      textarea.value = "   "; textarea.selectionStart = 3; textarea.selectionEnd = 3;
+      const whitespaceTab = key("Tab");
+      const handledWhitespaceTab = controller.handleKeydown(whitespaceTab);
+      textarea.value = "open "; textarea.selectionStart = 5; textarea.selectionEnd = 5;
+      const trailingSpaceTab = key("Tab");
+      const handledTrailingSpaceTab = controller.handleKeydown(trailingSpaceTab);
       textarea.value = "open ./sc end"; textarea.selectionStart = 9; textarea.selectionEnd = 9;
       const tab = key("Tab");
       const handledTab = controller.handleKeydown(tab);
@@ -151,7 +160,9 @@ class ComposerAutocompleteControllerJsTest < Minitest::Test
       list.dispatch("click", { target: pointerOption, preventDefault() {} });
       console.log(JSON.stringify({
         handledStaleEnter, staleValue, handledEscape, escapePrevented: escape.prevented, expandedAfterEscape,
-        handledDown, handledEnter, accepted, handledTab, tabPrevented: tab.prevented,
+        handledDown, handledEnter, accepted, handledEmptyTab, emptyTabPrevented: emptyTab.prevented,
+        handledWhitespaceTab, whitespaceTabPrevented: whitespaceTab.prevented,
+        handledTrailingSpaceTab, trailingSpaceTabPrevented: trailingSpaceTab.prevented, handledTab, tabPrevented: tab.prevented,
         shiftTab: controller.handleKeydown(shiftTab), altEnter: controller.handleKeydown(altEnter),
         requests, pointerPrevented: pointerPrevented.value, finalValue: textarea.value,
         expanded: textarea.getAttribute("aria-expanded")
@@ -168,11 +179,17 @@ class ComposerAutocompleteControllerJsTest < Minitest::Test
     assert_equal true, results.fetch("handledEnter")
     assert_equal "edit @src/app.js  tail", results.dig("accepted", "value")
     assert_equal 17, results.dig("accepted", "caret")
+    assert_equal false, results.fetch("handledEmptyTab")
+    assert_equal false, results.fetch("emptyTabPrevented")
+    assert_equal false, results.fetch("handledWhitespaceTab")
+    assert_equal false, results.fetch("whitespaceTabPrevented")
+    assert_equal true, results.fetch("handledTrailingSpaceTab")
+    assert_equal true, results.fetch("trailingSpaceTabPrevented")
     assert_equal true, results.fetch("handledTab")
     assert_equal true, results.fetch("tabPrevented")
     assert_equal false, results.fetch("shiftTab")
     assert_equal false, results.fetch("altEnter")
-    assert_equal "path", results.dig("requests", 3, "mode")
+    assert_equal "path", results.dig("requests", 4, "mode")
     assert_equal true, results.fetch("pointerPrevented")
     assert_equal "open src/ end", results.fetch("finalValue")
     assert_equal "false", results.fetch("expanded")
