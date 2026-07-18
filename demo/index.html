@@ -99,7 +99,14 @@
     .focus-activity-item-marker { flex: 0 0 auto; color: var(--accent); font-weight: 700; }
     .focus-activity-item-text { white-space: nowrap; }
     .focus-activity-item--error, .focus-activity-item--error .focus-activity-item-marker { color: var(--danger); }
-    .conversation-panel.is-conversation-focused .conversation-scroll .message:not([data-role="user"]):not([data-final-assistant-response="true"]) { display: none; }
+    .conversation-panel.is-conversation-focused .conversation-scroll .message--thinking,
+    .conversation-panel.is-conversation-focused .conversation-scroll .message--tool,
+    .conversation-panel.is-conversation-focused .conversation-scroll .message--tool-call,
+    .conversation-panel.is-conversation-focused .conversation-scroll .message--tool-transcript,
+    .conversation-panel.is-conversation-focused .conversation-scroll .message--error,
+    .conversation-panel.is-conversation-focused .conversation-scroll .message--tool-error,
+    .conversation-panel.is-conversation-focused .conversation-scroll .message[data-role="status"]:not(.message--compaction),
+    .conversation-panel.is-conversation-focused .conversation-scroll .message[data-role="system"] { display: none; }
     .conversation-scroll:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-tint-14); }
     .current-session-find { position: sticky; top: 0.4rem; z-index: 5; width: min(38rem, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto repeat(3, 2rem); align-items: center; gap: 0.4rem; margin: 0 0 0.75rem auto; padding: 0.55rem; border: 1px solid var(--border-strong); border-radius: 0.4rem; background: #1e1e24fa; box-shadow: var(--shadow-soft); }
     .current-session-find input[type="search"] { min-width: 0; padding: 0.5rem 0.65rem; }

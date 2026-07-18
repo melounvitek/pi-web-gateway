@@ -237,6 +237,45 @@ Extract PDFs.
     assert_equal false, result.dig("final", "streamingOption")
   end
 
+  def test_live_assistant_cumulative_updates_keep_reasoning_and_final_text_separate
+    result = run_javascript(<<~JS)
+      const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      renderer.parser = new LiveMessageParser();
+      renderer.conversationController = { followLiveOutput: () => true, resetOversizedFollow() {}, scheduleFocusedActivityRefresh() {} };
+      renderer.liveAssistantSegments = new Map();
+      renderer.livePairedToolCalls = new Map();
+      renderer.liveToolExecutions = new Map();
+      renderer.liveUserMessages = new Map();
+      renderer.liveCustomMessages = new Map();
+      renderer.clearLiveAssistantStreaming = () => {};
+      renderer.liveMessageAlreadyRendered = () => false;
+      renderer.replaceMessageImages = () => {};
+      renderer.updateLiveSegment = (entry) => entry;
+      const appended = [];
+      renderer.appendMessage = (_role, text, _live, _scroll, _timestamp, options) => {
+        const entry = { text, options, compact: false, article: { dataset: {}, classList: { toggle() {}, remove() {} } } };
+        appended.push(entry);
+        return entry;
+      };
+      const part = (text, id, phase) => ({ type: "text", text, textSignature: JSON.stringify({ v: 1, id, phase }) });
+      const thinking = { type: "thinking", thinking: "Checking" };
+      const answer = part("Finished", "answer", "final_answer");
+      renderer.renderMessageEvent({ type: "message_start", message: { role: "assistant", content: [thinking] } });
+      renderer.renderMessageEvent({ type: "message_update", message: { role: "assistant", content: [thinking, answer] }, assistantMessageEvent: { contentIndex: 1, partial: { role: "assistant", content: [thinking, answer] } } });
+      renderer.renderMessageEvent({ type: "message_end", message: { role: "assistant", content: [thinking, answer] } });
+      console.log(JSON.stringify({
+        entries: appended.map((entry) => ({ text: entry.text, thinking: entry.options.thinking, final: entry.article.dataset.finalAssistantResponse || null })),
+        tracked: renderer.liveAssistantSegments.size
+      }));
+    JS
+
+    assert_equal 2, result.fetch("tracked")
+    assert_equal({ "text" => "Checking", "thinking" => true, "final" => nil }, result.fetch("entries")[0])
+    assert_equal({ "text" => "Finished", "thinking" => false, "final" => "true" }, result.fetch("entries")[1])
+  end
+
   def test_custom_message_lifecycle_renders_once_and_respects_display
     result = run_javascript(<<~JS)
       const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
@@ -282,6 +321,25 @@ Extract PDFs.
       { "role" => "custom", "text" => "Session renamed", "customType" => "session-title-update" },
       { "role" => "custom", "text" => "Session renamed", "customType" => "session-title-update" }
     ], result
+  end
+
+  def test_top_level_displayed_custom_message_renders_live
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const rendered = [];
+      renderer.renderMessageEvent = (event) => { rendered.push(event); return event; };
+      const visible = renderer.renderCustomMessageEvent({ type: "custom_message", id: "custom-1", customType: "notice", content: "Visible notice", display: true, timestamp: 1781344860100 });
+      const hidden = renderer.renderCustomMessageEvent({ type: "custom_message", content: "Hidden notice", display: false });
+      console.log(JSON.stringify({ visible, hidden: hidden || null, rendered }));
+    JS
+
+    assert_equal 1, result.fetch("rendered").length
+    message = result.dig("rendered", 0, "message")
+    assert_equal "custom", message.fetch("role")
+    assert_equal "Visible notice", message.fetch("content")
+    assert_equal true, message.fetch("display")
+    assert_nil result["hidden"]
   end
 
   def test_unmatched_live_tool_result_preserves_tool_call_identity
@@ -348,15 +406,21 @@ Extract PDFs.
           summaryTag: summary.tagName,
           title: summary.children[0].textContent,
           actionClass: summary.children[1].className,
+          articleClass: entry.article.className,
           text: entry.body.textContent
         };
       };
+      const native = render({ type: "compaction_end", result: { summary: "## Goal\\nNative summary" } });
+      const duplicate = renderer.renderCompactionEvent({ type: "compaction", summary: "## Goal\\nNative summary" });
       console.log(JSON.stringify({
-        native: render({ type: "compaction_end", result: { summary: "## Goal\\nNative summary" }, gatewayTimestamp: 1781344860100 }),
-        legacy: render({ type: "compaction", summary: "Legacy summary", gatewayTimestamp: 1781344860200 })
+        native,
+        duplicate: duplicate || null,
+        failed: renderer.renderCompactionEvent({ type: "compaction_end", result: null, errorMessage: "Compaction failed", gatewayTimestamp: 1781344865000 }) || null,
+        legacy: render({ type: "compaction", summary: "Legacy summary", gatewayTimestamp: 1781344880200 })
       }));
     JS
 
+    assert_includes result.dig("native", "articleClass"), "message--compaction"
     assert_equal "DETAILS", result.dig("native", "detailsTag")
     assert_equal "message-details message-details--compaction", result.dig("native", "detailsClass")
     assert_equal false, result.dig("native", "open")
@@ -364,6 +428,8 @@ Extract PDFs.
     assert_equal "Conversation compacted", result.dig("native", "title")
     assert_equal "compaction-details-action", result.dig("native", "actionClass")
     assert_equal "## Goal\nNative summary", result.dig("native", "text")
+    assert_nil result["duplicate"]
+    assert_nil result["failed"]
     assert_equal "Legacy summary", result.dig("legacy", "text")
   end
 

@@ -1291,6 +1291,7 @@ function renderEvent(event) {
 
   if (["custom", "custom_message", "session_info", "session_info_changed", "compaction_start", "compaction_end"].includes(event.type)) {
     updateSessionHeaderName(sessionNameFromEvent(event));
+    if (event.type === "custom_message") liveMessageRenderer.renderCustomMessageEvent(event);
     if (["session_info", "session_info_changed"].includes(event.type)) sidebarController.refresh().catch(() => {});
     showStatus(eventStatusText(event));
     if (event.type === "compaction_start") {
@@ -1303,13 +1304,17 @@ function renderEvent(event) {
     if (event.type === "compaction_end") {
       if (liveOutput) liveOutput.dataset.composerCompacting = "false";
       liveMessageRenderer.removePendingCompactionMessage();
-      if (!event.aborted && !liveMessageRenderer.liveCompactionRendered) liveMessageRenderer.renderCompactionEvent(event);
-      if (liveAgentRunning) setComposerState("running", "Pi is running…", { since: liveBusySince });
-      else {
-        liveBusySince = null;
-        setComposerState("done", event.aborted ? "Compaction aborted" : "Done");
+      const compactionFailed = !event.aborted && !event.result && event.errorMessage;
+      if (compactionFailed) renderErrorEvent(event);
+      else if (!event.aborted) liveMessageRenderer.renderCompactionEvent(event);
+      if (!compactionFailed) {
+        if (liveAgentRunning) setComposerState("running", "Pi is running…", { since: liveBusySince });
+        else {
+          liveBusySince = null;
+          setComposerState("done", event.aborted ? "Compaction aborted" : "Done");
+        }
       }
-      if (!event.aborted) refreshSessionStatus().catch(() => {});
+      if (!event.aborted && !compactionFailed) refreshSessionStatus().catch(() => {});
       sidebarController.refresh().catch(() => {});
     }
     return;

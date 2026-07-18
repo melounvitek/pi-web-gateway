@@ -151,8 +151,9 @@ export class ConversationController {
   }
 
   focusedViewMessage(message) {
-    const error = message.classList.contains("message--error") || message.classList.contains("message--tool-error");
-    return !error && (message.dataset.role === "user" || message.dataset.finalAssistantResponse === "true");
+    if (message.classList.contains("message--compaction")) return true;
+    if (["message--thinking", "message--tool", "message--tool-call", "message--tool-transcript", "message--error", "message--tool-error"].some((name) => message.classList.contains(name))) return false;
+    return !["system", "status", "tool", "toolResult", "error"].includes(message.dataset.role);
   }
 
   focusedActivityGroups(messages) {

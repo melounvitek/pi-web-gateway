@@ -95,13 +95,15 @@ class FrontendHelpersJsTest < Minitest::Test
       console.log(JSON.stringify([
         eventErrorText({ type: "extension_error", extensionPath: "command:sessions", event: "command", error: "Cannot read properties of undefined (reading 'action')" }),
         eventErrorText({ type: "extension_error", extensionPath: "command:sessions", event: "command", error: "Session lookup failed" }),
-        eventErrorText({ type: "extension_error", extensionPath: "command:review", event: "command", error: "Cannot read properties of undefined (reading 'action')" })
+        eventErrorText({ type: "extension_error", extensionPath: "command:review", event: "command", error: "Cannot read properties of undefined (reading 'action')" }),
+        eventErrorText({ type: "compaction_end", result: null, errorMessage: "Compaction failed" })
       ]));
     JS
 
     assert_equal "This extension command requires terminal UI that Gripi does not support yet.", results[0]
     assert_equal "Session lookup failed", results[1]
     assert_equal "Cannot read properties of undefined (reading 'action')", results[2]
+    assert_equal "Compaction failed", results[3]
   end
 
   def test_event_timestamp_prefers_gateway_receipt_time

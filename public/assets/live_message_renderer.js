@@ -10,7 +10,7 @@ export class LiveMessageRenderer {
     this.liveOutput = null;
     this.conversationScroll = null;
     this.pendingMessages = null;
-    this.liveCompactionRendered = false;
+    this.lastLiveCompaction = null;
     this.resetLiveAssistantTracking();
   }
 
@@ -19,7 +19,7 @@ export class LiveMessageRenderer {
     this.liveOutput = this.document.getElementById("live-output");
     this.conversationScroll = this.conversationController.element;
     this.pendingMessages = this.document.querySelector("[data-pending-messages]");
-    this.liveCompactionRendered = false;
+    this.lastLiveCompaction = null;
     this.resetLiveAssistantTracking();
     try {
       this.renderQueuedMessages(JSON.parse(this.liveOutput?.dataset.queuedMessages || "{}"));
@@ -165,7 +165,7 @@ export class LiveMessageRenderer {
     const roleKey = messageRoleKey(roleName);
 
     const article = this.document.createElement("article");
-    article.className = `message message--${roleKey} message--compact${options.toolName && roleName === "assistant" ? " message--tool-call" : ""}${options.toolTranscript ? " message--tool-transcript" : ""}${options.error === true ? " message--tool-error" : ""}${live ? " message--live" : ""}`;
+    article.className = `message message--${roleKey} message--compact${options.compaction === true ? " message--compaction" : ""}${options.toolName && roleName === "assistant" ? " message--tool-call" : ""}${options.toolTranscript ? " message--tool-transcript" : ""}${options.error === true ? " message--tool-error" : ""}${live ? " message--live" : ""}`;
     article.dataset.role = roleName;
     article.dataset.messageTimestamp = timestampKey;
     article.dataset.messageFingerprint = messageFingerprint(roleName, text, timestampKey);
@@ -395,7 +395,7 @@ export class LiveMessageRenderer {
   }
 
   resetLiveCompactionTracking() {
-    this.liveCompactionRendered = false;
+    this.lastLiveCompaction = null;
   }
 
   segmentIdentity(event, segment, fallbackIndex) {
@@ -624,13 +624,28 @@ export class LiveMessageRenderer {
   appendPendingCompactionMessage(timestamp = new Date()) {
     if (this.liveOutput?.querySelector('[data-pending-compaction="true"]')) return;
     const entry = this.appendCompactMessage("status", "Compacting conversation…", "Pi is summarizing the conversation so the session can continue with less context.", true, true, timestamp);
-    if (entry?.article) entry.article.dataset.pendingCompaction = "true";
+    if (entry?.article) {
+      entry.article.classList.add("message--compaction");
+      entry.article.dataset.pendingCompaction = "true";
+    }
   }
 
   renderCompactionEvent(event) {
+    if (event.type === "compaction_end" && !event.result) return null;
+    const summary = event.result?.summary || event.summary || "Compaction completed";
+    const timestamp = eventTimestamp(event);
+    const parsedTimestamp = new Date(timestamp).getTime();
+    const occurredAt = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
+    if (this.lastLiveCompaction?.summary === summary && Math.abs(occurredAt - this.lastLiveCompaction.occurredAt) <= 10_000) return null;
     this.removePendingCompactionMessage();
-    this.liveCompactionRendered = true;
-    return this.appendCompactMessage("status", "Conversation compacted", event.result?.summary || event.summary || "Compaction completed", true, true, eventTimestamp(event), { compaction: true });
+    this.lastLiveCompaction = { summary, occurredAt };
+    return this.appendCompactMessage("status", "Conversation compacted", summary, true, true, timestamp, { compaction: true });
+  }
+
+  renderCustomMessageEvent(event) {
+    if (event.type !== "custom_message" || event.display !== true) return null;
+    const message = { ...event, role: "custom" };
+    return this.renderMessageEvent({ ...event, type: "message_end", message });
   }
 
   renderMessageEvent(event) {

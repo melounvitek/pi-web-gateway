@@ -151,7 +151,7 @@ export function errorValueText(value) {
 
 export function eventErrorText(event) {
   if (!event || typeof event !== "object") return "";
-  const errorText = errorValueText(event.error) || errorValueText(event.finalError);
+  const errorText = errorValueText(event.error) || errorValueText(event.finalError) || errorValueText(event.errorMessage);
   if (event.type === "extension_error" && event.extensionPath === "command:sessions" && event.event === "command" && errorText === "Cannot read properties of undefined (reading 'action')") {
     return "This extension command requires terminal UI that Gripi does not support yet.";
   }

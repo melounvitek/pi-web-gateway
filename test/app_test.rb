@@ -5179,7 +5179,7 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
-      message = document.at_css('.message.message--status.message--compact[data-role="status"]')
+      message = document.at_css('.message.message--status.message--compact.message--compaction[data-role="status"]')
       details = message&.at_css("details.message-details--compaction")
       refute_nil details
       refute details.key?("open")
@@ -5225,7 +5225,9 @@ class AppTest < Minitest::Test
       refute focus_toggle.at_css("[data-condense-details-icon]").key?("hidden")
       assert focus_toggle.at_css("[data-expand-details-icon]").key?("hidden")
       assert_includes APP_STYLESHEET, ".conversation-panel.is-conversation-focused .focus-activity-summary {"
-      assert_includes APP_STYLESHEET, '.message:not([data-role="user"]):not([data-final-assistant-response="true"])'
+      refute_includes APP_STYLESHEET, '.message:not([data-role="user"]):not([data-final-assistant-response="true"])'
+      assert_includes APP_STYLESHEET, ".message--thinking"
+      assert_includes APP_STYLESHEET, '.message[data-role="status"]:not(.message--compaction)'
       assert_includes APP_STYLESHEET, ".focus-activity-list {"
       assert_includes APP_STYLESHEET, "overflow-x: auto;"
       assert_includes APP_STYLESHEET, ".focus-activity-item { width: max-content; min-width: 100%;"
@@ -6742,7 +6744,9 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.renderCompactionEvent(event);"
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.resetLiveCompactionTracking();"
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.removePendingCompactionMessage();"
-      assert_includes APP_JAVASCRIPT, "if (!event.aborted && !liveMessageRenderer.liveCompactionRendered) liveMessageRenderer.renderCompactionEvent(event);"
+      assert_includes APP_JAVASCRIPT, "const compactionFailed = !event.aborted && !event.result && event.errorMessage;"
+      assert_includes APP_JAVASCRIPT, "if (compactionFailed) renderErrorEvent(event);"
+      assert_includes APP_JAVASCRIPT, "else if (!event.aborted) liveMessageRenderer.renderCompactionEvent(event);"
       assert_includes APP_JAVASCRIPT, "return /^\\/name(?:[ \\t]+[^\\r\\n]+)?$/.test(message.trim());"
       assert_includes APP_JAVASCRIPT, "function sessionNameSlashCommand(message)"
       assert_includes APP_JAVASCRIPT, "function sessionForkSlashCommand(message)"
@@ -6757,6 +6761,7 @@ class AppTest < Minitest::Test
       refute_includes APP_JAVASCRIPT, "pi-extensions-session-title"
       refute_includes APP_JAVASCRIPT, "session-title-update"
       assert_includes APP_JAVASCRIPT, "updateSessionHeaderName(sessionNameFromEvent(event));"
+      assert_includes APP_JAVASCRIPT, 'if (event.type === "custom_message") liveMessageRenderer.renderCustomMessageEvent(event);'
       assert_includes APP_JAVASCRIPT, "if ([\"session_info\", \"session_info_changed\"].includes(event.type)) sidebarController.refresh().catch(() => {});"
       assert_includes APP_JAVASCRIPT, 'new this.window.CustomEvent("gripi:sidebar-selected-title", { detail: { title } })'
       assert_includes APP_JAVASCRIPT, 'document.addEventListener("gripi:sidebar-selected-title"'

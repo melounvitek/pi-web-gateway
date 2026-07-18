@@ -256,6 +256,7 @@ module Web
     def message_article_class(message)
       classes = ["message", "message--#{message_role_key(message.role)}"]
       classes << "message--compact" if message.compact
+      classes << "message--compaction" if message.compaction
       classes << "message--thinking" if message.thinking
       classes << "message--tool-call" if message.compact && message.role == "assistant" && !message.tool_name.to_s.empty?
       classes << "message--tool-transcript" if message.tool_transcript

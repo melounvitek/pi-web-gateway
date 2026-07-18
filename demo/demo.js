@@ -277,8 +277,9 @@
     element.focusToggle.querySelector("[data-expand-details-icon]").toggleAttribute("hidden", !focusedView);
   }
   function focusedConversationMessage(message) {
-    const error = message.classList.contains("message--error") || message.classList.contains("message--tool-error");
-    return !error && (message.dataset.role === "user" || message.dataset.finalAssistantResponse === "true");
+    if (message.classList.contains("message--compaction")) return true;
+    if (["message--thinking", "message--tool", "message--tool-call", "message--tool-transcript", "message--error", "message--tool-error"].some((name) => message.classList.contains(name))) return false;
+    return !["system", "status", "tool", "toolResult", "error"].includes(message.dataset.role);
   }
   function focusedActivitySummary(messages) {
     const reasoningCount = messages.filter((message) => message.classList.contains("message--thinking")).length;
@@ -421,7 +422,7 @@
     const article = document.createElement("article");
     const role = message.role;
     const roleKey = role === "thinking" || role === "tool" ? "assistant" : role === "compaction" ? "status" : role;
-    article.className = `message message--${roleKey}${role === "thinking" ? " message--thinking" : ""}${role === "tool" ? " message--compact message--tool-call" : ""}${role === "compaction" ? " message--compact" : ""}${live ? " message--live" : ""}`;
+    article.className = `message message--${roleKey}${role === "thinking" ? " message--thinking" : ""}${role === "tool" ? " message--compact message--tool-call" : ""}${role === "compaction" ? " message--compact message--compaction" : ""}${live ? " message--live" : ""}`;
     article.dataset.role = roleKey;
     if (role === "assistant" && !live && message.completed !== false) article.dataset.finalAssistantResponse = "true";
     const header = document.createElement("header");

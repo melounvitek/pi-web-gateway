@@ -882,6 +882,43 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal false, results.fetch("nearBottomRestored")
   end
 
+  def test_focused_view_preserves_conversation_content_and_compaction
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const message = (role, classes = [], final = false) => ({
+        dataset: { role, ...(final ? { finalAssistantResponse: "true" } : {}) },
+        classList: { contains: (name) => classes.includes(name) }
+      });
+      const controller = new ConversationController({}, {});
+      const cases = {
+        user: message("user", ["message--user"]),
+        commentary: message("assistant", ["message--assistant"]),
+        finalAssistant: message("assistant", ["message--assistant"], true),
+        compaction: message("status", ["message--status", "message--compact", "message--compaction"]),
+        custom: message("custom", ["message--status"]),
+        unknown: message("future-visible-event", ["message--status"]),
+        reasoning: message("assistant", ["message--assistant", "message--thinking"]),
+        tool: message("assistant", ["message--assistant", "message--tool-call"]),
+        error: message("error", ["message--error"]),
+        status: message("status", ["message--status"]),
+        system: message("system", ["message--status"])
+      };
+      console.log(JSON.stringify(Object.fromEntries(Object.entries(cases).map(([name, value]) => [name, controller.focusedViewMessage(value)]))));
+    JS
+
+    assert_equal true, results.fetch("user")
+    assert_equal true, results.fetch("commentary")
+    assert_equal true, results.fetch("finalAssistant")
+    assert_equal true, results.fetch("compaction")
+    assert_equal true, results.fetch("custom")
+    assert_equal true, results.fetch("unknown")
+    assert_equal false, results.fetch("reasoning")
+    assert_equal false, results.fetch("tool")
+    assert_equal false, results.fetch("error")
+    assert_equal false, results.fetch("status")
+    assert_equal false, results.fetch("system")
+  end
+
   def test_focused_activity_groups_hidden_turn_items_and_summarizes_errors
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
@@ -899,8 +936,9 @@ class FrontendLifecycleJsTest < Minitest::Test
         thinking,
         tool,
         error,
-        message("assistant", ["message--assistant"], true),
+        message("assistant", ["message--assistant"]),
         status,
+        message("status", ["message--status", "message--compaction"]),
         message("user", ["message--user"]),
         message("assistant", ["message--assistant"], true)
       ]);
