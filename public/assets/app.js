@@ -28,6 +28,7 @@ import {
 } from "./shortcuts.js";
 import { sessionFragmentUrl } from "./urls.js";
 import { GatewayUpdateController } from "./gateway_update_controller.js";
+import { ResourceUsageController } from "./resource_usage_controller.js";
 import { BrowserAccessRequestController, WorkspaceAccessRequestController } from "./access_request_controllers.js";
 import { ProjectSelectController } from "./project_select_controller.js";
 import { NewSessionFormController } from "./new_session_form_controller.js";
@@ -43,6 +44,7 @@ import { eventPollingDelay } from "./polling.js";
 import { TreeSessionController } from "./tree_session_controller.js";
 
 const gatewayUpdateController = new GatewayUpdateController(document, window);
+const resourceUsageController = new ResourceUsageController(document, window);
 const notifyAccessRequest = (title, body, tag) =>
   showGripiNotification(title, body, window.location.href, tag).catch(() => {});
 const browserAccessController = new BrowserAccessRequestController(document, notifyAccessRequest);
@@ -2931,6 +2933,7 @@ function bootstrapPage() {
   rememberMainSessionSelection(currentSessionPath());
   initializeSessionView();
   gatewayUpdateController.resume();
+  resourceUsageController.start();
 }
 
 bootstrapPage();

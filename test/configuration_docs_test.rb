@@ -38,6 +38,14 @@ class ConfigurationDocsTest < Minitest::Test
     assert_includes configuration, "native Pi CLI default"
   end
 
+  def test_documents_opt_in_linux_resource_monitoring
+    configuration = File.read(File.expand_path("../docs/configuration.md", __dir__))
+
+    assert_includes configuration, "GRIPI_RESOURCE_MONITORING=1"
+    assert_includes configuration, "Linux cgroup v2"
+    assert_includes configuration, "100% represents one logical CPU core"
+  end
+
   def test_documents_composer_parity_controls
     readme = File.read(File.expand_path("../README.md", __dir__))
 

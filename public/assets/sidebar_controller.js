@@ -167,6 +167,7 @@ export class SidebarController {
     const oldElement = this.element;
     const previousAssistantCounts = this.assistantResponseCounts(oldElement);
     const notificationToggle = oldElement.querySelector("[data-notification-toggle]");
+    const resourceUsage = oldElement.querySelector("[data-resource-usage]");
     const previousSearchForm = oldElement.querySelector(".sidebar-session-search");
     const previousSearchQuery = previousSearchForm?.querySelector('input[name="session_search"]')?.value;
     const previousSearchOpen = previousSearchForm?.classList.contains("is-open");
@@ -182,6 +183,7 @@ export class SidebarController {
     if (replacementSearchInput && previousSearchQuery !== undefined) replacementSearchInput.value = previousSearchQuery;
     if (previousSearchOpen !== undefined) this.setSearchOpen(replacementSearchForm, replacementSearchButton, previousSearchOpen);
     if (notificationToggle) this.element.querySelector("[data-notification-toggle]")?.replaceWith(notificationToggle);
+    if (resourceUsage) this.element.querySelector("[data-resource-usage]")?.replaceWith(resourceUsage);
     if (focusedPinPath) {
       const focusedPin = [...this.element.querySelectorAll("[data-session-pin-toggle]")].find((button) => button.dataset.sessionPath === focusedPinPath);
       (focusedPin || this.element.querySelector("[data-sidebar-search-toggle]"))?.focus({ preventScroll: true });

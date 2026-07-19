@@ -19,6 +19,7 @@ require_relative "lib/web/browser_access"
 require_relative "lib/web/workspace_access"
 require_relative "lib/web/pwa_routes"
 require_relative "lib/web/gateway_update_routes"
+require_relative "lib/web/resource_usage_routes"
 require_relative "lib/web/session_view_routes"
 require_relative "lib/web/session_action_routes"
 require_relative "lib/web/composer_path_routes"
@@ -27,6 +28,7 @@ require_relative "lib/gateway_updater"
 require_relative "lib/gateway_update_coordinator"
 require_relative "lib/request_gateway_restart"
 require_relative "lib/request_rate_limiter"
+require_relative "lib/resource_usage_monitor"
 require_relative "lib/friendly_host_authorization"
 
 class Gripi < Sinatra::Base
@@ -41,6 +43,7 @@ class Gripi < Sinatra::Base
   register Web::WorkspaceAccess
   register Web::PwaRoutes
   register Web::GatewayUpdateRoutes
+  register Web::ResourceUsageRoutes
   register Web::SessionViewRoutes
   register Web::SessionActionRoutes
   register Web::ComposerPathRoutes
@@ -178,6 +181,8 @@ class Gripi < Sinatra::Base
   end
 
   set :rpc_idle_timeout_seconds, ENV.fetch("GRIPI_RPC_IDLE_TIMEOUT_SECONDS", "1800").to_i
+  set :resource_monitoring_enabled, ENV.fetch("GRIPI_RESOURCE_MONITORING", "").match?(/\A(?:1|true|yes|on)\z/i)
+  set :resource_usage_monitor, ResourceUsageMonitor.new
   set :access_request_rate_limiter, RequestRateLimiter.new(limit: 30, window: 60)
   set :admin_login_rate_limiter, RequestRateLimiter.new(limit: 10, window: 5 * 60)
 
@@ -191,11 +196,13 @@ class Gripi < Sinatra::Base
   before do
     enforce_browser_access
     enforce_workspace_access
-    current_path = params["session"]
-    pending_session = pending_rpc_cwd(current_path)
-    current_session_owned = !multi_user_mode? || workspace_session_ownership_store.owned_by?(current_path, current_workspace_id)
-    rpc_clients.touch(current_path) if pending_session && current_session_owned
-    protect_current_session = request.path_info == "/events" && current_session_owned
-    cleanup_idle_rpc_clients(except: protect_current_session ? [current_path] : [])
+    unless settings.resource_monitoring_enabled && request.path_info == "/resource-usage"
+      current_path = params["session"]
+      pending_session = pending_rpc_cwd(current_path)
+      current_session_owned = !multi_user_mode? || workspace_session_ownership_store.owned_by?(current_path, current_workspace_id)
+      rpc_clients.touch(current_path) if pending_session && current_session_owned
+      protect_current_session = request.path_info == "/events" && current_session_owned
+      cleanup_idle_rpc_clients(except: protect_current_session ? [current_path] : [])
+    end
   end
 end

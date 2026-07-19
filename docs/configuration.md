@@ -112,6 +112,18 @@ GRIPI_PI=/path/to/pi
 
 Selecting executables only chooses the Pi runtime; it does not authenticate or configure Pi. The selected runtime must already work under the same OS user and environment as Gripi.
 
+## Resource monitoring
+
+On Linux cgroup v2 servers, Gripi can show aggregate RAM and CPU usage in the sidebar:
+
+```sh
+GRIPI_RESOURCE_MONITORING=1
+```
+
+The indicator reports total cgroup usage alongside Puma RSS and the combined RSS and count of Pi session and subagent processes. The breakdown may not add up to the cgroup total because shared pages are accounted differently. CPU 100% represents one logical CPU core. Gripi reads Linux cgroup and process files directly without additional dependencies. It takes a second CPU sample after one second, then polls every ten seconds only while the page is visible.
+
+Resource monitoring is disabled by default and remains hidden when compatible cgroup data is unavailable. Changing the setting requires restarting the gateway.
+
 ## RPC diagnostics
 
 To investigate a stuck Pi RPC client, enable structured lifecycle diagnostics:

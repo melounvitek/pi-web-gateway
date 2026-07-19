@@ -122,6 +122,19 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_app_boot_enables_resource_monitoring_from_the_environment
+    env = ENV.to_h.merge(
+      "GRIPI_ADMIN_PASSWORD" => "secret",
+      "GRIPI_ENV_PATH" => File.join(Dir.tmpdir, "missing-gripi-env"),
+      "GRIPI_RESOURCE_MONITORING" => "1"
+    )
+
+    stdout, stderr, status = Open3.capture3(env, RbConfig.ruby, "-I.", "-e", "require './app'; puts Gripi.settings.resource_monitoring_enabled")
+
+    assert status.success?, stderr
+    assert_equal "true", stdout.strip
+  end
+
   def test_app_boot_configures_pi_rpc_command_from_node_and_pi_paths
     env = ENV.to_h.merge(
       "GRIPI_ADMIN_PASSWORD" => "secret",

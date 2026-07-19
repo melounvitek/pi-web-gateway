@@ -842,8 +842,12 @@ class FrontendControllersJsTest < Minitest::Test
 
       const oldScroll = scrollElement(37);
       const newScroll = scrollElement(0);
-      const oldSidebar = sidebar(oldScroll, "Old title");
-      const newSidebar = sidebar(newScroll, "New title");
+      const resourceUsage = element();
+      resourceUsage.textContent = "RAM 608 MB";
+      let preservedResourceUsage = null;
+      const resourceUsagePlaceholder = { replaceWith(element) { preservedResourceUsage = element; } };
+      const oldSidebar = sidebar(oldScroll, "Old title", resourceUsage);
+      const newSidebar = sidebar(newScroll, "New title", resourceUsagePlaceholder);
       const mobileButton = element();
       let currentSidebar = oldSidebar;
       Object.defineProperty(oldSidebar, "outerHTML", { set() { currentSidebar = newSidebar; } });
@@ -885,7 +889,9 @@ class FrontendControllersJsTest < Minitest::Test
         reboundScroll: typeof newScroll.onscroll === "function",
         replacementEvent: events.at(-1),
         interactionTracked: controller.recentlyInteracted(),
-        badgeText: mobileButton.children[0]?.textContent || null
+        badgeText: mobileButton.children[0]?.textContent || null,
+        preservedResourceUsage: preservedResourceUsage === resourceUsage,
+        preservedResourceText: preservedResourceUsage?.textContent
       }));
 
       function eventTarget(properties = {}) { return Object.assign({ addEventListener() {} }, properties); }
@@ -898,7 +904,7 @@ class FrontendControllersJsTest < Minitest::Test
         };
       }
       function scrollElement(scrollTop) { return Object.assign(element(), { scrollTop }); }
-      function sidebar(scroll, title) {
+      function sidebar(scroll, title, resourceUsage) {
         const result = element();
         result.name = title.startsWith("Old") ? "old" : "new";
         result.dataset.unreadSessionCount = "3";
@@ -906,6 +912,7 @@ class FrontendControllersJsTest < Minitest::Test
         result.querySelector = (selector) => {
           if (selector === ".session-sidebar-content") return scroll;
           if (selector === "a.session.selected .session-title") return selectedTitle;
+          if (selector === "[data-resource-usage]") return resourceUsage;
           return null;
         };
         result.querySelectorAll = () => [];
@@ -920,6 +927,8 @@ class FrontendControllersJsTest < Minitest::Test
     assert_equal ["gripi:sidebar-selected-title", { "title" => "New title" }], results.fetch("replacementEvent")
     assert_equal true, results.fetch("interactionTracked")
     assert_equal "3", results.fetch("badgeText")
+    assert_equal true, results.fetch("preservedResourceUsage")
+    assert_equal "RAM 608 MB", results.fetch("preservedResourceText")
   end
 
   def test_sidebar_controller_restores_focus_to_a_replaced_pin_button
