@@ -113,6 +113,78 @@ class LiveStreamingJsTest < Minitest::Test
     assert_equal true, result["finalError"]
   end
 
+  def test_renderer_coalesces_terminal_updates_and_only_applies_the_latest_screen
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const body = {};
+      const rendered = [];
+      let followChanges = 0;
+      renderer.parser = { displayHomePath: (text) => text };
+      renderer.terminalRenderStates = new WeakMap();
+      renderer.conversationController = {
+        followLiveOutput: () => false,
+        afterLiveOutputChange: () => { followChanges += 1; }
+      };
+      renderer.renderResolvedToolTranscriptBody = (_body, lines, rawText) => {
+        rendered.push({ lines: lines.map((line) => line.text ?? line), rawText });
+      };
+
+      renderer.renderToolTranscriptBody(body, "first 10%\\rfirst 20%", "bash");
+      renderer.renderToolTranscriptBody(body, "old\\x1b[2J\\x1b[Hlatest", "bash");
+      while (renderer.terminalRenderStates.get(body).rendering) await new Promise((resolve) => setTimeout(resolve, 1));
+      console.log(JSON.stringify({ rendered, followChanges }));
+    JS
+
+    assert_equal [{ "lines" => ["latest"], "rawText" => "latest" }], result["rendered"]
+    assert_equal 1, result["followChanges"]
+  end
+
+  def test_renderer_builds_safe_styled_dom_for_terminal_lines
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      class Element {
+        constructor() { this.children = []; this.className = ""; this.dataset = {}; this.style = {}; this.textContent = ""; }
+        append(...children) { this.children.push(...children); }
+        replaceChildren(...children) { this.children = children; }
+        closest() { return null; }
+        classList = { add: (name) => { this.className += ` ${name}`; }, toggle: () => {} };
+      }
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      renderer.document = { createElement: () => new Element() };
+      renderer.parser = { displayHomePath: (text) => text };
+      renderer.terminalRenderStates = new WeakMap();
+      renderer.conversationController = { followLiveOutput: () => false, afterLiveOutputChange() {} };
+      const body = new Element();
+      renderer.renderToolTranscriptBody(body, "\\x1b[1;31mred\\x1b[0m plain", "bash");
+      while (renderer.terminalRenderStates.get(body).rendering) await new Promise((resolve) => setTimeout(resolve, 1));
+      const line = body.children[0].children[0];
+      const styled = line.children[0];
+      console.log(JSON.stringify({ rawText: body.dataset.rawText, lineClass: line.className, text: styled.textContent, color: styled.style.color, styledClass: styled.className, plain: line.children[1] }));
+    JS
+
+    assert_equal "red plain", result["rawText"]
+    assert_includes result["lineClass"], "tool-output-line--terminal"
+    assert_equal "red", result["text"]
+    assert_equal "#cd0000", result["color"]
+    assert_includes result["styledClass"], "terminal-output-run--bold"
+    assert_equal " plain", result["plain"]
+  end
+
+  def test_renderer_leaves_file_tool_control_characters_on_the_plain_path
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const captured = [];
+      renderer.renderResolvedToolTranscriptBody = (_body, lines, rawText, toolName) => captured.push({ lines, rawText, toolName });
+      ["read", "edit", "write"].forEach((toolName) => renderer.renderToolTranscriptBody({}, "literal\\x1b[31m", toolName));
+      console.log(JSON.stringify(captured));
+    JS
+
+    assert_equal %w[read edit write], result.map { |entry| entry["toolName"] }
+    assert result.all? { |entry| entry["lines"] == ["literal\e[31m"] }
+  end
+
   def test_renderer_does_not_overwrite_other_paired_tool_previews
     result = run_javascript(<<~JS)
       const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});

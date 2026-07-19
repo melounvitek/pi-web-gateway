@@ -1,5 +1,8 @@
 import { PAIRED_TOOL_NAMES, TOOL_OUTPUT_DESKTOP_TAIL_LINES, TOOL_OUTPUT_MOBILE_TAIL_LINES } from "./constants.js";
 import { eventTimestamp, formatTimestamp, messageFingerprint, messageRoleKey, messageRoleLabel, messageTimestampKey, normalizedMessageText, stableTextHash } from "./formatting.js";
+import { hasTerminalControls, renderTerminalOutput } from "./terminal_output_renderer.js";
+
+const TERMINAL_OUTPUT_EXCLUDED_TOOLS = new Set(["read", "edit", "write"]);
 
 export class LiveMessageRenderer {
   constructor(document, conversationController, parser, markdownRenderer) {
@@ -11,6 +14,7 @@ export class LiveMessageRenderer {
     this.conversationScroll = null;
     this.pendingMessages = null;
     this.lastLiveCompaction = null;
+    this.terminalRenderStates = new WeakMap();
     this.resetLiveAssistantTracking();
   }
 
@@ -271,11 +275,57 @@ export class LiveMessageRenderer {
   }
 
   renderToolTranscriptBody(body, text, toolName = "", options = {}) {
-    const preview = options.preview === true && toolName === "edit";
-    body.dataset.rawText = text || "";
-    const rawText = body.dataset.rawText;
-    const lines = String(rawText).split("\n");
+    const rawText = String(text || "");
+    if (!TERMINAL_OUTPUT_EXCLUDED_TOOLS.has(toolName) && hasTerminalControls(rawText)) {
+      this.queueTerminalTranscriptRender(body, rawText, toolName, options);
+      return;
+    }
+
+    this.cancelTerminalTranscriptRender(body);
+    const lines = rawText.split("\n");
     if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    this.renderResolvedToolTranscriptBody(body, lines, rawText, toolName, options);
+  }
+
+  queueTerminalTranscriptRender(body, text, toolName, options) {
+    this.terminalRenderStates ||= new WeakMap();
+    const state = this.terminalRenderStates.get(body) || { generation: 0, rendering: false, latest: null };
+    state.generation += 1;
+    state.latest = { generation: state.generation, text, toolName, options };
+    this.terminalRenderStates.set(body, state);
+    if (state.rendering) return;
+
+    state.rendering = true;
+    const renderLatest = async () => {
+      while (state.latest) {
+        const pending = state.latest;
+        state.latest = null;
+        try {
+          const rendered = await renderTerminalOutput(pending.text);
+          if (state.latest || pending.generation !== state.generation) continue;
+          this.renderResolvedToolTranscriptBody(body, rendered.lines, rendered.lines.map((line) => line.text).join("\n"), pending.toolName, pending.options);
+          this.conversationController.afterLiveOutputChange(this.conversationController.followLiveOutput());
+        } catch (_error) {
+          if (state.latest || pending.generation !== state.generation) continue;
+          const lines = pending.text.split("\n");
+          this.renderResolvedToolTranscriptBody(body, lines, pending.text, pending.toolName, pending.options);
+        }
+      }
+      state.rendering = false;
+    };
+    renderLatest();
+  }
+
+  cancelTerminalTranscriptRender(body) {
+    const state = this.terminalRenderStates?.get(body);
+    if (!state) return;
+    state.generation += 1;
+    state.latest = null;
+  }
+
+  renderResolvedToolTranscriptBody(body, lines, rawText, toolName, options = {}) {
+    const preview = options.preview === true && toolName === "edit";
+    body.dataset.rawText = rawText;
     const collapse = body.closest("[data-tool-output-collapse]");
     body.classList.toggle("message-body--edit-preview", preview);
 
@@ -335,10 +385,55 @@ export class LiveMessageRenderer {
 
     return lines.map((line, index) => {
       const span = this.document.createElement("span");
-      span.className = `tool-output-line${index < desktopOnlyCount ? " tool-output-tail-desktop-extra" : ""}`;
-      span.textContent = this.parser.displayHomePath(line);
+      const terminalLine = typeof line === "object";
+      span.className = `tool-output-line${terminalLine ? " tool-output-line--terminal" : ""}${index < desktopOnlyCount ? " tool-output-tail-desktop-extra" : ""}`;
+      if (terminalLine) this.renderTerminalLineRuns(span, line.runs);
+      else span.textContent = this.parser.displayHomePath(line);
       return span;
     });
+  }
+
+  renderTerminalLineRuns(line, runs) {
+    runs.forEach((run) => {
+      if (Object.keys(run.style).length === 0) {
+        line.append(run.text);
+        return;
+      }
+
+      const span = this.document.createElement("span");
+      span.className = "terminal-output-run";
+      span.textContent = run.text;
+      const style = run.style;
+      let foreground = this.terminalColor(style.foreground);
+      let background = this.terminalColor(style.background);
+      if (style.inverse) [foreground, background] = [background || "var(--code)", foreground || "var(--text)"];
+      if (foreground) span.style.color = foreground;
+      if (background) span.style.backgroundColor = background;
+      if (style.bold) span.classList.add("terminal-output-run--bold");
+      if (style.dim) span.classList.add("terminal-output-run--dim");
+      if (style.italic) span.classList.add("terminal-output-run--italic");
+      if (style.underline) span.classList.add("terminal-output-run--underline");
+      if (style.strikethrough) span.classList.add("terminal-output-run--strikethrough");
+      if (style.overline) span.classList.add("terminal-output-run--overline");
+      line.append(span);
+    });
+  }
+
+  terminalColor(color) {
+    if (!color) return null;
+    if (color.mode === "rgb") return `#${color.value.toString(16).padStart(6, "0")}`;
+    const palette = [
+      "#000000", "#cd0000", "#00cd00", "#cdcd00", "#0000ee", "#cd00cd", "#00cdcd", "#e5e5e5",
+      "#7f7f7f", "#ff0000", "#00ff00", "#ffff00", "#5c5cff", "#ff00ff", "#00ffff", "#ffffff"
+    ];
+    if (color.value < palette.length) return palette[color.value];
+    if (color.value >= 232) {
+      const component = 8 + ((color.value - 232) * 10);
+      return `rgb(${component}, ${component}, ${component})`;
+    }
+    const index = color.value - 16;
+    const levels = [0, 95, 135, 175, 215, 255];
+    return `rgb(${levels[Math.floor(index / 36)]}, ${levels[Math.floor(index / 6) % 6]}, ${levels[index % 6]})`;
   }
 
   toolDiffLineClass(line, preview = false) {
