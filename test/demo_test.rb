@@ -264,6 +264,12 @@ class DemoTest < Minitest::Test
     assert_includes javascript, 'if (event.target.closest("[data-demo-disabled]")) event.preventDefault();'
   end
 
+  def test_demo_coarse_pointer_composer_keeps_send_button_available
+    html = File.read(HTML)
+
+    assert_match(/@media \(pointer: coarse\) \{.*?\.send-button \{ display: inline-flex;/m, html)
+  end
+
   def test_demo_mobile_composer_starts_clean_and_compact
     html = File.read(HTML)
     body = Nokogiri::HTML5(html).at_css("body")

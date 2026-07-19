@@ -3198,6 +3198,10 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_coarse_pointer_composer_keeps_send_button_available
+    assert_match(/@media \(pointer: coarse\) \{.*?\.send-control \{ min-width: 2\.75rem; \}.*?\.send-button \{ display: inline-flex;/m, APP_STYLESHEET)
+  end
+
   def test_renders_session_status_bar
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
@@ -4152,7 +4156,9 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "Steer Pi…"
       assert_includes APP_JAVASCRIPT, "Queue follow-up…"
       assert_includes APP_STYLESHEET, "[hidden] { display: none !important; }"
-      assert_includes response.body, "Ask Pi… Enter to send, Shift+Enter for newline."
+      assert_includes response.body, 'placeholder="Ask Pi…"'
+      refute_includes response.body, "Enter to send"
+      refute_includes APP_JAVASCRIPT, "Enter to send"
       refute_includes response.body, "autofocus"
       assert_includes response.body, "Abort running Pi"
       refute_includes response.body, "class=\"danger abort-button session-abort-button\" form=\"abort-form\""

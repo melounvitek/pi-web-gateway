@@ -352,7 +352,7 @@ function updatePromptPlaceholder() {
     promptTextarea.placeholder = "Sending…";
     return;
   }
-  promptTextarea.placeholder = window.matchMedia?.("(max-width: 760px)").matches ? "Ask Pi…" : "Ask Pi… Enter to send, Shift+Enter for newline.";
+  promptTextarea.placeholder = "Ask Pi…";
 }
 
 function setStatusItem(key, label, value) {
