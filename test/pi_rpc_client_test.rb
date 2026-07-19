@@ -24,7 +24,7 @@ class PiRpcClientTest < Minitest::Test
     assert_equal [["pi", "--mode", "rpc", "--extension", PiRpcClient::GRIPI_EXTENSION_PATH, "--session", "/tmp/session.jsonl", PiRpcClient.process_group_options]], calls.map { |args| args.drop(1) }
   end
 
-  def test_removes_gateway_ruby_environment_when_starting_pi
+  def test_removes_gateway_secret_and_ruby_environment_when_starting_pi
     calls = []
     input = StringIO.new
     output = StringIO.new
@@ -39,6 +39,8 @@ class PiRpcClientTest < Minitest::Test
       "BUNDLER_SETUP" => "/gateway/bundler/setup",
       "GEM_HOME" => "/gateway/gems",
       "RUBYOPT" => "-rbundler/setup",
+      "GRIPI_ADMIN_PASSWORD" => "secret",
+      "GRIPI_CUSTOM_RUNTIME" => "enabled",
       "PATH" => "/usr/bin"
     ) do
       PiRpcClient.start("/tmp/session.jsonl", popen: popen)
@@ -50,19 +52,37 @@ class PiRpcClientTest < Minitest::Test
     assert_nil child_env.fetch("BUNDLER_SETUP")
     assert_nil child_env.fetch("GEM_HOME")
     assert_nil child_env.fetch("RUBYOPT")
+    assert_nil child_env.fetch("GRIPI_ADMIN_PASSWORD")
+    assert_equal "enabled", child_env.fetch("GRIPI_CUSTOM_RUNTIME")
     assert_equal "/usr/bin", child_env.fetch("PATH")
   end
 
-  def test_pi_process_env_unsets_ruby_environment_for_spawn
+  def test_pi_process_env_unsets_gateway_secret_and_ruby_environment_for_spawn
     with_env(
       "BUNDLE_GEMFILE" => "/gateway/Gemfile",
       "GEM_HOME" => "/gateway/gems",
-      "RUBYOPT" => "-rbundler/setup"
+      "RUBYOPT" => "-rbundler/setup",
+      "GRIPI_ADMIN_PASSWORD" => "secret",
+      "GRIPI_CUSTOM_RUNTIME" => "enabled",
+      "PATH" => "/usr/bin"
     ) do
-      stdout, stderr, status = Open3.capture3(PiRpcClient.pi_process_env, RbConfig.ruby, "-e", "puts [ENV['BUNDLE_GEMFILE'], ENV['GEM_HOME'], ENV['RUBYOPT']].compact")
+      script = <<~RUBY
+        require "json"
+        puts JSON.generate(
+          ruby_environment: [ENV["BUNDLE_GEMFILE"], ENV["GEM_HOME"], ENV["RUBYOPT"]].compact,
+          admin_password_present: ENV.key?("GRIPI_ADMIN_PASSWORD"),
+          custom_runtime: ENV.fetch("GRIPI_CUSTOM_RUNTIME"),
+          path: ENV.fetch("PATH")
+        )
+      RUBY
+      stdout, stderr, status = Open3.capture3(PiRpcClient.pi_process_env, RbConfig.ruby, "-e", script)
 
       assert status.success?, stderr
-      assert_empty stdout
+      child_env = JSON.parse(stdout)
+      assert_empty child_env.fetch("ruby_environment")
+      refute child_env.fetch("admin_password_present")
+      assert_equal "enabled", child_env.fetch("custom_runtime")
+      assert_equal "/usr/bin", child_env.fetch("path")
     end
   end
 

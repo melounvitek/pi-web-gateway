@@ -64,7 +64,7 @@ class PiRpcClient
   end
 
   def self.pi_process_env
-    unset_keys = ENV.keys.select { |key| key.start_with?("BUNDLE_", "BUNDLER_") } | RUBY_ENV_KEYS
+    unset_keys = ENV.keys.select { |key| key.start_with?("BUNDLE_", "BUNDLER_") } | RUBY_ENV_KEYS | ["GRIPI_ADMIN_PASSWORD"]
     ENV.to_h.merge(unset_keys.to_h { |key| [key, nil] })
   end
 
