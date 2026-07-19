@@ -895,6 +895,180 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_runs_native_bash_commands_and_returns_native_result_data
+    [
+      ["!  printf 'one\\ntwo'\n| cat  ", "printf 'one\\ntwo'\n| cat", false],
+      ["!! git status ", "git status", true]
+    ].each do |message, command, excluded|
+      Dir.mktmpdir do |dir|
+        path = write_session(dir)
+        calls = []
+        client = FakeRpcClient.new(calls)
+        client.define_singleton_method(:bash) do |submitted_command, exclude_from_context: false|
+          calls << [:bash, submitted_command, exclude_from_context]
+          { "type" => "response", "command" => "bash", "success" => true, "data" => { "output" => "done", "exitCode" => 0 } }
+        end
+        Gripi.set :sessions_root, dir
+        Gripi.set :rpc_client_registry, nil
+        Gripi.set :rpc_client_factory, [->(session_path) {
+          calls << [:start, session_path]
+          client
+        }]
+
+        response = Rack::MockRequest.new(Gripi).post(
+          "/prompt",
+          params: { "session" => path, "message" => message },
+          "HTTP_ACCEPT" => "application/json"
+        )
+
+        assert_equal 200, response.status
+        assert_equal [[:start, path], [:bash, command, excluded]], calls
+        payload = JSON.parse(response.body)
+        assert_equal "bash", payload.fetch("command")
+        assert_equal({ "output" => "done", "exitCode" => 0 }, payload.fetch("data"))
+        assert_equal excluded, payload.fetch("exclude_from_context")
+        assert_equal path, payload.fetch("session")
+        assert_includes payload.fetch("redirect"), Rack::Utils.escape(path)
+      end
+    end
+  end
+
+  def test_empty_and_indented_bash_like_messages_are_regular_prompts
+    ["!  ", "!!\n\t", " !pwd"].each do |message|
+      Dir.mktmpdir do |dir|
+        path = write_session(dir)
+        calls = []
+        Gripi.set :sessions_root, dir
+        Gripi.set :rpc_client_registry, nil
+        Gripi.set :rpc_client_factory, [->(session_path) {
+          calls << [:start, session_path]
+          FakeRpcClient.new(calls)
+        }]
+
+        response = Rack::MockRequest.new(Gripi).post(
+          "/prompt",
+          params: { "session" => path, "message" => message },
+          "HTTP_ACCEPT" => "application/json"
+        )
+
+        assert_equal 200, response.status
+        assert_equal [[:start, path], [:prompt, message]], calls
+        refute JSON.parse(response.body).key?("command")
+      end
+    end
+  end
+
+  def test_bash_preserves_html_redirect_behavior
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:bash) { |_command, exclude_from_context: false| { "success" => true, "data" => {} } }
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(_session_path) { client }]
+
+      response = Rack::MockRequest.new(Gripi).post("/prompt", params: { "session" => path, "message" => "!pwd" })
+
+      assert_equal 303, response.status
+      assert_includes response["Location"], Rack::Utils.escape(path)
+    end
+  end
+
+  def test_rejects_images_attached_to_bash_commands
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      image_path = File.join(dir, "screenshot.png")
+      File.binwrite(image_path, "fake image data")
+      calls = []
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(session_path) {
+        calls << [:start, session_path]
+        FakeRpcClient.new(calls)
+      }]
+      upload = Rack::Multipart::UploadedFile.new(image_path, "image/png", true)
+
+      response = Rack::MockRequest.new(Gripi).post(
+        "/prompt",
+        params: { "session" => path, "message" => "!pwd", "images[]" => upload },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 400, response.status
+      assert_includes JSON.parse(response.body).fetch("error"), "Images"
+      assert_empty calls
+    end
+  end
+
+  def test_bash_ignores_streaming_routing_and_compaction_state
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      client = FakeRpcClient.new(calls)
+      client.define_singleton_method(:busy?) { true }
+      client.define_singleton_method(:agent_running?) { true }
+      client.define_singleton_method(:compacting?) { true }
+      client.define_singleton_method(:bash) do |command, exclude_from_context: false|
+        calls << [:bash, command, exclude_from_context]
+        { "success" => true, "data" => { "output" => "done", "exitCode" => 0 } }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).post(
+        "/prompt",
+        params: { "session" => path, "message" => "!pwd", "streaming_behavior" => "steer" },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      assert_equal [[:bash, "pwd", false]], calls
+      payload = JSON.parse(response.body)
+      assert_equal "bash", payload.fetch("command")
+      refute payload.key?("steer")
+    end
+  end
+
+  def test_duplicate_bash_returns_conflict_without_waiting
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      started = Queue.new
+      release = Queue.new
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:bash) do |_command, exclude_from_context: false|
+        started << true
+        release.pop
+        { "success" => true, "data" => {} }
+      end
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      first = Thread.new do
+        Rack::MockRequest.new(Gripi).post(
+          "/prompt",
+          params: { "session" => path, "message" => "!sleep 1" },
+          "HTTP_ACCEPT" => "application/json"
+        )
+      end
+      started.pop
+      duplicate = Timeout.timeout(1) do
+        Rack::MockRequest.new(Gripi).post(
+          "/prompt",
+          params: { "session" => path, "message" => "!pwd" },
+          "HTTP_ACCEPT" => "application/json"
+        )
+      end
+
+      assert_equal 409, duplicate.status
+      assert_includes JSON.parse(duplicate.body).fetch("error").downcase, "bash"
+    ensure
+      release << true if first&.alive?
+      first&.join
+    end
+  end
+
   def test_name_slash_command_renames_selected_session
     Dir.mktmpdir do |dir|
       path = write_session(dir)
@@ -3579,6 +3753,126 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       assert_equal({ "ok" => true, "session" => path }, JSON.parse(response.body))
       assert_equal [[ :start, path ], [ :abort ]], calls
+    end
+  end
+
+  def test_abort_prioritizes_a_running_agent_over_active_bash
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      client = FakeRpcClient.new(calls)
+      client.define_singleton_method(:agent_running?) { true }
+      client.define_singleton_method(:active_bash_command) { "sleep 1" }
+      client.define_singleton_method(:abort_bash) { calls << [:abort_bash] }
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      response = Rack::MockRequest.new(Gripi).post(
+        "/abort",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, response.status
+      assert_equal [[:abort]], calls
+    end
+  end
+
+  def test_abort_cancels_only_bash_without_waiting_for_the_bash_lane
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      calls = []
+      started = Queue.new
+      release = Queue.new
+      client = FakeRpcClient.new(calls)
+      client.instance_variable_set(:@bash_active, false)
+      client.define_singleton_method(:busy?) { @bash_active }
+      client.define_singleton_method(:agent_running?) { false }
+      client.define_singleton_method(:active_bash_command) { @bash_active ? "sleep 1" : nil }
+      client.define_singleton_method(:bash) do |command, exclude_from_context: false|
+        @bash_active = true
+        calls << [:bash, command, exclude_from_context]
+        started << true
+        release.pop
+        { "success" => true, "data" => {} }
+      ensure
+        @bash_active = false
+      end
+      client.define_singleton_method(:abort_bash) { calls << [:abort_bash] }
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      bash_request = Thread.new do
+        Rack::MockRequest.new(Gripi).post(
+          "/prompt",
+          params: { "session" => path, "message" => "!sleep 1" },
+          "HTTP_ACCEPT" => "application/json"
+        )
+      end
+      started.pop
+      response = Timeout.timeout(1) do
+        Rack::MockRequest.new(Gripi).post(
+          "/abort",
+          params: { "session" => path },
+          "HTTP_ACCEPT" => "application/json"
+        )
+      end
+
+      assert_equal 200, response.status
+      assert_includes calls, [:abort_bash]
+      assert bash_request.alive?
+    ensure
+      release << true if bash_request&.alive?
+      bash_request&.join
+    end
+  end
+
+  def test_forced_bash_cancellation_returns_structured_error_to_bash_request
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      started = Queue.new
+      disconnected = Queue.new
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:busy?) { true }
+      client.define_singleton_method(:agent_running?) { false }
+      client.define_singleton_method(:active_bash_command) { "sleep 1" }
+      client.define_singleton_method(:bash) do |_command, exclude_from_context: false|
+        started << true
+        disconnected.pop
+        raise IOError, "Pi RPC process exited"
+      end
+      client.define_singleton_method(:abort_bash) { raise PiRpcClient::RequestTimeout, "Pi RPC command timed out: abort_bash" }
+      client.define_singleton_method(:close) { disconnected << true }
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      bash_request = Thread.new do
+        Rack::MockRequest.new(Gripi).post(
+          "/prompt",
+          params: { "session" => path, "message" => "!sleep 1" },
+          "HTTP_ACCEPT" => "application/json"
+        )
+      end
+      started.pop
+      abort_response = Rack::MockRequest.new(Gripi).post(
+        "/abort",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+      bash_response = Timeout.timeout(1) { bash_request.value }
+
+      assert_equal true, JSON.parse(abort_response.body).fetch("forced")
+      assert_equal 502, bash_response.status
+      assert_includes JSON.parse(bash_response.body).fetch("error"), "disconnected"
+    ensure
+      disconnected << true if bash_request&.alive?
+      bash_request&.join
     end
   end
 

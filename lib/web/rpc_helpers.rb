@@ -56,6 +56,36 @@ module Web
       halt JSON.generate(error: error.message)
     end
 
+    def with_synchronized_bash_rpc_client(session_path)
+      Rpc::Diagnostics.log("request_operation", path: request.path_info, session: session_path, lane: "bash")
+      return rpc_clients.with_bash_client(session_path) { |client| yield client } unless File.exist?(session_path)
+
+      session_synchronizer.with_bash_client(session_path) { |client| yield client }
+    rescue Sessions::SessionSynchronizer::BlockedError => error
+      halt_session_sync_error(error)
+    rescue PiRpcClientRegistry::BashPending, PiRpcClient::BashAlreadyRunning
+      status 409
+      content_type :json
+      halt JSON.generate(error: "A bash command is already running for this session")
+    rescue Sessions::SessionSynchronizer::BusyError, PiRpcClientRegistry::OperationPending
+      status 409
+      content_type :json
+      halt JSON.generate(error: "Another session operation is pending")
+    rescue PiRpcClientRegistry::ClientRetiring, PiRpcClientRegistry::ClientStarting
+      status 503
+      headers "Retry-After" => "1"
+      content_type :json
+      halt JSON.generate(error: "Pi RPC client is restarting")
+    rescue PiRpcClient::RequestTimeout => error
+      status 504
+      content_type :json
+      halt JSON.generate(error: error.message)
+    rescue Errno::EPIPE, IOError
+      status 502
+      content_type :json
+      halt JSON.generate(error: "Pi RPC client disconnected during bash execution")
+    end
+
     def with_synchronized_interrupt_rpc_client(session_path)
       Rpc::Diagnostics.log("request_operation", path: request.path_info, session: session_path, lane: "interrupt")
       return with_interrupt_rpc_client(session_path) { |client| yield client } unless File.exist?(session_path)

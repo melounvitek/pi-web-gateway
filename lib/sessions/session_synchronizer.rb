@@ -101,6 +101,24 @@ module Sessions
       end
     end
 
+    def with_bash_client(session_path)
+      lock = lock_for(session_path)
+      raise BusyError, "Another session operation is pending." unless lock.try_lock
+
+      locked = true
+      begin
+        before = verification_snapshot(session_path)
+        @rpc_clients.with_bash_client(session_path) do |client|
+          verify_client(session_path, before, client)
+          lock.unlock
+          locked = false
+          yield client
+        end
+      ensure
+        lock.unlock if locked
+      end
+    end
+
     def take_over(session_path)
       synchronize(session_path) do
         raise BusyError, "Wait for the gateway task to finish before taking over." if @rpc_clients.busy?(session_path)
@@ -136,25 +154,34 @@ module Sessions
     private
 
     def with_verified_client(session_path, registry_method)
+      before = verification_snapshot(session_path)
+      @rpc_clients.public_send(registry_method, session_path) do |client|
+        verify_client(session_path, before, client)
+        yield client
+      end
+    end
+
+    def verification_snapshot(session_path)
       result = inspect_locked(session_path)
       raise_blocked(result) if result.blocked?
 
-      before = state_for(session_path).snapshot
-      @rpc_clients.public_send(registry_method, session_path) do |client|
-        position = position_for(client, before.append_cursor)
-        block_for_position_error!(session_path, before, position)
-        block_for_unknown_cursor!(session_path, before, position)
+      state_for(session_path).snapshot
+    end
 
-        after = @store.file_snapshot(session_path)
-        unless same_file_revision?(before, after)
-          mode, error = external_or_conflict(before, after)
-          update_state(session_path, after, mode: mode, error: error)
-          raise BlockedError.new(blocked_message(mode, error), mode: mode)
-        end
+    def verify_client(session_path, before, client)
+      position = position_for(client, before.append_cursor)
+      block_for_position_error!(session_path, before, position)
+      block_for_unknown_cursor!(session_path, before, position)
 
-        update_state(session_path, after, mode: :managed, rpc_leaf_id: position[:leaf_id])
-        yield client
+      after = @store.file_snapshot(session_path)
+      unless same_file_revision?(before, after)
+        reconciliation = appended_entries_for(client, before.append_cursor)
+        result = apply_reconciliation(session_path, state_for(session_path), before, after, reconciliation)
+        raise_blocked(result) if result.blocked?
+        return
       end
+
+      update_state(session_path, after, mode: :managed, rpc_leaf_id: position[:leaf_id])
     end
 
     def inspect_locked(session_path, include_position: false)

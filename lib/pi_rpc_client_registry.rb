@@ -4,10 +4,11 @@ require_relative "rpc/diagnostics"
 class PiRpcClientRegistry
   class OperationPending < StandardError; end
   class InterruptPending < StandardError; end
+  class BashPending < StandardError; end
   class ClientRetiring < StandardError; end
   class ClientStarting < StandardError; end
 
-  Entry = Struct.new(:client, :last_used_at, :active_requests, :operation_mutex, :interrupt_mutex, :retiring, keyword_init: true)
+  Entry = Struct.new(:client, :last_used_at, :active_requests, :operation_mutex, :interrupt_mutex, :bash_mutex, :retiring, keyword_init: true)
 
   def initialize(factory:, clock: -> { Time.now })
     @factory = factory
@@ -124,6 +125,10 @@ class PiRpcClientRegistry
     with_entry(session_path, serialize: :interrupt, &block)
   end
 
+  def with_bash_client(session_path, &block)
+    with_entry(session_path, serialize: :bash, &block)
+  end
+
   def with_existing_interrupt_client(session_path, &block)
     with_entry(session_path, serialize: :interrupt, create: false, &block)
   end
@@ -225,12 +230,17 @@ class PiRpcClientRegistry
     lock = case serialize
     when :operation then entry.operation_mutex
     when :interrupt then entry.interrupt_mutex
+    when :bash then entry.bash_mutex
     end
     unless lock
       return yield entry.client
     end
 
-    error_class = serialize == :interrupt ? InterruptPending : OperationPending
+    error_class = case serialize
+    when :interrupt then InterruptPending
+    when :bash then BashPending
+    else OperationPending
+    end
     unless lock.try_lock
       Rpc::Diagnostics.log("operation_rejected", session: session_path, lane: serialize)
       raise error_class, "Another #{serialize} is already pending for this session"
@@ -341,7 +351,7 @@ class PiRpcClientRegistry
   end
 
   def new_entry(client)
-    Entry.new(client: client, last_used_at: @clock.call, active_requests: 0, operation_mutex: Mutex.new, interrupt_mutex: Mutex.new, retiring: false)
+    Entry.new(client: client, last_used_at: @clock.call, active_requests: 0, operation_mutex: Mutex.new, interrupt_mutex: Mutex.new, bash_mutex: Mutex.new, retiring: false)
   end
 
   def touch_entry(entry)

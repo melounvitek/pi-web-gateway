@@ -1,4 +1,5 @@
 require "json"
+require_relative "../prompts/bash_command"
 require_relative "../prompts/slash_command"
 require_relative "../prompts/uploaded_images"
 require_relative "../rpc/branch_session"
@@ -215,6 +216,16 @@ module Web
         status
       end
 
+      def abort_rpc_client(client)
+        if client.respond_to?(:agent_running?) && client.agent_running?
+          client.abort
+        elsif client.respond_to?(:active_bash_command) && client.active_bash_command && client.respond_to?(:abort_bash)
+          client.abort_bash
+        else
+          client.abort
+        end
+      end
+
       def halt_failed_rpc_prompt(response)
         return unless response.is_a?(Hash) && response["success"] == false
 
@@ -256,6 +267,35 @@ module Web
         message = params.fetch("message").to_s
         images = prompt_images_from(params["images"])
         halt 400, "Message cannot be empty" if message.strip.empty? && images.empty?
+
+        bash_command = Prompts::BashCommand.parse(message)
+        if bash_command
+          unless images.empty?
+            status 400
+            if json_request?
+              content_type :json
+              halt JSON.generate(error: "Images cannot be attached to bash commands")
+            end
+            halt "Images cannot be attached to bash commands"
+          end
+
+          response = with_synchronized_bash_rpc_client(session_path) do |client|
+            client.bash(bash_command.command, exclude_from_context: bash_command.exclude_from_context)
+          end
+          halt_failed_rpc_prompt(response)
+          redirect_path = session_redirect_path(session_path)
+          if json_request?
+            content_type :json
+            next JSON.generate(
+              command: "bash",
+              data: response_data(response),
+              exclude_from_context: bash_command.exclude_from_context,
+              session: session_path,
+              redirect: redirect_path
+            )
+          end
+          redirect redirect_path
+        end
 
         streaming_behavior = params["streaming_behavior"].to_s
         halt 400, "Invalid streaming behavior" unless ["", "steer", "follow_up"].include?(streaming_behavior)
@@ -568,11 +608,11 @@ module Web
         requested_path = require_current_workspace_session!(params.fetch("session"))
         session_path = requested_path
         result = Rpc::StopSession.call do
-          pending_path = stop_matching_pending_rpc_session(requested_path) { |client| client.abort } unless rpc_clients.active?(requested_path)
+          pending_path = stop_matching_pending_rpc_session(requested_path) { |client| abort_rpc_client(client) } unless rpc_clients.active?(requested_path)
           if pending_path
             session_path = pending_path
           else
-            with_synchronized_interrupt_rpc_client(session_path) { |client| client.abort }
+            with_synchronized_interrupt_rpc_client(session_path) { |client| abort_rpc_client(client) }
           end
         end
         if json_request?

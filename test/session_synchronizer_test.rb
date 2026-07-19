@@ -37,6 +37,10 @@ class SessionSynchronizerTest < Minitest::Test
       { known: true, leaf_id: cursor, error: nil }
     end
 
+    def session_entries_after(cursor)
+      session_position(cursor).merge(entries: [])
+    end
+
     def busy?
       false
     end
@@ -74,6 +78,10 @@ class SessionSynchronizerTest < Minitest::Test
     end
 
     def with_interrupt_client(path, &block)
+      with_client(path, &block)
+    end
+
+    def with_bash_client(path, &block)
       with_client(path, &block)
     end
 
@@ -312,6 +320,75 @@ class SessionSynchronizerTest < Minitest::Test
     ensure
       release_operation << true if operation&.alive?
       operation&.join
+    end
+  end
+
+  def test_bash_releases_the_session_lock_after_verification
+    with_session do |root, path|
+      client = FakeClient.new(positions: { nil => { known: true, leaf_id: nil, error: nil } })
+      registry = PiRpcClientRegistry.new(factory: ->(_path) { raise "unexpected start" })
+      registry.register(path, client)
+      synchronizer = build_synchronizer(root, registry)
+      operation_ran = false
+
+      synchronizer.with_bash_client(path) do
+        synchronizer.with_mutable_client(path) { operation_ran = true }
+      end
+
+      assert operation_ran
+    end
+  end
+
+  def test_operation_reconciles_bash_append_during_verification
+    with_session do |root, path|
+      operation_checked_position = Queue.new
+      release_operation_check = Queue.new
+      bash_started = Queue.new
+      release_bash = Queue.new
+      entries = []
+      position_checks = 0
+      client = Object.new
+      client.define_singleton_method(:session_position) do |_cursor|
+        position_checks += 1
+        if position_checks == 3
+          operation_checked_position << true
+          release_operation_check.pop
+          { known: true, leaf_id: nil, error: nil }
+        else
+          { known: true, leaf_id: entries.last&.fetch("id", nil), error: nil }
+        end
+      end
+      client.define_singleton_method(:session_entries_after) do |_cursor|
+        { known: true, leaf_id: entries.last&.fetch("id", nil), entries: entries.dup, error: nil }
+      end
+      client.define_singleton_method(:busy?) { false }
+      client.define_singleton_method(:close) { nil }
+      registry = PiRpcClientRegistry.new(factory: ->(_path) { raise "unexpected start" })
+      registry.register(path, client)
+      synchronizer = build_synchronizer(root, registry)
+
+      bash = Thread.new do
+        synchronizer.with_bash_client(path) do
+          bash_started << true
+          release_bash.pop
+        end
+      end
+      bash_started.pop
+      operation_ran = false
+      operation = Thread.new { synchronizer.with_mutable_client(path) { operation_ran = true } }
+      operation_checked_position.pop
+      append(path, type: "message", id: "bash-1", parentId: nil, message: { role: "bashExecution", command: "pwd", output: "done", exitCode: 0 })
+      entries << { "id" => "bash-1" }
+      release_operation_check << true
+      operation.join
+
+      assert operation_ran
+      assert_equal :managed, synchronizer.inspect(path).mode
+    ensure
+      release_operation_check << true if operation&.alive?
+      release_bash << true if bash&.alive?
+      operation&.join
+      bash&.join
     end
   end
 

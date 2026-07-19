@@ -321,6 +321,32 @@ class PiRpcClientRegistryTest < Minitest::Test
     concurrent&.join
   end
 
+  def test_bash_lane_is_serialized_without_blocking_operation_or_interrupt_lanes
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeClient.new([]) })
+    bash_started = Queue.new
+    release_bash = Queue.new
+
+    bash = Thread.new do
+      registry.with_bash_client("/tmp/session.jsonl") do
+        bash_started << true
+        release_bash.pop
+      end
+    end
+    bash_started.pop
+
+    assert_raises(PiRpcClientRegistry::BashPending) do
+      registry.with_bash_client("/tmp/session.jsonl") { flunk "duplicate bash should not start" }
+    end
+    registry.with_client("/tmp/session.jsonl") { assert true }
+    registry.with_interrupt_client("/tmp/session.jsonl") { assert true }
+    assert_raises(PiRpcClientRegistry::OperationPending) do
+      registry.move("/tmp/session.jsonl", "/tmp/moved.jsonl")
+    end
+  ensure
+    release_bash << true if bash&.alive?
+    bash&.join
+  end
+
   def test_rejects_a_duplicate_interrupt_while_one_is_pending
     registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeClient.new([]) })
     first_started = Queue.new
