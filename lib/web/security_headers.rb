@@ -23,6 +23,7 @@ module Web
           "form-action 'self'"
         ].join("; ")
         headers(
+          "Cache-Control" => "private, no-store",
           "Content-Security-Policy" => policy,
           "Referrer-Policy" => "no-referrer",
           "X-Content-Type-Options" => "nosniff"

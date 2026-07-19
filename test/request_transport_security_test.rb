@@ -36,6 +36,7 @@ class RequestTransportSecurityTest < Minitest::Test
     response = @request.get("/gateway-update", "REMOTE_ADDR" => "100.64.0.2")
 
     assert_equal 403, response.status
+    assert_equal "private, no-store", response["Cache-Control"]
     assert_includes response.body, "HTTPS"
   end
 

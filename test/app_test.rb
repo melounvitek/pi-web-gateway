@@ -498,6 +498,7 @@ class AppTest < Minitest::Test
 
     assert_equal 200, response.status
     assert_equal "application/javascript", response.media_type
+    assert_equal "no-cache", response["Cache-Control"]
     assert_includes response.body, "self.registration.showNotification"
     assert_includes response.body, '["gripi-notification", "gripi-notification-test"].includes(data.type)'
     assert_includes response.body, "notificationclick"
@@ -582,6 +583,7 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(Gripi).get("/")
 
       assert_equal 403, response.status
+      assert_equal "private, no-store", response["Cache-Control"]
       assert_includes response.body, "Browser access required"
       assert_includes response.body, "Ask access"
       assert_includes response["Set-Cookie"], "max-age=31536000"
@@ -680,6 +682,7 @@ class AppTest < Minitest::Test
       store.approve_current_browser(approved_token, label: "test")
       pending_response = request.get("/browser-access/pending", "HTTP_COOKIE" => "gripi_browser=#{approved_token}")
       assert_equal 200, pending_response.status
+      assert_equal "private, no-store", pending_response["Cache-Control"]
       assert_equal pending.fetch("code"), JSON.parse(pending_response.body).fetch("requests").first.fetch("code")
 
       approve_response = request.post(
@@ -693,6 +696,7 @@ class AppTest < Minitest::Test
 
       allowed = request.get("/", "HTTP_COOKIE" => cookie)
       assert_equal 200, allowed.status
+      assert_equal "private, no-store", allowed["Cache-Control"]
       assert_includes allowed.body, "Gripi"
       refute_includes allowed.body, "Browser access required"
     end
@@ -1962,6 +1966,7 @@ class AppTest < Minitest::Test
       attachment_url = response.body.match(%r{/attachments/[a-f0-9]{64}/[a-f0-9]{64}\.png})[0]
       attachment_response = Rack::MockRequest.new(Gripi).get(attachment_url)
       assert_equal 200, attachment_response.status
+      assert_equal "private, no-store", attachment_response["Cache-Control"]
       assert_equal "fake image data", attachment_response.body
     end
   end

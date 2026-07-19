@@ -36,8 +36,8 @@ class Gripi < Sinatra::Base
     include: ["application/json"],
     if: ->(_env, _status, headers, _body) { headers["content-length"].to_i >= 1_024 }
 
-  register Web::RequestTransportSecurity
   register Web::SecurityHeaders
+  register Web::RequestTransportSecurity
   register Web::RequestOriginProtection
   register Web::BrowserAccess
   register Web::WorkspaceAccess
