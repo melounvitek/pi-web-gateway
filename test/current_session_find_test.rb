@@ -19,10 +19,10 @@ class CurrentSessionFindTest < Minitest::Test
     assert_includes conversation, 'Conversation only'
   end
 
-  def test_open_find_refreshes_when_focused_view_changes
+  def test_open_find_refreshes_when_conversation_view_changes
     results = run_javascript(<<~JS)
       const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
-      let focusClick;
+      let viewChange;
       const control = { addEventListener() {} };
       const bar = {
         hidden: false,
@@ -32,17 +32,17 @@ class CurrentSessionFindTest < Minitest::Test
           return control;
         }
       };
-      const focusToggle = { addEventListener(_type, listener) { focusClick = listener; } };
-      const document = { querySelector: (selector) => selector === "[data-current-session-find]" ? bar : focusToggle };
+      const viewSelect = { addEventListener(_type, listener) { viewChange = listener; } };
+      const document = { querySelector: (selector) => selector === "[data-current-session-find]" ? bar : viewSelect };
       const controller = new CurrentSessionFindController(document, {});
       let searches = 0;
       controller.search = async () => { searches += 1; };
       controller.bind();
-      focusClick();
+      viewChange();
       await Promise.resolve();
       const whileOpen = searches;
       bar.hidden = true;
-      focusClick();
+      viewChange();
       await Promise.resolve();
       console.log(JSON.stringify({ whileOpen, whileClosed: searches }));
     JS

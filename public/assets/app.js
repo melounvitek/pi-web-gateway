@@ -855,9 +855,6 @@ function updateSessionHeaderName(name) {
   if (!headerName) return;
   headerName.textContent = name;
   headerName.title = name;
-  const title = headerName.closest(".session-header-title");
-  const project = title?.querySelector(".session-header-project-label")?.textContent.trim();
-  if (title) title.title = project ? `${name} · ${project}` : name;
   if (typeof baseDocumentTitle !== "undefined") {
     baseDocumentTitle = `${name} · Gripi`;
     renderDocumentTitle();

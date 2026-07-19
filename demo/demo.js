@@ -239,7 +239,7 @@
     project: document.getElementById("project-filter"), projectTrigger: document.getElementById("project-select-trigger"), projectList: document.getElementById("project-select-listbox"),
     searchForm: document.getElementById("sidebar-session-search"), search: document.querySelector('#sidebar-session-search input[type="search"]'), clearFilters: document.querySelector("[data-sidebar-filters-clear]"),
     headerName: document.querySelector(".session-header-name"), headerProject: document.querySelector(".session-header-project"), form: document.getElementById("prompt-form"), prompt: document.querySelector(".prompt-form textarea"),
-    panel: document.querySelector(".conversation-panel"), focusToggle: document.querySelector("[data-conversation-focus-toggle]"),
+    panel: document.querySelector(".conversation-panel"), viewSelect: document.querySelector("[data-conversation-view-select]"),
     state: document.querySelector(".composer-state"), stop: document.getElementById("stop-button"), commands: document.getElementById("command-list"), attachmentTray: document.querySelector(".attachment-tray"),
     treeTarget: document.querySelector("[data-demo-tree-target]"), treeTargetTitle: document.querySelector("[data-demo-tree-target-title]"), treeCurrentTitle: document.querySelector("[data-demo-tree-current-title]")
   };
@@ -264,17 +264,6 @@
   function loadDraft() {
     try { element.prompt.value = localStorage.getItem(draftKey()) || ""; } catch (_error) { element.prompt.value = ""; }
     element.commands.classList.toggle("is-visible", element.prompt.value.startsWith("/"));
-  }
-  function setFocusedView(enabled) {
-    focusedView = enabled;
-    element.panel.classList.toggle("is-conversation-focused", focusedView);
-    element.focusToggle.classList.toggle("is-active", focusedView);
-    const action = focusedView ? "Expand" : "Condense";
-    const description = `${action} reasoning, tools, statuses, and errors`;
-    element.focusToggle.setAttribute("title", description);
-    element.focusToggle.setAttribute("aria-label", description);
-    element.focusToggle.querySelector("[data-condense-details-icon]").toggleAttribute("hidden", focusedView);
-    element.focusToggle.querySelector("[data-expand-details-icon]").toggleAttribute("hidden", !focusedView);
   }
   function focusedConversationMessage(message) {
     if (message.classList.contains("message--compaction")) return true;
@@ -364,7 +353,7 @@
       messages[0].before(summary);
       if (focusAnchor && messages.includes(focusAnchor)) replacementFocus = header;
     });
-    if (activeToggle && !replacementFocus) replacementFocus = element.focusToggle;
+    if (activeToggle && !replacementFocus) replacementFocus = element.viewSelect;
     replacementFocus?.focus({ preventScroll: true });
   }
   function timeLabel(date = new Date()) { const pad = (value) => String(value).padStart(2, "0"); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`; }
@@ -779,8 +768,9 @@
   element.projectTrigger.addEventListener("click", () => { const open = element.projectList.hidden; element.projectList.hidden = !open; element.projectTrigger.setAttribute("aria-expanded", String(open)); if (open) { const rect = element.projectTrigger.getBoundingClientRect(); Object.assign(element.projectList.style, { left: `${rect.left}px`, top: `${rect.bottom + 4}px`, width: `${rect.width}px` }); } });
   element.projectList.addEventListener("click", (event) => { const option = event.target.closest("[data-project-value]"); if (option) selectProject(option.dataset.projectValue); });
   document.querySelector("[data-notification-toggle]").addEventListener("click", (event) => { const enabled = !event.currentTarget.classList.contains("is-enabled"); event.currentTarget.classList.toggle("is-enabled", enabled); event.currentTarget.classList.toggle("is-disabled", !enabled); event.currentTarget.querySelector("[data-notification-toggle-state]").textContent = enabled ? "Demo on" : "Demo off"; });
-  element.focusToggle.addEventListener("click", () => {
-    setFocusedView(!focusedView);
+  element.viewSelect.addEventListener("change", () => {
+    focusedView = element.viewSelect.value === "conversation";
+    element.panel.classList.toggle("is-conversation-focused", focusedView);
     refreshOpenFind();
   });
   element.form.addEventListener("submit", (event) => { event.preventDefault(); submitPrompt(); });

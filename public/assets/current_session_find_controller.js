@@ -37,7 +37,7 @@ export class CurrentSessionFindController {
     this.conversationOnly?.addEventListener("change", () => {
       this.search({ resetIndex: true }).catch(() => {});
     });
-    this.document.querySelector("[data-conversation-focus-toggle]")?.addEventListener?.("click", () => {
+    this.document.querySelector("[data-conversation-view-select]")?.addEventListener?.("change", () => {
       if (this.open) this.search({ resetIndex: true }).catch(() => {});
     });
     this.bar?.querySelector("[data-current-session-find-previous]")?.addEventListener("click", () => this.move(-1));

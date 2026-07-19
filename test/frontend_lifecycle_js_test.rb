@@ -170,6 +170,37 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal({ "markdown" => true }, results.fetch("options"))
   end
 
+  def test_live_session_name_update_does_not_add_a_title_around_the_view_selector
+    app_source = File.read(File.join(ASSETS, "app.js"))
+    helper_source = app_source.match(/function updateSessionHeaderName\(name\) \{.*?\n\}/m).to_s
+      .sub("function updateSessionHeaderName(name)", "globalThis.updateSessionHeaderName = function(name)")
+
+    results = run_javascript(<<~JS)
+      const titleContainer = { title: "", querySelector() { return { textContent: "project" }; } };
+      const headerName = { textContent: "Old name", title: "Old name", closest() { return titleContainer; } };
+      const document = { title: "", querySelector: () => headerName };
+      let baseDocumentTitle = "Old name · Gripi";
+      let renders = 0;
+      const renderDocumentTitle = () => { renders += 1; };
+      eval(#{helper_source.to_json});
+
+      updateSessionHeaderName("New name");
+      console.log(JSON.stringify({
+        text: headerName.textContent,
+        headingTitle: headerName.title,
+        containerTitle: titleContainer.title,
+        baseDocumentTitle,
+        renders
+      }));
+    JS
+
+    assert_equal "New name", results.fetch("text")
+    assert_equal "New name", results.fetch("headingTitle")
+    assert_equal "", results.fetch("containerTitle")
+    assert_equal "New name · Gripi", results.fetch("baseDocumentTitle")
+    assert_equal 1, results.fetch("renders")
+  end
+
   def test_expanding_tool_output_starts_at_its_internal_bottom_without_moving_the_conversation
     app_source = File.read(File.join(ASSETS, "app.js"))
     handler_source = app_source.match(/document\.addEventListener\("click", \(event\) => \{\n  const button = event\.target\.closest\("\[data-tool-output-toggle\]"\);.*?\n\}\);/m).to_s
@@ -1158,7 +1189,7 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal false, results.fetch("refreshPending")
   end
 
-  def test_focused_view_toggles_and_survives_in_page_session_switching
+  def test_conversation_view_selection_applies_on_one_change_event_and_survives_in_page_session_switching
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
       class ClassList {
@@ -1168,76 +1199,63 @@ class FrontendLifecycleJsTest < Minitest::Test
         toggle(name, enabled) { enabled ? this.add(name) : this.remove(name); }
         contains(name) { return this.values.has(name); }
       }
-      class Icon {
-        constructor() { this.attributes = new Set(); }
-        toggleAttribute(name, enabled) { enabled ? this.attributes.add(name) : this.attributes.delete(name); }
-        hasAttribute(name) { return this.attributes.has(name); }
-      }
-      class Toggle {
-        constructor() { this.classList = new ClassList(); this.attributes = {}; this.listeners = []; this.condenseIcon = new Icon(); this.expandIcon = new Icon(); }
-        addEventListener(type, listener) { if (type === "click") this.listeners.push(listener); }
-        removeEventListener(type, listener) { if (type === "click") this.listeners = this.listeners.filter((item) => item !== listener); }
-        setAttribute(name, value) { this.attributes[name] = value; }
-        querySelector(selector) { return { "[data-condense-details-icon]": this.condenseIcon, "[data-expand-details-icon]": this.expandIcon }[selector]; }
-        click() { this.listeners.forEach((listener) => listener()); }
+      class ViewSelect {
+        constructor() { this.value = "full"; this.listeners = []; }
+        addEventListener(type, listener) { if (type === "change") this.listeners.push(listener); }
+        removeEventListener(type, listener) { if (type === "change") this.listeners = this.listeners.filter((item) => item !== listener); }
+        select(value) { this.value = value; this.listeners.forEach((listener) => listener()); }
       }
       const scroll = {
         scrollTop: 0, scrollHeight: 100, clientHeight: 100,
         addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [], querySelector: () => null
       };
       let panel = { classList: new ClassList() };
-      let toggle = new Toggle();
+      let viewSelect = new ViewSelect();
       const document = {
         body: { classList: new ClassList() },
         getElementById: (id) => id === "conversation-scroll" ? scroll : null,
         querySelector(selector) {
           if (selector === ".conversation-panel") return panel;
-          if (selector === "[data-conversation-focus-toggle]") return toggle;
+          if (selector === "[data-conversation-view-select]") return viewSelect;
           return null;
         }
       };
       const window = { location: { search: "", origin: "https://example.test" }, matchMedia: () => ({ matches: false }) };
       const controller = new ConversationController(document, window);
       controller.bind();
-      const initialTitle = toggle.attributes.title;
-      const initialIcons = [toggle.condenseIcon.hasAttribute("hidden"), toggle.expandIcon.hasAttribute("hidden")];
-      toggle.click();
+      const initialView = viewSelect.value;
+      viewSelect.select("conversation");
       const firstPanelFocused = panel.classList.contains("is-conversation-focused");
-      const focusedTitle = toggle.attributes.title;
-      const focusedIcons = [toggle.condenseIcon.hasAttribute("hidden"), toggle.expandIcon.hasAttribute("hidden")];
+      const selectedView = viewSelect.value;
 
       controller.reset();
       panel = { classList: new ClassList() };
-      toggle = new Toggle();
+      viewSelect = new ViewSelect();
       controller.bind();
       const switchedPanelFocused = panel.classList.contains("is-conversation-focused");
-      const switchedTitle = toggle.attributes.title;
+      const switchedView = viewSelect.value;
 
       controller.reset();
       const reloadedController = new ConversationController(document, window);
       reloadedController.bind();
       console.log(JSON.stringify({
-        initialTitle,
-        initialIcons,
+        initialView,
         firstPanelFocused,
-        focusedTitle,
-        focusedIcons,
+        selectedView,
         switchedPanelFocused,
-        switchedTitle,
+        switchedView,
         reloadedPanelFocused: panel.classList.contains("is-conversation-focused"),
-        reloadedTitle: toggle.attributes.title
+        reloadedView: viewSelect.value
       }));
     JS
 
-    assert_equal "Condense reasoning, tools, statuses, and errors", results.fetch("initialTitle")
-    assert_equal [false, true], results.fetch("initialIcons")
+    assert_equal "full", results.fetch("initialView")
     assert_equal true, results.fetch("firstPanelFocused")
-    assert_equal "Expand reasoning, tools, statuses, and errors", results.fetch("focusedTitle")
-    assert_equal [true, false], results.fetch("focusedIcons")
+    assert_equal "conversation", results.fetch("selectedView")
     assert_equal true, results.fetch("switchedPanelFocused")
-    assert_equal "Expand reasoning, tools, statuses, and errors", results.fetch("switchedTitle")
+    assert_equal "conversation", results.fetch("switchedView")
     assert_equal false, results.fetch("reloadedPanelFocused")
-    assert_equal "Condense reasoning, tools, statuses, and errors", results.fetch("reloadedTitle")
+    assert_equal "full", results.fetch("reloadedView")
   end
 
   def test_page_keyboard_intent_listener_remains_page_lifetime_state

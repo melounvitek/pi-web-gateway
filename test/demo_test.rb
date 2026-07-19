@@ -74,6 +74,10 @@ class DemoTest < Minitest::Test
     refute body.at_css(".session.unread, .mobile-sessions-unread-badge")
     refute body.at_css(".jump-controls, .jump-button, .conversation-history-status")
     refute_includes body.text, "Earlier messages available in a connected gateway"
+    view_select = body.at_css(".session-header-project [data-conversation-view-select]")
+    assert_equal "true", body.at_css(".session-header-project-icon")["aria-hidden"]
+    assert_equal [["All details", "full"], ["Messages only", "conversation"]], view_select.css("option").map { |option| [option.text, option["value"]] }
+    assert_nil body.at_css("[data-conversation-focus-toggle]")
     assert_equal "pi", body.at_css(".message--assistant.message--thinking .role").text
     assert_equal "pi", body.at_css(".message--assistant:not(.message--thinking):not(.message--tool-call) .role").text
   end
@@ -270,11 +274,12 @@ class DemoTest < Minitest::Test
     assert_match(/@media \(pointer: coarse\) \{.*?\.send-button \{ display: inline-flex;/m, html)
   end
 
-  def test_demo_coarse_pointer_sidebar_keeps_pin_controls_visible_and_touch_sized
+  def test_demo_coarse_pointer_controls_are_visible_and_touch_sized
     coarse_styles = File.read(HTML).match(/@media \(pointer: coarse\) \{\n(?<styles>.*?)\n    \}/m)[:styles]
 
     assert_includes coarse_styles, ".session-row a.session { padding-right: 3.6rem; }"
     assert_includes coarse_styles, ".session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }"
+    assert_includes coarse_styles, ".session-header-view-select { min-height: 2.75rem; font-size: 16px; }"
   end
 
   def test_demo_mobile_composer_starts_clean_and_compact

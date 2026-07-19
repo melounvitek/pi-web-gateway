@@ -6,11 +6,16 @@
             <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span><% if unread_sidebar_session_count.positive? %><span class="mobile-sessions-unread-badge" aria-label="<%= h unread_sidebar_session_aria_label %>" title="<%= h unread_sidebar_session_aria_label %>"><%= h unread_sidebar_session_count_label %></span><% end %></label>
           <% end %>
           <% identity = project_identity(@selected_session.cwd) %>
-          <div class="session-header-title" title="<%= h @selected_session.display_name %> · <%= h project_label(@selected_session) %>">
+          <div class="session-header-title">
             <h1 class="session-header-name" title="<%= h @selected_session.display_name %>"><%= h @selected_session.display_name %></h1>
-            <div class="session-header-project" title="<%= h project_label(@selected_session) %>" style="--project-identity-bg: <%= h identity[:background] %>; --project-identity-fg: <%= h identity[:foreground] %>">
+            <div class="session-header-project" style="--project-identity-bg: <%= h identity[:background] %>; --project-identity-fg: <%= h identity[:foreground] %>">
               <span class="project-identity-icon session-header-project-icon" aria-hidden="true"><%= h identity[:monogram] %></span>
-              <span class="session-header-project-label"><%= h project_label(@selected_session) %></span>
+              <span class="session-header-project-label" title="<%= h project_label(@selected_session) %>"><%= h project_label(@selected_session) %></span>
+              <span class="session-header-project-separator" aria-hidden="true">·</span>
+              <select class="session-header-view-select" data-conversation-view-select aria-label="Transcript view">
+                <option value="full" selected>All details</option>
+                <option value="conversation">Messages only</option>
+              </select>
             </div>
             <% if session_parent(@selected_session) || session_children(@selected_session).any? %>
               <details class="session-relation-tree" aria-label="Related sessions">
@@ -22,10 +27,6 @@
             <% end %>
           </div>
           <div class="session-header-actions">
-            <button type="button" class="session-header-action session-header-focus-action" data-conversation-focus-toggle title="Condense reasoning, tools, statuses, and errors" aria-label="Condense reasoning, tools, statuses, and errors">
-              <svg class="session-header-focus-icon" data-condense-details-icon viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5v7M2.5 6.5l3 3 3-3"></path><path d="M5.5 21.5v-7M2.5 17.5l3-3 3 3"></path><path d="M11 5.5h11M11 12h11M11 18.5h11"></path></svg>
-              <svg class="session-header-focus-icon" data-expand-details-icon viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M5.5 9.5v-7M2.5 5.5l3-3 3 3"></path><path d="M5.5 14.5v7M2.5 18.5l3 3 3-3"></path><path d="M11 5.5h11M11 12h11M11 18.5h11"></path></svg>
-            </button>
             <% unless session_only? %>
               <a class="session-header-action session-header-window-action" href="<%= h session_only_url(@selected_session.path) %>" target="_blank" rel="noopener" title="Open session in new window" aria-label="Open session in new window">↗</a>
             <% end %>

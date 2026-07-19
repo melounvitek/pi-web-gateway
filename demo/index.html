@@ -75,14 +75,16 @@
     .session-header-project { min-width: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--project-identity-fg, var(--muted)); font-family: var(--mono); font-size: 0.76rem; font-weight: 500; }
     .session-header-project-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-header-project .session-header-project-icon { width: 1.55rem; min-width: 1.55rem; height: 1.25rem; border-radius: 0.2rem; font-size: 0.56rem; }
+    .session-header-project-separator { flex: 0 0 auto; color: var(--muted-soft); }
+    .session-header-view-select { flex: 0 0 auto; width: auto; max-width: 10rem; min-height: 1.5rem; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--copy); font: inherit; font-weight: 600; cursor: pointer; }
+    .session-header-view-select:hover { color: var(--text); }
+    .session-header-view-select:focus { box-shadow: none; }
+    .session-header-view-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .session-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 0.45rem; }
     .session-header-actions form { margin: 0; }
     .session-header-action { padding: 0.42rem 0.65rem; font-size: 0.7rem; }
-    .session-header-window-action, .session-header-focus-action { display: inline-flex; align-items: center; justify-content: center; min-width: 2.1rem; min-height: 2.1rem; border: 1px solid var(--border-strong); border-radius: 0.3rem; background: transparent; color: var(--muted); font-weight: 600; line-height: 1; text-decoration: none; }
-    .session-header-window-action:hover, .session-header-focus-action:hover { border-color: var(--accent-line-55); color: var(--text); background: var(--accent-tint-04); }
-    .session-header-focus-action { width: 2.4rem; min-width: 2.4rem; padding: 0; }
-    .session-header-focus-action.is-active { border-color: var(--accent-line-55); background: var(--accent-tint-08); color: var(--accent); }
-    .session-header-focus-icon { width: 1.15rem; height: 1.15rem; }
+    .session-header-window-action { display: inline-flex; align-items: center; justify-content: center; min-width: 2.1rem; min-height: 2.1rem; border: 1px solid var(--border-strong); border-radius: 0.3rem; background: transparent; color: var(--muted); font-weight: 600; line-height: 1; text-decoration: none; }
+    .session-header-window-action:hover { border-color: var(--accent-line-55); color: var(--text); background: var(--accent-tint-04); }
     .conversation-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #ff5a1f33 transparent; padding: 1.5rem; }
     .focus-activity-summary { display: none; }
     .conversation-panel.is-conversation-focused .focus-activity-summary { width: 100%; display: block; min-height: 0; margin: 0 0 0.85rem; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 0.3rem; background: transparent; color: var(--muted); font-family: var(--sans); font-size: 0.78rem; }
@@ -553,6 +555,7 @@
     @media (pointer: coarse) {
       .session-row a.session { padding-right: 3.6rem; }
       .session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }
+      .session-header-view-select { min-height: 2.75rem; font-size: 16px; }
       .send-control { min-width: 2.75rem; }
       .send-button { display: inline-flex; width: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; padding: 0; align-items: center; justify-content: center; font-size: 0; }
     }
@@ -584,9 +587,9 @@
       .session-header-actions { gap: 0.35rem; }
       .session-header-window-action { display: none; }
       .session-header-action { padding: 0.42rem 0.5rem; font-size: 0.66rem; }
-      .session-header-focus-action { min-height: 2.4rem; }
       .session-header h1 { font-size: 1rem; }
       .session-header-project { font-size: 0.7rem; }
+      .session-header-view-select { min-height: 2.75rem; font-size: 16px; }
       .project-select-trigger { min-height: 2.75rem; font-size: 16px; }
       .project-select-listbox { inset: auto 0.75rem calc(0.75rem + env(safe-area-inset-bottom)) !important; max-height: min(60dvh, 28rem) !important; width: auto !important; padding: 0.5rem; border-radius: 0.4rem; }
       .project-select-option { min-height: 2.85rem; padding: 0.55rem 0.65rem; font-size: 16px; }
@@ -639,6 +642,10 @@
       .modal-actions button { width: 100%; justify-self: stretch; padding: 0.8rem 0.75rem; }
       .session-sidebar-content, .conversation-scroll, .command-list { scrollbar-width: none; }
       .session-sidebar-content::-webkit-scrollbar, .conversation-scroll::-webkit-scrollbar, .command-list::-webkit-scrollbar { display: none; }
+    }
+    @media (max-width: 340px) {
+      .session-header-project-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+      .session-header-project-separator { display: none; }
     }
 </style>
 <style data-demo-mobile-overrides>
@@ -720,13 +727,9 @@
         <label for="mobile-session-toggle" class="mobile-sessions-button" aria-label="Open sessions"><span class="hamburger-icon" aria-hidden="true"></span></label>
         <div class="session-header-title" id="session-header-title">
           <h1 class="session-header-name">Welcome to Gripi</h1>
-          <div class="session-header-project" style="--project-identity-bg:#4a281f;--project-identity-fg:#ff9b73"><span class="project-identity-icon session-header-project-icon">GR</span><span class="session-header-project-label">gripi</span></div>
+          <div class="session-header-project" style="--project-identity-bg:#4a281f;--project-identity-fg:#ff9b73"><span class="project-identity-icon session-header-project-icon" aria-hidden="true">GR</span><span class="session-header-project-label">gripi</span><span class="session-header-project-separator" aria-hidden="true">·</span><select class="session-header-view-select" data-conversation-view-select aria-label="Transcript view"><option value="full" selected>All details</option><option value="conversation">Messages only</option></select></div>
         </div>
         <div class="session-header-actions">
-          <button type="button" class="session-header-action session-header-focus-action" data-conversation-focus-toggle title="Condense reasoning, tools, statuses, and errors" aria-label="Condense reasoning, tools, statuses, and errors">
-            <svg class="session-header-focus-icon" data-condense-details-icon viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5v7M2.5 6.5l3 3 3-3"></path><path d="M5.5 21.5v-7M2.5 17.5l3-3 3 3"></path><path d="M11 5.5h11M11 12h11M11 18.5h11"></path></svg>
-            <svg class="session-header-focus-icon" data-expand-details-icon viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M5.5 9.5v-7M2.5 5.5l3-3 3 3"></path><path d="M5.5 14.5v7M2.5 18.5l3 3 3-3"></path><path d="M11 5.5h11M11 12h11M11 18.5h11"></path></svg>
-          </button>
           <a class="session-header-action session-header-window-action" href="#" title="Open session in new window" aria-label="Open session in new window" data-demo-disabled>↗</a>
           <button type="button" class="danger abort-button session-abort-button composer-stop-button" id="stop-button" hidden disabled title="Abort running Pi"><span aria-hidden="true">⏹</span></button>
         </div>

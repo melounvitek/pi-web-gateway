@@ -50,10 +50,10 @@ export class ConversationController {
     this.jumpToFirstButton = this.document.querySelector(".jump-to-first");
     this.jumpToLatestButton = this.document.querySelector(".jump-to-latest");
     this.conversationPanel = this.document.querySelector(".conversation-panel");
-    this.focusToggle = this.document.querySelector("[data-conversation-focus-toggle]");
+    this.viewSelect = this.document.querySelector("[data-conversation-view-select]");
     this.applyFocusedView();
-    this.listen(this.focusToggle, "click", () => {
-      this.focusedView = !this.focusedView;
+    this.listen(this.viewSelect, "change", () => {
+      this.focusedView = this.viewSelect.value === "conversation";
       this.applyFocusedView();
     });
     this.lastScrollTop = this.element?.scrollTop || 0;
@@ -127,7 +127,7 @@ export class ConversationController {
     this.element = null;
     this.liveOutput = null;
     this.conversationPanel = null;
-    this.focusToggle = null;
+    this.viewSelect = null;
     this.agentRunning = false;
     this.autoScrollEnabled = true;
     this.forceBottomAutoScroll = false;
@@ -135,15 +135,7 @@ export class ConversationController {
 
   applyFocusedView() {
     this.conversationPanel?.classList.toggle("is-conversation-focused", this.focusedView);
-    this.focusToggle?.classList.toggle("is-active", this.focusedView);
-    const action = this.focusedView ? "Expand" : "Condense";
-    const description = `${action} reasoning, tools, statuses, and errors`;
-    this.focusToggle?.setAttribute("title", description);
-    this.focusToggle?.setAttribute("aria-label", description);
-    const condenseIcon = this.focusToggle?.querySelector("[data-condense-details-icon]");
-    const expandIcon = this.focusToggle?.querySelector("[data-expand-details-icon]");
-    condenseIcon?.toggleAttribute("hidden", this.focusedView);
-    expandIcon?.toggleAttribute("hidden", !this.focusedView);
+    if (this.viewSelect) this.viewSelect.value = this.focusedView ? "conversation" : "full";
   }
 
   setAgentRunning(running) {
@@ -316,7 +308,7 @@ export class ConversationController {
       group[0].before(summary);
       if (focusAnchor && group.includes(focusAnchor)) replacementFocus = header;
     });
-    if (activeToggle && !replacementFocus) replacementFocus = this.focusToggle;
+    if (activeToggle && !replacementFocus) replacementFocus = this.viewSelect;
     replacementFocus?.focus({ preventScroll: true });
   }
 

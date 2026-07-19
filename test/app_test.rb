@@ -3202,11 +3202,18 @@ class AppTest < Minitest::Test
     assert_match(/@media \(pointer: coarse\) \{.*?\.send-control \{ min-width: 2\.75rem; \}.*?\.send-button \{ display: inline-flex;/m, APP_STYLESHEET)
   end
 
-  def test_coarse_pointer_sidebar_keeps_pin_controls_visible_and_touch_sized
+  def test_coarse_pointer_controls_are_visible_and_touch_sized
     coarse_styles = APP_STYLESHEET.match(/@media \(pointer: coarse\) \{\n(?<styles>.*?)\n    \}/m)[:styles]
 
     assert_includes coarse_styles, ".session-row a.session { padding-right: 3.6rem; }"
     assert_includes coarse_styles, ".session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }"
+    assert_includes coarse_styles, ".session-header-view-select { min-height: 2.75rem; font-size: 16px; }"
+  end
+
+  def test_narrow_header_prioritizes_the_transcript_view_selector
+    assert_includes APP_STYLESHEET, "@media (max-width: 340px) {"
+    assert_includes APP_STYLESHEET, ".session-header-project-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); }"
+    assert_includes APP_STYLESHEET, ".session-header-project-separator { display: none; }"
   end
 
   def test_renders_session_status_bar
@@ -5546,10 +5553,13 @@ class AppTest < Minitest::Test
       assert_equal 200, response.status
       document = Nokogiri::HTML(response.body)
       header = document.at_css(".session-header")
+      assert_nil header.at_css(".session-header-title")["title"]
       project = header.at_css(".session-header-project")
-      assert_equal "project", project.at_css(".session-header-project-label").text
+      project_label = project.at_css(".session-header-project-label")
+      assert_equal "project", project_label.text
+      assert_equal "project", project_label["title"]
       assert_equal "PR", project.at_css(".session-header-project-icon").text
-      assert_equal "project", project["title"]
+      assert_nil project["title"]
       stop_button = header.at_css('button.composer-stop-button[form="abort-form"]')
       refute_nil stop_button
       assert_equal "Abort running Pi", stop_button["aria-label"]
@@ -5642,14 +5652,12 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'message--tool'
       assert_includes response.body, 'data-role="toolResult"'
       assert_includes response.body, 'class="message message--error" data-role="error"'
-      focus_toggle = document.at_css("[data-conversation-focus-toggle]")
-      refute_nil focus_toggle
-      refute focus_toggle.key?("aria-pressed")
-      assert_equal "Condense reasoning, tools, statuses, and errors", focus_toggle["title"]
-      assert_equal "Condense reasoning, tools, statuses, and errors", focus_toggle["aria-label"]
-      assert_nil focus_toggle.at_css("[data-details-toggle-label]")
-      refute focus_toggle.at_css("[data-condense-details-icon]").key?("hidden")
-      assert focus_toggle.at_css("[data-expand-details-icon]").key?("hidden")
+      view_select = document.at_css(".session-header-project [data-conversation-view-select]")
+      refute_nil view_select
+      assert_equal "Transcript view", view_select["aria-label"]
+      assert_equal [["All details", "full"], ["Messages only", "conversation"]], view_select.css("option").map { |option| [option.text, option["value"]] }
+      assert_equal "full", view_select.at_css("option[selected]")["value"]
+      assert_nil document.at_css("[data-conversation-focus-toggle]")
       assert_includes APP_STYLESHEET, ".conversation-panel.is-conversation-focused .focus-activity-summary {"
       refute_includes APP_STYLESHEET, '.message:not([data-role="user"]):not([data-final-assistant-response="true"])'
       assert_includes APP_STYLESHEET, ".message--thinking"
@@ -5659,7 +5667,7 @@ class AppTest < Minitest::Test
       assert_includes APP_STYLESHEET, ".focus-activity-item { width: max-content; min-width: 100%;"
       assert_includes APP_STYLESHEET, ".focus-activity-error-count {"
       assert_includes APP_STYLESHEET, ".focus-activity-spinner {"
-      assert_includes APP_STYLESHEET, ".session-header-focus-action { width: 2.4rem;"
+      assert_includes APP_STYLESHEET, ".session-header-view-select {"
       assert_includes APP_JAVASCRIPT, "conversationController.setAgentRunning(true);"
       assert_includes APP_JAVASCRIPT, "conversationController.setAgentRunning(false);"
       assert_includes response.body, 'class="message-body"'
