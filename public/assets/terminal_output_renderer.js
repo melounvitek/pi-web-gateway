@@ -2,8 +2,6 @@ const DEFAULT_MAX_INPUT_CHARS = 262_144;
 const DEFAULT_MAX_COLUMNS = 500;
 const DEFAULT_MAX_ROWS = 200;
 const DEFAULT_SCROLLBACK = 2_000;
-const MIN_COLUMNS = 80;
-const MIN_ROWS = 24;
 const FULL_SCREEN_CLEAR = /\x1b\[2J(?:\x1b\[(?:H|1;1H))?/g;
 
 let terminalModulePromise;
@@ -17,22 +15,18 @@ export async function renderTerminalOutput(text, options = {}) {
   const source = String(text || "");
   if (!hasTerminalControls(source)) return null;
 
-  const maxInputChars = positiveInteger(options.maxInputChars, DEFAULT_MAX_INPUT_CHARS);
-  const maxColumns = positiveInteger(options.maxColumns, DEFAULT_MAX_COLUMNS);
-  const maxRows = positiveInteger(options.maxRows, DEFAULT_MAX_ROWS);
+  const maxInputChars = Math.min(positiveInteger(options.maxInputChars, DEFAULT_MAX_INPUT_CHARS), DEFAULT_MAX_INPUT_CHARS);
+  const columns = Math.min(positiveInteger(options.maxColumns, DEFAULT_MAX_COLUMNS), DEFAULT_MAX_COLUMNS);
+  const rows = Math.min(positiveInteger(options.maxRows, DEFAULT_MAX_ROWS), DEFAULT_MAX_ROWS);
   const bounded = boundedInput(source, maxInputChars);
   const input = bounded.input;
   const truncated = bounded.truncated || options.sourceTruncated === true;
-  const frame = latestFullScreenFrame(input);
-  const cursorBounds = measuredCursorBounds(frame);
-  const columns = Math.min(maxColumns, Math.max(1, Math.max(MIN_COLUMNS, measuredColumns(frame), cursorBounds.columns)));
-  const rows = Math.min(maxRows, Math.max(1, Math.max(MIN_ROWS, measuredRows(frame), cursorBounds.rows)));
   const { Terminal } = await terminalModule();
   const terminal = new Terminal({
     allowProposedApi: false,
     cols: columns,
     rows,
-    scrollback: Math.min(DEFAULT_SCROLLBACK, maxRows * 10),
+    scrollback: Math.min(DEFAULT_SCROLLBACK, rows * 10),
     convertEol: true,
     disableStdin: true
   });
@@ -67,41 +61,6 @@ function boundedInput(source, maximum) {
     input: latestFrame && latestFrame.length <= maximum ? latestFrame : source.slice(-maximum),
     truncated: true
   };
-}
-
-function latestFullScreenFrame(source) {
-  let start = 0;
-  for (const match of source.matchAll(FULL_SCREEN_CLEAR)) start = match.index + match[0].length;
-  return source.slice(start);
-}
-
-function measuredColumns(source) {
-  return source
-    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "")
-    .replace(/\x1bP[\s\S]*?\x1b\\/g, "")
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-    .split(/[\r\n]/)
-    .reduce((maximum, line) => Math.max(maximum, [...line].length), 0);
-}
-
-function measuredRows(source) {
-  return Math.max(source.split(/\r?\n/).length, 1);
-}
-
-function measuredCursorBounds(source) {
-  const bounds = { columns: 0, rows: 0 };
-  for (const match of source.matchAll(/\x1b\[([0-9;]*)([HfG`d])/g)) {
-    const parameters = match[1].split(";").map((value) => Number(value) || 1);
-    if (["H", "f"].includes(match[2])) {
-      bounds.rows = Math.max(bounds.rows, parameters[0]);
-      bounds.columns = Math.max(bounds.columns, parameters[1] || 1);
-    } else if (["G", "`"].includes(match[2])) {
-      bounds.columns = Math.max(bounds.columns, parameters[0]);
-    } else {
-      bounds.rows = Math.max(bounds.rows, parameters[0]);
-    }
-  }
-  return bounds;
 }
 
 function writeTerminal(terminal, input) {

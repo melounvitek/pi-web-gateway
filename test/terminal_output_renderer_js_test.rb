@@ -43,14 +43,24 @@ class TerminalOutputRendererJsTest < Minitest::Test
   end
 
   def test_expands_geometry_for_absolute_cursor_positions
-    result = render_cases(positioned: "\e[30;100HX")
+    result = render_cases(positioned: "\e[30;100HXYZ")
     rendered = result.fetch("positioned")
 
     assert_operator rendered["rows"], :>=, 30
     assert_operator rendered["columns"], :>=, 100
     assert_equal 30, rendered.fetch("lines").length
-    assert_equal "X", rendered.dig("lines", 29, "text")[-1]
-    assert_equal 100, rendered.dig("lines", 29, "text").length
+    assert_equal "XYZ", rendered.dig("lines", 29, "text")[-3..]
+    assert_equal 102, rendered.dig("lines", 29, "text").length
+  end
+
+  def test_expands_geometry_for_relative_cursor_movement
+    result = render_cases(positioned: "\e[100Cright\e[30Bdown")
+    rendered = result.fetch("positioned")
+
+    assert_operator rendered["columns"], :>=, 105
+    assert_operator rendered["rows"], :>=, 31
+    assert_equal "right", rendered.dig("lines", 0, "text")[-5..]
+    assert_equal "down", rendered.dig("lines", 30, "text")[-4..]
   end
 
   def test_preserves_unicode_and_common_ansi_styles
