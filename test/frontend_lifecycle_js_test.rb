@@ -1039,6 +1039,58 @@ class FrontendLifecycleJsTest < Minitest::Test
     ], results
   end
 
+  def test_focused_activity_renders_only_the_ten_most_recent_items
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+      const render = (itemCount) => {
+        const summaries = [];
+        const messages = Array.from({ length: itemCount }, (_, index) => ({
+          dataset: {},
+          classList: { contains: (name) => name === "message--tool-call" },
+          querySelector(selector) { return selector === ".compact-summary" ? { textContent: `tool ${index + 1}` } : null; },
+          before(summary) { summaries.push(summary); }
+        }));
+        const element = {
+          querySelectorAll(selector) {
+            if (selector === ".message") return messages;
+            if (selector === "[data-focus-activity-summary]") return summaries;
+            return [];
+          },
+          querySelector: () => null
+        };
+        const document = {
+          createElement(tagName) {
+            return {
+              tagName: tagName.toUpperCase(), dataset: {}, children: [], className: "", attributes: {},
+              append(...children) { this.children.push(...children); },
+              setAttribute(name, value) { this.attributes[name] = value; },
+              remove() {}
+            };
+          }
+        };
+        const controller = new ConversationController(document, {});
+        controller.element = element;
+        controller.refreshFocusedActivity();
+        const children = descendants(summaries[0]);
+        return {
+          hiddenNoticeTag: children.find((child) => child.className === "focus-activity-hidden-count")?.tagName,
+          hiddenNotice: children.find((child) => child.className === "focus-activity-hidden-count")?.textContent,
+          items: children
+            .filter((child) => child.className.startsWith("focus-activity-item "))
+            .map((child) => descendants(child).find((item) => item.className === "focus-activity-item-text")?.textContent)
+        };
+      };
+      console.log(JSON.stringify({ singular: render(11), plural: render(12) }));
+    JS
+
+    assert_equal "P", results.dig("singular", "hiddenNoticeTag")
+    assert_equal "… (1 previous item hidden)", results.dig("singular", "hiddenNotice")
+    assert_equal (2..11).map { |index| "tool #{index}" }, results.dig("singular", "items")
+    assert_equal "… (2 previous items hidden)", results.dig("plural", "hiddenNotice")
+    assert_equal (3..12).map { |index| "tool #{index}" }, results.dig("plural", "items")
+  end
+
   def test_focused_activity_running_state_refreshes_only_when_it_changes
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
@@ -1096,7 +1148,7 @@ class FrontendLifecycleJsTest < Minitest::Test
       console.log(JSON.stringify(summaries.map((summary) => {
         const children = descendants(summary);
         const toggle = children.find((child) => child.dataset.focusActivityToggle);
-        const list = children.find((child) => child.className === "focus-activity-list");
+        const details = children.find((child) => child.className === "focus-activity-details");
         return {
           tagName: summary.tagName,
           running: summary.className.includes("is-running"),
@@ -1105,7 +1157,7 @@ class FrontendLifecycleJsTest < Minitest::Test
           items: children.filter((child) => child.tagName === "LI").map((child) => descendants(child).find((item) => item.className === "focus-activity-item-text")?.textContent),
           expandable: !!toggle,
           expanded: toggle?.attributes["aria-expanded"],
-          listHidden: list?.hidden
+          listHidden: details?.hidden
         };
       })));
     JS
@@ -1120,10 +1172,10 @@ class FrontendLifecycleJsTest < Minitest::Test
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
       const values = new Set();
-      const list = { hidden: true };
+      const details = { hidden: true };
       const summary = {
         classList: { toggle(name, enabled) { enabled ? values.add(name) : values.delete(name); } },
-        querySelector: () => list
+        querySelector: () => details
       };
       const toggle = {
         attributes: { "aria-expanded": "false" },
@@ -1134,9 +1186,9 @@ class FrontendLifecycleJsTest < Minitest::Test
       const controller = new ConversationController({}, {});
       controller.updateJumpControls = () => {};
       controller.toggleFocusedActivity(toggle);
-      const expanded = { aria: toggle.attributes["aria-expanded"], listHidden: list.hidden, classActive: values.has("is-expanded") };
+      const expanded = { aria: toggle.attributes["aria-expanded"], listHidden: details.hidden, classActive: values.has("is-expanded") };
       controller.toggleFocusedActivity(toggle);
-      console.log(JSON.stringify({ expanded, collapsed: { aria: toggle.attributes["aria-expanded"], listHidden: list.hidden, classActive: values.has("is-expanded") } }));
+      console.log(JSON.stringify({ expanded, collapsed: { aria: toggle.attributes["aria-expanded"], listHidden: details.hidden, classActive: values.has("is-expanded") } }));
     JS
 
     assert_equal({ "aria" => "true", "listHidden" => false, "classActive" => true }, results.fetch("expanded"))
@@ -1188,6 +1240,93 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal 1, results.fetch("refreshes")
     assert_equal 1, results.fetch("autoScrolls")
     assert_equal false, results.fetch("refreshPending")
+  end
+
+  def test_conversation_view_switch_preserves_the_visible_message_offset
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      class ClassList {
+        constructor() { this.values = new Set(); }
+        toggle(name, enabled) { enabled ? this.values.add(name) : this.values.delete(name); }
+        contains(name) { return this.values.has(name); }
+        remove(name) { this.values.delete(name); }
+      }
+      class ViewSelect {
+        constructor() { this.value = "full"; this.listeners = []; }
+        addEventListener(type, listener) { if (type === "change") this.listeners.push(listener); }
+        removeEventListener(type, listener) { if (type === "change") this.listeners = this.listeners.filter((item) => item !== listener); }
+        closest() { return null; }
+        select(value) { this.value = value; this.listeners.forEach((listener) => listener()); }
+        dispatchEvent() {}
+      }
+      const panel = { classList: new ClassList() };
+      const viewSelect = new ViewSelect();
+      const scroll = {
+        _scrollTop: 0,
+        clientHeight: 400,
+        get scrollTop() { return this._scrollTop; },
+        set scrollTop(value) { this._scrollTop = Math.min(Math.max(0, value), this.scrollHeight - this.clientHeight); },
+        get scrollHeight() { return panel.classList.contains("is-conversation-focused") ? 1_600 : 2_300; },
+        addEventListener() {}, removeEventListener() {}, querySelector: () => null,
+        getBoundingClientRect: () => ({ top: 100, bottom: 500 }),
+        querySelectorAll(selector) { return selector === ".message" ? [anchor] : []; }
+      };
+      const anchor = {
+        dataset: { role: "assistant" },
+        classList: { contains: (name) => name === "message--assistant" },
+        getBoundingClientRect() {
+          const absoluteTop = panel.classList.contains("is-conversation-focused") ? 750 : 1_450;
+          return { top: absoluteTop - scroll.scrollTop + 100, bottom: absoluteTop - scroll.scrollTop + 300 };
+        }
+      };
+      const document = {
+        body: { classList: new ClassList() },
+        getElementById: (id) => id === "conversation-scroll" ? scroll : null,
+        querySelector(selector) {
+          if (selector === ".conversation-panel") return panel;
+          if (selector === "[data-conversation-view-select]") return viewSelect;
+          return null;
+        }
+      };
+      const window = { Event: class {}, location: { search: "", origin: "https://example.test" }, matchMedia: () => ({ matches: false }) };
+      const controller = new ConversationController(document, window);
+      controller.focusedView = true;
+      controller.bind();
+      scroll.scrollTop = 600;
+      const offsetBefore = anchor.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+
+      viewSelect.select("full");
+      const expanded = {
+        focused: panel.classList.contains("is-conversation-focused"),
+        offset: anchor.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
+        scrollTop: scroll.scrollTop
+      };
+      viewSelect.select("conversation");
+      const condensed = {
+        focused: panel.classList.contains("is-conversation-focused"),
+        offset: anchor.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
+        scrollTop: scroll.scrollTop
+      };
+      scroll.scrollTop = scroll.scrollHeight - scroll.clientHeight - 60;
+      viewSelect.select("full");
+
+      console.log(JSON.stringify({
+        offsetBefore,
+        expanded,
+        condensed,
+        bottom: {
+          scrollTop: scroll.scrollTop,
+          maximumScrollTop: scroll.scrollHeight - scroll.clientHeight,
+          autoScrollEnabled: controller.autoScrollEnabled,
+          followsOversizedMessage: controller.followOversizedMessageBottom
+        }
+      }));
+    JS
+
+    assert_equal 150, results.fetch("offsetBefore")
+    assert_equal({ "focused" => false, "offset" => 150, "scrollTop" => 1_300 }, results.fetch("expanded"))
+    assert_equal({ "focused" => true, "offset" => 150, "scrollTop" => 600 }, results.fetch("condensed"))
+    assert_equal({ "scrollTop" => 1_900, "maximumScrollTop" => 1_900, "autoScrollEnabled" => true, "followsOversizedMessage" => true }, results.fetch("bottom"))
   end
 
   def test_conversation_view_selection_applies_on_one_change_event_and_survives_in_page_session_switching

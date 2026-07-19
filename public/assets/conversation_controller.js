@@ -1,5 +1,7 @@
 import { enhanceMarkdownCodeBlocks } from "./dom.js";
 
+const FOCUSED_ACTIVITY_ITEM_LIMIT = 10;
+
 export class ConversationController {
   constructor(document, window) {
     this.document = document;
@@ -55,7 +57,7 @@ export class ConversationController {
     this.applyFocusedView();
     this.listen(this.viewSelect, "change", () => {
       this.focusedView = this.viewSelect.value === "conversation";
-      this.applyFocusedView();
+      this.applyFocusedView(true);
     });
     this.lastScrollTop = this.element?.scrollTop || 0;
     this.scrollDirection = null;
@@ -135,13 +137,40 @@ export class ConversationController {
     this.forceBottomAutoScroll = false;
   }
 
-  applyFocusedView() {
+  applyFocusedView(preserveScroll = false) {
+    const scrollRect = preserveScroll ? this.element?.getBoundingClientRect?.() : null;
+    const anchor = scrollRect && [...this.element.querySelectorAll(".message")]
+      .filter((message) => this.focusedViewMessage(message))
+      .find((message) => message.getBoundingClientRect().bottom > scrollRect.top);
+    const scrollSnapshot = scrollRect ? {
+      top: this.element.scrollTop,
+      nearBottom: this.nearBottom(),
+      anchor,
+      anchorOffset: anchor ? anchor.getBoundingClientRect().top - scrollRect.top : null
+    } : null;
+
     this.conversationPanel?.classList.toggle("is-conversation-focused", this.focusedView);
-    if (!this.viewSelect) return;
-    const value = this.focusedView ? "conversation" : "full";
-    if (this.viewSelect.value === value) return;
-    this.viewSelect.value = value;
-    this.viewSelect.dispatchEvent?.(new this.window.Event("change", { bubbles: true }));
+    if (this.viewSelect) {
+      const value = this.focusedView ? "conversation" : "full";
+      if (this.viewSelect.value !== value) {
+        this.viewSelect.value = value;
+        this.viewSelect.dispatchEvent?.(new this.window.Event("change", { bubbles: true }));
+      }
+    }
+
+    if (!scrollSnapshot) return;
+    if (scrollSnapshot.nearBottom) {
+      this.element.scrollTop = this.element.scrollHeight;
+    } else if (scrollSnapshot.anchor) {
+      this.element.scrollTop += scrollSnapshot.anchor.getBoundingClientRect().top - scrollRect.top - scrollSnapshot.anchorOffset;
+    } else {
+      this.element.scrollTop = Math.min(scrollSnapshot.top, Math.max(0, this.element.scrollHeight - this.element.clientHeight));
+    }
+    this.autoScrollEnabled = scrollSnapshot.nearBottom;
+    this.forceBottomAutoScroll = false;
+    this.followOversizedMessageBottom = scrollSnapshot.nearBottom;
+    this.lastScrollTop = this.element.scrollTop;
+    this.updateJumpControls();
   }
 
   setAgentRunning(running) {
@@ -293,10 +322,19 @@ export class ConversationController {
       summary.append(header);
 
       if (items.length > 0) {
+        const details = this.document.createElement("div");
+        details.className = "focus-activity-details";
+        details.hidden = !expanded;
+        const hiddenItemCount = Math.max(0, items.length - FOCUSED_ACTIVITY_ITEM_LIMIT);
+        if (hiddenItemCount > 0) {
+          const notice = this.document.createElement("p");
+          notice.className = "focus-activity-hidden-count";
+          notice.textContent = `… (${hiddenItemCount} previous ${hiddenItemCount === 1 ? "item" : "items"} hidden)`;
+          details.append(notice);
+        }
         const list = this.document.createElement("ul");
         list.className = "focus-activity-list";
-        list.hidden = !expanded;
-        items.forEach((item) => {
+        items.slice(-FOCUSED_ACTIVITY_ITEM_LIMIT).forEach((item) => {
           const row = this.document.createElement("li");
           row.className = `focus-activity-item focus-activity-item--${item.type}`;
           const marker = this.document.createElement("span");
@@ -309,7 +347,8 @@ export class ConversationController {
           row.append(marker, text);
           list.append(row);
         });
-        summary.append(list);
+        details.append(list);
+        summary.append(details);
       }
       group[0].before(summary);
       if (focusAnchor && group.includes(focusAnchor)) replacementFocus = header;
@@ -333,8 +372,8 @@ export class ConversationController {
     const expanded = toggle.getAttribute("aria-expanded") !== "true";
     toggle.setAttribute("aria-expanded", String(expanded));
     summary.classList.toggle("is-expanded", expanded);
-    const list = summary.querySelector(".focus-activity-list");
-    if (list) list.hidden = !expanded;
+    const details = summary.querySelector(".focus-activity-details");
+    if (details) details.hidden = !expanded;
     this.updateJumpControls();
   }
 

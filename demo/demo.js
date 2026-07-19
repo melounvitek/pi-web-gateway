@@ -1,6 +1,7 @@
 (function (global) {
   "use strict";
 
+  const FOCUSED_ACTIVITY_ITEM_LIMIT = 10;
   const initialSessions = [
     {
       id: "welcome", name: "Welcome to Gripi", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "just now", pinned: true,
@@ -344,14 +345,20 @@
       if (summaryData.errorCount) { const error = document.createElement("span"); error.className = "focus-activity-error-count"; error.textContent = `${summaryData.errorCount} ${summaryData.errorCount === 1 ? "error" : "errors"}`; header.append(error); }
       summary.append(header);
       if (items.length) {
-        const list = document.createElement("ul"); list.className = "focus-activity-list"; list.hidden = !expanded;
-        items.forEach((item) => {
+        const details = document.createElement("div"); details.className = "focus-activity-details"; details.hidden = !expanded;
+        const hiddenItemCount = Math.max(0, items.length - FOCUSED_ACTIVITY_ITEM_LIMIT);
+        if (hiddenItemCount > 0) {
+          const notice = document.createElement("p"); notice.className = "focus-activity-hidden-count"; notice.textContent = `… (${hiddenItemCount} previous ${hiddenItemCount === 1 ? "item" : "items"} hidden)`;
+          details.append(notice);
+        }
+        const list = document.createElement("ul"); list.className = "focus-activity-list";
+        items.slice(-FOCUSED_ACTIVITY_ITEM_LIMIT).forEach((item) => {
           const row = document.createElement("li"); row.className = `focus-activity-item focus-activity-item--${item.type}`;
           const marker = document.createElement("span"); marker.className = "focus-activity-item-marker"; marker.textContent = item.type === "error" ? "!" : "›"; marker.setAttribute("aria-hidden", "true");
           const text = document.createElement("span"); text.className = "focus-activity-item-text"; text.textContent = item.text;
           row.append(marker, text); list.append(row);
         });
-        summary.append(list);
+        details.append(list); summary.append(details);
       }
       messages[0].before(summary);
       if (focusAnchor && messages.includes(focusAnchor)) replacementFocus = header;
@@ -736,7 +743,7 @@
       const summary = activityToggle.closest("[data-focus-activity-summary]");
       const expanded = activityToggle.getAttribute("aria-expanded") !== "true";
       activityToggle.setAttribute("aria-expanded", String(expanded)); summary.classList.toggle("is-expanded", expanded);
-      const list = summary.querySelector(".focus-activity-list"); if (list) list.hidden = !expanded;
+      const details = summary.querySelector(".focus-activity-details"); if (details) details.hidden = !expanded;
       return;
     }
     const copy = event.target.closest("[data-copy-target]"); if (copy) {
@@ -839,8 +846,20 @@
     if (option) selectConversationView(option.dataset.conversationViewValue);
   });
   element.viewSelect.addEventListener("change", () => {
+    const scrollRect = element.scroll.getBoundingClientRect();
+    const anchor = [...element.scroll.querySelectorAll(".message")]
+      .filter((message) => focusedConversationMessage(message))
+      .find((message) => message.getBoundingClientRect().bottom > scrollRect.top);
+    const scrollTop = element.scroll.scrollTop;
+    const nearBottom = element.scroll.scrollHeight - scrollTop - element.scroll.clientHeight < 120;
+    const anchorOffset = anchor ? anchor.getBoundingClientRect().top - scrollRect.top : null;
     focusedView = element.viewSelect.value === "conversation";
     element.panel.classList.toggle("is-conversation-focused", focusedView);
+    if (nearBottom) element.scroll.scrollTop = element.scroll.scrollHeight;
+    else if (anchor) element.scroll.scrollTop += anchor.getBoundingClientRect().top - scrollRect.top - anchorOffset;
+    else element.scroll.scrollTop = Math.min(scrollTop, Math.max(0, element.scroll.scrollHeight - element.scroll.clientHeight));
+    autoScrollEnabled = nearBottom;
+    lastScrollTop = element.scroll.scrollTop;
     refreshOpenFind();
   });
   element.form.addEventListener("submit", (event) => { event.preventDefault(); submitPrompt(); });
