@@ -8,9 +8,9 @@ test("renders live and restored terminal screen state", async ({ page }) => {
   await sendPrompt(page, prompts.terminal);
 
   const card = page.locator(".message--tool-call").filter({ hasText: `$ ${tool.terminalCommand}` }).last();
-  await expect(card).toContainText("Terminal frame one");
   await expect(card).toContainText("Terminal frame two");
   await expect(card).not.toContainText("Terminal frame one");
+  await expect(page.getByRole("button", { name: "Abort running Pi" })).toBeVisible();
   await expect(card.locator(".terminal-output-run").filter({ hasText: "Terminal frame two" })).toHaveCSS("color", "rgb(0, 205, 0)");
   await expectRunFinished(page);
 

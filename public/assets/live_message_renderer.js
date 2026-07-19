@@ -16,6 +16,7 @@ export class LiveMessageRenderer {
     this.lastLiveCompaction = null;
     this.terminalRenderStates = new WeakMap();
     this.terminalBindingGeneration = 0;
+    this.terminalHydration = Promise.resolve();
     this.resetLiveAssistantTracking();
   }
 
@@ -27,7 +28,7 @@ export class LiveMessageRenderer {
     this.pendingMessages = this.document.querySelector("[data-pending-messages]");
     this.lastLiveCompaction = null;
     this.resetLiveAssistantTracking();
-    this.hydrateTerminalOutputs(this.conversationScroll);
+    this.terminalHydration = this.hydrateTerminalOutputs(this.conversationScroll) || Promise.resolve();
     try {
       this.renderQueuedMessages(JSON.parse(this.liveOutput?.dataset.queuedMessages || "{}"));
     } catch (_error) {
@@ -295,28 +296,31 @@ export class LiveMessageRenderer {
     if (bodies.length === 0) return null;
 
     const bindingGeneration = this.terminalBindingGeneration;
-    const renders = bodies.map(async (body) => {
-      let source;
-      try {
-        source = this.decodeTerminalOutputSource(body.dataset.terminalOutputSource);
-      } catch (_error) {
-        return;
-      } finally {
-        delete body.dataset.terminalOutputSource;
+    const hydrate = async () => {
+      for (const body of bodies) {
+        let source;
+        try {
+          source = this.decodeTerminalOutputSource(body.dataset.terminalOutputSource);
+        } catch (_error) {
+          continue;
+        } finally {
+          delete body.dataset.terminalOutputSource;
+        }
+        const sourceTruncated = body.dataset.terminalOutputTruncated === "true";
+        delete body.dataset.terminalOutputTruncated;
+        try {
+          const rendered = await renderTerminalOutput(source, { sourceTruncated });
+          if (bindingGeneration !== this.terminalBindingGeneration) return;
+          this.renderResolvedToolTranscriptBody(body, rendered.lines, rendered.lines.map((line) => line.text).join("\n"), body.dataset.terminalToolName || "");
+        } catch (_error) {
+          if (bindingGeneration !== this.terminalBindingGeneration) return;
+          const lines = source.split("\n");
+          this.renderResolvedToolTranscriptBody(body, lines, source, body.dataset.terminalToolName || "");
+        }
       }
-      try {
-        const rendered = await renderTerminalOutput(source);
-        if (bindingGeneration !== this.terminalBindingGeneration) return;
-        this.renderResolvedToolTranscriptBody(body, rendered.lines, rendered.lines.map((line) => line.text).join("\n"), body.dataset.terminalToolName || "");
-      } catch (_error) {
-        if (bindingGeneration !== this.terminalBindingGeneration) return;
-        const lines = source.split("\n");
-        this.renderResolvedToolTranscriptBody(body, lines, source, body.dataset.terminalToolName || "");
-      }
-    });
-    return Promise.all(renders).then(() => {
       if (notify && bindingGeneration === this.terminalBindingGeneration) this.conversationController.afterLiveOutputChange(this.conversationController.followLiveOutput());
-    });
+    };
+    return hydrate();
   }
 
   decodeTerminalOutputSource(encoded) {
@@ -325,7 +329,6 @@ export class LiveMessageRenderer {
   }
 
   queueTerminalTranscriptRender(body, text, toolName, options) {
-    this.terminalRenderStates ||= new WeakMap();
     const state = this.terminalRenderStates.get(body) || { generation: 0, rendering: false, latest: null };
     state.generation += 1;
     state.latest = { generation: state.generation, text, toolName, options };

@@ -237,6 +237,32 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal 70, results.fetch("scrollTop")
   end
 
+  def test_cancelled_lazy_history_does_not_insert_after_terminal_hydration
+    results = run_javascript(<<~JS)
+      const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
+      const content = { querySelectorAll: () => [] };
+      const template = { content, set innerHTML(_value) {} };
+      const document = { createElement: () => template, body: { classList: { remove() {} } } };
+      const controller = new ConversationController(document, {});
+      let inserted = false;
+      let finishHydration;
+      controller.element = { scrollTop: 0, scrollHeight: 100, insertBefore() { inserted = true; } };
+      controller.bindingEpoch = 1;
+      controller.historyRequestGeneration = 3;
+      controller.refreshFocusedActivity = () => {};
+      controller.updateJumpControls = () => {};
+      controller.historyEnhancer = () => new Promise((resolve) => { finishHydration = resolve; });
+
+      const insertion = controller.insertHistoryHtml("<article></article>", null, true);
+      controller.historyRequestGeneration += 1;
+      finishHydration();
+      await insertion;
+      console.log(JSON.stringify({ inserted }));
+    JS
+
+    assert_equal false, results.fetch("inserted")
+  end
+
   def test_expanding_tool_output_starts_at_its_internal_bottom_without_moving_the_conversation
     app_source = File.read(File.join(ASSETS, "app.js"))
     handler_source = app_source.match(/document\.addEventListener\("click", \(event\) => \{\n  const button = event\.target\.closest\("\[data-tool-output-toggle\]"\);.*?\n\}\);/m).to_s

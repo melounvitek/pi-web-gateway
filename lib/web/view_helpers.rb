@@ -10,6 +10,7 @@ module Web
   module ViewHelpers
     TOOL_OUTPUT_DESKTOP_TAIL_LINES = 18
     TOOL_OUTPUT_MOBILE_TAIL_LINES = 12
+    TERMINAL_OUTPUT_MAX_SOURCE_BYTES = 262_144
     TERMINAL_OUTPUT_EXCLUDED_TOOLS = %w[read edit write].freeze
     PROJECT_IDENTITY_COLORS = [
       ["#6a3b1d33", "#e6a66f"],
@@ -330,7 +331,22 @@ module Web
     end
 
     def terminal_tool_output_source(message)
-      Base64.strict_encode64(message.text.to_s)
+      Base64.strict_encode64(bounded_terminal_tool_output_text(message))
+    end
+
+    def terminal_tool_output_truncated?(message)
+      message.text.to_s.bytesize > TERMINAL_OUTPUT_MAX_SOURCE_BYTES
+    end
+
+    def bounded_terminal_tool_output_text(message)
+      text = message.text.to_s
+      return text unless terminal_tool_output_truncated?(message)
+
+      latest_screen = text.rindex("\e[2J")
+      suffix = text[latest_screen..] if latest_screen
+      return suffix if suffix && suffix.bytesize <= TERMINAL_OUTPUT_MAX_SOURCE_BYTES
+
+      text.byteslice(-TERMINAL_OUTPUT_MAX_SOURCE_BYTES, TERMINAL_OUTPUT_MAX_SOURCE_BYTES).scrub
     end
 
     def collapsible_tool_output?(message)

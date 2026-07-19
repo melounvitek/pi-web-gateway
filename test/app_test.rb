@@ -6034,6 +6034,42 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_bounds_encoded_terminal_history_to_the_latest_full_screen
+    Dir.mktmpdir do |dir|
+      final_screen = "\e[2J\e[Hfinal"
+      terminal_output = ("x" * (Web::ViewHelpers::TERMINAL_OUTPUT_MAX_SOURCE_BYTES + 1)) + final_screen
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "large terminal command" } }]
+          }
+        },
+        {
+          type: "message",
+          timestamp: "2026-06-13T10:00:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "bash-1",
+            toolName: "bash",
+            content: [{ type: "text", text: terminal_output }],
+            isError: false
+          }
+        }
+      ])
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
+
+      body = Nokogiri::HTML(response.body).at_css("[data-terminal-output-source]")
+      assert_equal "true", body["data-terminal-output-truncated"]
+      assert_equal final_screen, Base64.strict_decode64(body["data-terminal-output-source"])
+    end
+  end
+
   def test_collapses_long_tool_outputs_to_latest_lines
     Dir.mktmpdir do |dir|
       long_output = (1..25).map { |index| "line #{index}" }.join("\n")
@@ -7804,6 +7840,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "loadOlderHistory()"
       assert_includes APP_JAVASCRIPT, "previousHeight"
       assert_includes APP_JAVASCRIPT, "element.scrollTop = previousTop + (element.scrollHeight - previousHeight)"
+      assert_includes APP_JAVASCRIPT, "await liveMessageRenderer.terminalHydration"
     end
   end
 

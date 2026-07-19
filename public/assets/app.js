@@ -2887,7 +2887,8 @@ function initializeSessionView({ focus = true, scrollSnapshot = null } = {}) {
     hydrateExtensionUiState();
     scheduleNextEventPoll(0);
     if (!scrollSnapshot || scrollSnapshot.nearBottom) conversationController.positionInitialAtBottom();
-    requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
+      await liveMessageRenderer.terminalHydration;
       if (generation !== sessionViewGeneration) return;
       loadStoredComposerDraft();
       updatePromptPlaceholder();

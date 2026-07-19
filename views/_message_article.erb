@@ -41,7 +41,7 @@
                             <span class="tool-output-hidden-count tool-output-hidden-count--mobile"></span>
                             <button type="button" class="tool-output-toggle" data-tool-output-toggle aria-expanded="false">Expand</button>
                           </div>
-                          <pre class="message-body" data-tool-output-body data-terminal-output-source="<%= h terminal_tool_output_source(message) %>" data-terminal-tool-name="<%= h message.tool_name %>"></pre>
+                          <pre class="message-body" data-tool-output-body data-terminal-output-source="<%= h terminal_tool_output_source(message) %>" data-terminal-tool-name="<%= h message.tool_name %>"<%= ' data-terminal-output-truncated="true"' if terminal_tool_output_truncated?(message) %>></pre>
                           <template data-tool-output-full></template>
                           <template data-tool-output-tail></template>
                         </div>

@@ -608,8 +608,9 @@ export class ConversationController {
     enhanceMarkdownCodeBlocks(template.content, this.document);
     const element = this.element;
     const bindingEpoch = this.bindingEpoch;
+    const historyRequestGeneration = this.historyRequestGeneration;
     const insert = () => {
-      if (element !== this.element || bindingEpoch !== this.bindingEpoch) return;
+      if (element !== this.element || bindingEpoch !== this.bindingEpoch || historyRequestGeneration !== this.historyRequestGeneration) return;
       const previousTop = element.scrollTop;
       const previousHeight = element.scrollHeight;
       element.insertBefore(template.content, insertionPoint);
@@ -672,15 +673,16 @@ export class ConversationController {
         }
 
         const preserveGapViewport = forward && this.historyGapAboveViewport();
+        if (forward) await this.insertBeforeHistoryGap(payload.html || "", preserveGapViewport);
+        else await this.prependOlderHtml(payload.html || "");
+        if (!unchanged()) return "cancelled";
+
         if (forward) scrollElement.dataset.oldestMessageEndCursor = String(nextCursor);
         else scrollElement.dataset.olderMessageCursor = String(nextCursor);
         scrollElement.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
         scrollElement.dataset.olderMessageCount = String(payload.older_message_count || 0);
         if (payload.has_older_messages) this.availableHistoryStatus();
         else this.finishHistoryStatus();
-
-        if (forward) await this.insertBeforeHistoryGap(payload.html || "", preserveGapViewport);
-        else await this.prependOlderHtml(payload.html || "");
         return payload.has_older_messages ? "more" : "complete";
       } catch (error) {
         if (!unchanged() || error?.name === "AbortError") return "cancelled";

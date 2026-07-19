@@ -250,7 +250,7 @@ function acceptPrompt(command) {
 
   const reply = path.basename(process.cwd()).startsWith("new-session-") ? replies.newSession : replies.standard;
   if (command.message === prompts.terminal) {
-    schedule(120, () => completeWithTool(reply, { command: tool.terminalCommand, updates: tool.terminalUpdates, updateDelay: 350 }));
+    schedule(120, () => completeWithTool(reply, { command: tool.terminalCommand, updates: tool.terminalUpdates, updateDelay: 350, completionDelay: 800 }));
   } else {
     schedule(120, () => completeWithTool(reply));
   }
@@ -332,7 +332,7 @@ function completeWithTool(reply, options = {}) {
     emitMessage(toolResult);
     emit({ type: "turn_end", message: toolMessage, toolResults: [toolResult] });
     emit({ type: "turn_start" });
-    schedule(120, () => completeAssistant(reply));
+    schedule(options.completionDelay || 120, () => completeAssistant(reply));
   };
   const publishUpdate = (index) => {
     emit({ type: "tool_execution_update", toolCallId, toolName: "bash", args: { command }, partialResult: { content: [{ type: "text", text: updates[index] }], details: {} } });

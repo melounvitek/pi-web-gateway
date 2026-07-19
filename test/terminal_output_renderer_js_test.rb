@@ -42,6 +42,17 @@ class TerminalOutputRendererJsTest < Minitest::Test
     assert_equal ["new one", "new two"], result.dig("screen", "lines").map { |line| line["text"] }
   end
 
+  def test_expands_geometry_for_absolute_cursor_positions
+    result = render_cases(positioned: "\e[30;100HX")
+    rendered = result.fetch("positioned")
+
+    assert_operator rendered["rows"], :>=, 30
+    assert_operator rendered["columns"], :>=, 100
+    assert_equal 30, rendered.fetch("lines").length
+    assert_equal "X", rendered.dig("lines", 29, "text")[-1]
+    assert_equal 100, rendered.dig("lines", 29, "text").length
+  end
+
   def test_preserves_unicode_and_common_ansi_styles
     result = render_cases(styled: "界 \e[1;3;4;31;44mred\e[0m \e[38;2;1;2;3mtrue\e[0m")
     line = result.dig("styled", "lines", 0)
@@ -55,6 +66,15 @@ class TerminalOutputRendererJsTest < Minitest::Test
     assert_equal true, red.dig("style", "italic")
     assert_equal true, red.dig("style", "underline")
     assert_equal({ "mode" => "rgb", "value" => 0x010203 }, true_color.dig("style", "foreground"))
+  end
+
+  def test_preserves_terminal_styling_that_makes_spaces_visible
+    result = render_cases(spaces: "\e[7m  \e[0m\e[4m  \e[0m")
+    line = result.dig("spaces", "lines", 0)
+
+    assert_equal "    ", line["text"]
+    assert_equal true, line.dig("runs", 0, "style", "inverse")
+    assert_equal true, line.dig("runs", 1, "style", "underline")
   end
 
   def test_ignores_terminal_links_clipboard_requests_and_titles
