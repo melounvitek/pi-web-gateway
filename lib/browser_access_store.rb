@@ -107,6 +107,17 @@ class BrowserAccessStore
     end
   end
 
+  def replace_browser_token(old_token, new_token, label: nil)
+    return if new_token.to_s.empty?
+
+    update do |state|
+      state.fetch("approved_browsers").reject! { |browser| browser["token"] == old_token }
+      state.fetch("pending_requests").reject! { |request| [old_token, new_token].include?(request["token"]) }
+      add_approved_browser(state, new_token, label)
+      true
+    end
+  end
+
   def deny_code(code)
     update do |state|
       request = state.fetch("pending_requests").find { |item| item["code"] == code }

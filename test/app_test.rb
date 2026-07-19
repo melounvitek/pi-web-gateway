@@ -633,7 +633,9 @@ class AppTest < Minitest::Test
     )
     assert_equal 303, approved.status
     assert_equal "http://example.org/?session=original", approved["Location"]
-    assert store.approved?("new-token")
+    fresh_token = Array(approved["Set-Cookie"]).first.split(";", 2).first.delete_prefix("gripi_browser=")
+    refute store.approved?("new-token")
+    assert store.approved?(fresh_token)
   end
 
   def test_browser_auth_disabled_opens_single_user_gateway_without_browser_approval
@@ -686,6 +688,8 @@ class AppTest < Minitest::Test
         "HTTP_COOKIE" => "gripi_browser=#{approved_token}"
       )
       assert_equal 200, approve_response.status
+      assert_nil approve_response["Set-Cookie"]
+      assert store.approved?(pending.fetch("token"))
 
       allowed = request.get("/", "HTTP_COOKIE" => cookie)
       assert_equal 200, allowed.status
@@ -798,26 +802,67 @@ class AppTest < Minitest::Test
     assert_equal 429, limited.status
   end
 
-  def test_admin_password_approves_current_browser
+  def test_admin_password_login_replaces_attacker_selected_pending_token_with_fresh_approved_cookie
     Dir.mktmpdir do |dir|
       write_session(dir)
       Gripi.set :sessions_root, dir
       Gripi.set :gateway_admin_password, "secret"
       request = Rack::MockRequest.new(Gripi)
+      store = BrowserAccessStore.new(path: Gripi.settings.browser_access_path)
+      store.request_access("attacker-selected", ip: "127.0.0.1", user_agent: "test")
 
-      blocked = request.get("/")
-      cookie = Array(blocked["Set-Cookie"]).first.split(";", 2).first
       login = request.post(
         "/browser-access/admin-login",
         params: { "password" => "secret" },
-        "HTTP_COOKIE" => cookie
+        "HTTP_COOKIE" => "gripi_browser=attacker-selected"
       )
-      assert_equal 303, login.status
 
-      allowed = request.get("/", "HTTP_COOKIE" => cookie)
-      assert_equal 200, allowed.status
-      refute_includes allowed.body, "Browser access required"
+      assert_equal 303, login.status
+      fresh_cookie = Array(login["Set-Cookie"]).first.split(";", 2).first
+      fresh_token = fresh_cookie.delete_prefix("gripi_browser=")
+      refute_equal "attacker-selected", fresh_token
+      refute store.approved?("attacker-selected")
+      assert store.approved?(fresh_token)
+      assert_nil store.pending_request("attacker-selected")
+      assert_equal 403, request.get("/", "HTTP_COOKIE" => "gripi_browser=attacker-selected").status
+      assert_equal 200, request.get("/", "HTTP_COOKIE" => fresh_cookie).status
     end
+  end
+
+  def test_admin_password_login_replaces_previously_approved_token
+    Gripi.set :gateway_admin_password, "secret"
+    request = Rack::MockRequest.new(Gripi)
+    store = BrowserAccessStore.new(path: Gripi.settings.browser_access_path)
+    store.approve_current_browser("old-approved", label: "test")
+
+    login = request.post(
+      "/browser-access/admin-login",
+      params: { "password" => "secret" },
+      "HTTP_COOKIE" => "gripi_browser=old-approved"
+    )
+
+    fresh_token = Array(login["Set-Cookie"]).first.split(";", 2).first.delete_prefix("gripi_browser=")
+    refute store.approved?("old-approved")
+    assert store.approved?(fresh_token)
+  end
+
+  def test_failed_admin_password_login_does_not_rotate_or_approve_token
+    Gripi.set :gateway_admin_password, "secret"
+    request = Rack::MockRequest.new(Gripi)
+    store = BrowserAccessStore.new(path: Gripi.settings.browser_access_path)
+    pending = store.request_access("submitted-token", ip: "127.0.0.1", user_agent: "test")
+
+    login = request.post(
+      "/browser-access/admin-login",
+      params: { "password" => "wrong" },
+      "HTTP_COOKIE" => "gripi_browser=submitted-token"
+    )
+
+    assert_equal 403, login.status
+    assert_nil login["Set-Cookie"]
+    refute store.approved?("submitted-token")
+    assert_equal pending.fetch("code"), store.pending_request("submitted-token").fetch("code")
+    assert_empty JSON.parse(File.read(Gripi.settings.browser_access_path)).fetch("approved_browsers")
   end
 
   def test_posts_prompt_to_selected_session_and_redirects_back

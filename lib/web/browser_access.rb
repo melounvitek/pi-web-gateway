@@ -32,12 +32,21 @@ module Web
       def browser_token
         return @browser_token if defined?(@browser_token)
 
-        @browser_token = request.cookies["gripi_browser"].to_s
-        return @browser_token unless @browser_token.empty? || @browser_token.bytesize > 128
+        @browser_token = submitted_browser_token
+        return @browser_token if @browser_token
 
-        @browser_token = SecureRandom.hex(32)
-        response.set_cookie("gripi_browser", value: @browser_token, path: "/", httponly: true, secure: secure_transport?, same_site: :lax, max_age: 365 * 24 * 60 * 60)
-        @browser_token
+        set_browser_token(SecureRandom.hex(32))
+      end
+
+      def submitted_browser_token
+        token = request.cookies["gripi_browser"].to_s
+        token unless token.empty? || token.bytesize > 128
+      end
+
+      def set_browser_token(token)
+        @browser_token = token
+        response.set_cookie("gripi_browser", value: token, path: "/", httponly: true, secure: secure_transport?, same_site: :lax, max_age: 365 * 24 * 60 * 60)
+        token
       end
 
       def approved_browser?
@@ -105,7 +114,10 @@ module Web
         halt 429, "Too many admin login attempts" unless settings.admin_login_rate_limiter.allow?(client_rate_limit_key)
 
         if secure_compare(params["password"].to_s, settings.gateway_admin_password.to_s)
-          browser_access_store.approve_current_browser(browser_token, label: request.user_agent)
+          old_token = submitted_browser_token
+          new_token = SecureRandom.hex(32)
+          browser_access_store.replace_browser_token(old_token, new_token, label: request.user_agent)
+          set_browser_token(new_token)
           redirect safe_return_to
         else
           @access_request = browser_access_store.pending_request(browser_token)
