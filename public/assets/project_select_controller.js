@@ -19,6 +19,7 @@ export class ProjectSelectController {
 
       this.close(wrapper);
       clearTimeout(state.typeaheadTimer);
+      state.select.removeEventListener("change", state.onChange);
       state.listbox.remove();
       state.trigger.remove();
       state.select.classList.remove("project-select-native-hidden");
@@ -35,7 +36,7 @@ export class ProjectSelectController {
     const selectedOption = select?.selectedOptions[0];
     if (!state || !selectedOption) return;
 
-    this.renderOption(state.trigger, selectedOption, true);
+    this.renderOption(state.trigger, selectedOption, true, state.plain);
     state.options.forEach((customOption, index) => {
       customOption.setAttribute("aria-selected", index === select.selectedIndex ? "true" : "false");
     });
@@ -85,13 +86,14 @@ export class ProjectSelectController {
     if (!select || !select.options.length) return;
 
     const id = `project-select-${++this.serial}`;
+    const plain = wrapper.hasAttribute("data-project-select-plain");
     const labelledBy = select.getAttribute("aria-labelledby");
     const associatedLabel = labelledBy ? this.document.getElementById(labelledBy) : null;
     const accessibleLabel = select.getAttribute("aria-label") || associatedLabel?.textContent || "Choose project";
     const trigger = this.document.createElement("button");
     trigger.type = "button";
     trigger.id = `${id}-trigger`;
-    trigger.className = "project-select-trigger";
+    trigger.className = `project-select-trigger${plain ? " project-select-trigger--plain" : ""}`;
     trigger.setAttribute("role", "combobox");
     trigger.setAttribute("aria-haspopup", "listbox");
     trigger.setAttribute("aria-expanded", "false");
@@ -100,11 +102,11 @@ export class ProjectSelectController {
     trigger.setAttribute("aria-label", accessibleLabel.trim());
 
     const originalLabelFor = associatedLabel?.htmlFor ?? null;
-    if (associatedLabel?.htmlFor === select.id) associatedLabel.htmlFor = trigger.id;
+    if (associatedLabel && associatedLabel.htmlFor === select.id) associatedLabel.htmlFor = trigger.id;
 
     const listbox = this.document.createElement("div");
     listbox.id = `${id}-listbox`;
-    listbox.className = "project-select-listbox";
+    listbox.className = `project-select-listbox${plain ? " project-select-listbox--plain" : ""}`;
     listbox.setAttribute("role", "listbox");
     listbox.setAttribute("aria-labelledby", trigger.id);
     listbox.hidden = true;
@@ -113,11 +115,11 @@ export class ProjectSelectController {
     const options = nativeOptions.map((nativeOption, index) => {
       const option = this.document.createElement("div");
       option.id = `${id}-option-${index}`;
-      option.className = "project-select-option";
+      option.className = `project-select-option${plain ? " project-select-option--plain" : ""}`;
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", index === select.selectedIndex ? "true" : "false");
       if (nativeOption.dataset.projectForeground) option.style.setProperty("--project-identity-fg", nativeOption.dataset.projectForeground);
-      this.renderOption(option, nativeOption);
+      this.renderOption(option, nativeOption, false, plain);
       option.addEventListener("click", (event) => {
         event.stopPropagation();
         this.selectOption(wrapper, option);
@@ -127,8 +129,9 @@ export class ProjectSelectController {
       return option;
     });
 
+    const onChange = () => this.sync(select);
     wrapper._projectSelectState = {
-      select, trigger, listbox, nativeOptions, options,
+      select, trigger, listbox, nativeOptions, options, plain, onChange,
       activeIndex: Math.max(0, select.selectedIndex),
       typeahead: "", typeaheadTimer: null,
       originalTabIndex: select.tabIndex,
@@ -138,6 +141,7 @@ export class ProjectSelectController {
     select.classList.add("project-select-native-hidden");
     select.tabIndex = -1;
     select.setAttribute("aria-hidden", "true");
+    select.addEventListener("change", onChange);
     wrapper.append(trigger);
     this.document.body.append(listbox);
     this.sync(select);
@@ -150,26 +154,29 @@ export class ProjectSelectController {
     trigger.addEventListener("keydown", (event) => this.handleKeydown(event, wrapper));
   }
 
-  renderOption(container, option, includeChevron = false) {
+  renderOption(container, option, includeChevron = false, plain = false) {
     container.replaceChildren();
     if (option.dataset.projectForeground) container.style.setProperty("--project-identity-fg", option.dataset.projectForeground);
     else container.style.removeProperty("--project-identity-fg");
-    const icon = this.document.createElement("span");
-    if (option.dataset.projectMonogram) {
-      icon.className = "project-identity-icon";
-      icon.textContent = option.dataset.projectMonogram;
-      icon.style.setProperty("--project-identity-bg", option.dataset.projectBackground);
-      icon.style.setProperty("--project-identity-fg", option.dataset.projectForeground);
-    } else {
-      icon.className = "project-select-neutral-icon";
-      icon.textContent = option.dataset.projectOptionKind === "new" ? "+" : "•";
+    if (!plain) {
+      const icon = this.document.createElement("span");
+      if (option.dataset.projectMonogram) {
+        icon.className = "project-identity-icon";
+        icon.textContent = option.dataset.projectMonogram;
+        icon.style.setProperty("--project-identity-bg", option.dataset.projectBackground);
+        icon.style.setProperty("--project-identity-fg", option.dataset.projectForeground);
+      } else {
+        icon.className = "project-select-neutral-icon";
+        icon.textContent = option.dataset.projectOptionKind === "new" ? "+" : "•";
+      }
+      icon.setAttribute("aria-hidden", "true");
+      container.append(icon);
     }
-    icon.setAttribute("aria-hidden", "true");
 
     const label = this.document.createElement("span");
     label.className = includeChevron ? "project-select-trigger-label" : "project-select-option-label";
     label.textContent = option.textContent;
-    container.append(icon, label);
+    container.append(label);
     if (!includeChevron) return;
 
     const chevron = this.document.createElement("span");
@@ -224,7 +231,6 @@ export class ProjectSelectController {
     const index = state?.options.indexOf(option);
     if (!state || index == null || index < 0) return;
     state.select.selectedIndex = index;
-    this.sync(state.select);
     this.close(wrapper, { restoreFocus: true });
     state.select.dispatchEvent(new this.window.Event("change", { bubbles: true }));
   }

@@ -51,6 +51,7 @@ export class ConversationController {
     this.jumpToLatestButton = this.document.querySelector(".jump-to-latest");
     this.conversationPanel = this.document.querySelector(".conversation-panel");
     this.viewSelect = this.document.querySelector("[data-conversation-view-select]");
+    this.viewSelectControl = this.viewSelect?.closest?.("[data-project-select]")?._projectSelectState?.trigger || this.viewSelect;
     this.applyFocusedView();
     this.listen(this.viewSelect, "change", () => {
       this.focusedView = this.viewSelect.value === "conversation";
@@ -128,6 +129,7 @@ export class ConversationController {
     this.liveOutput = null;
     this.conversationPanel = null;
     this.viewSelect = null;
+    this.viewSelectControl = null;
     this.agentRunning = false;
     this.autoScrollEnabled = true;
     this.forceBottomAutoScroll = false;
@@ -135,7 +137,11 @@ export class ConversationController {
 
   applyFocusedView() {
     this.conversationPanel?.classList.toggle("is-conversation-focused", this.focusedView);
-    if (this.viewSelect) this.viewSelect.value = this.focusedView ? "conversation" : "full";
+    if (!this.viewSelect) return;
+    const value = this.focusedView ? "conversation" : "full";
+    if (this.viewSelect.value === value) return;
+    this.viewSelect.value = value;
+    this.viewSelect.dispatchEvent?.(new this.window.Event("change", { bubbles: true }));
   }
 
   setAgentRunning(running) {
@@ -308,7 +314,7 @@ export class ConversationController {
       group[0].before(summary);
       if (focusAnchor && group.includes(focusAnchor)) replacementFocus = header;
     });
-    if (activeToggle && !replacementFocus) replacementFocus = this.viewSelect;
+    if (activeToggle && !replacementFocus) replacementFocus = this.viewSelectControl;
     replacementFocus?.focus({ preventScroll: true });
   }
 

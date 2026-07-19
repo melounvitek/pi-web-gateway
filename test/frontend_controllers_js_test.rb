@@ -520,6 +520,80 @@ class FrontendControllersJsTest < Minitest::Test
     assert_equal 1, results.fetch("windowResizes")
   end
 
+  def test_project_select_controller_renders_and_selects_plain_options
+    results = run_javascript(<<~JS)
+      const { ProjectSelectController } = await import(#{module_url("project_select_controller.js").to_json});
+      #{dom_fakes}
+
+      const document = new FakeDocument();
+      const window = new FakeEventTarget();
+      window.Event = class { constructor(type, options) { this.type = type; this.bubbles = options?.bubbles; } };
+      window.matchMedia = () => ({ matches: false });
+      window.innerHeight = 900;
+      window.innerWidth = 1200;
+      const wrapper = new FakeElement("div", ["[data-project-select]"]);
+      wrapper.setAttribute("data-project-select-plain", "");
+      const select = new FakeElement("select");
+      select.setAttribute("aria-label", "Transcript view");
+      select.options = [nativeOption("full", "All details"), nativeOption("conversation", "Messages only")];
+      select.selectedIndex = 0;
+      Object.defineProperty(select, "selectedOptions", { get() { return [this.options[this.selectedIndex]]; } });
+      let changes = 0;
+      select.dispatchEvent = (event) => {
+        if (event.type === "change") changes += 1;
+        (select.listeners.get(event.type) || []).forEach((listener) => listener(event));
+        return true;
+      };
+      wrapper.append(select);
+      document.body.append(wrapper);
+
+      const controller = new ProjectSelectController(document, window);
+      controller.initialize();
+      const state = wrapper._projectSelectState;
+      controller.open(wrapper);
+      state.options[1].listeners.get("click")[0]({ stopPropagation() {} });
+      const selectedAfterClick = select.selectedIndex;
+      const triggerLabelAfterClick = state.trigger.children[0].textContent;
+      select.selectedIndex = 0;
+      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+      console.log(JSON.stringify({
+        triggerPlain: state.trigger.classList.contains("project-select-trigger--plain"),
+        listboxPlain: state.listbox.classList.contains("project-select-listbox--plain"),
+        optionPlain: state.options.every((option) => option.classList.contains("project-select-option--plain")),
+        triggerChildren: state.trigger.children.map((child) => child.className),
+        optionChildren: state.options.map((option) => option.children.map((child) => child.className)),
+        selectedAfterClick,
+        triggerLabelAfterClick,
+        triggerLabelAfterExternalChange: state.trigger.children[0].textContent,
+        expanded: state.trigger.getAttribute("aria-expanded"),
+        listboxHidden: state.listbox.hidden,
+        changeListeners: select.listenerCount("change"),
+        changes
+      }));
+
+      function nativeOption(value, text) {
+        const option = new FakeElement("option");
+        option.value = value;
+        option.textContent = text;
+        return option;
+      }
+    JS
+
+    assert_equal true, results.fetch("triggerPlain")
+    assert_equal true, results.fetch("listboxPlain")
+    assert_equal true, results.fetch("optionPlain")
+    assert_equal ["project-select-trigger-label", "project-select-chevron"], results.fetch("triggerChildren")
+    assert_equal [["project-select-option-label"], ["project-select-option-label"]], results.fetch("optionChildren")
+    assert_equal 1, results.fetch("selectedAfterClick")
+    assert_equal "Messages only", results.fetch("triggerLabelAfterClick")
+    assert_equal "All details", results.fetch("triggerLabelAfterExternalChange")
+    assert_equal "false", results.fetch("expanded")
+    assert_equal true, results.fetch("listboxHidden")
+    assert_equal 1, results.fetch("changeListeners")
+    assert_equal 2, results.fetch("changes")
+  end
+
   def test_new_session_form_controller_keeps_suggestions_until_submit_click
     results = run_javascript(<<~JS)
       const { NewSessionFormController } = await import(#{module_url("new_session_form_controller.js").to_json});

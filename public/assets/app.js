@@ -202,6 +202,7 @@ function bindSessionDom() {
   abortButton = document.querySelector(".abort-button");
   commandList = document.getElementById("command-list");
   highlightedCommandIndex = 0;
+  projectSelectController.initialize(conversationPanel);
   conversationController.bind(promptTextarea);
   composerAutocompleteController.bind(promptTextarea, document.getElementById("composer-path-list"));
   conversationScroll = conversationController.element;
@@ -2109,6 +2110,7 @@ function resetSessionViewState() {
   activeExtensionUiRequest = null;
   closeModal(extensionUiModal);
   resetExtensionUiModal();
+  projectSelectController.destroy(conversationPanel);
   conversationController.reset();
   sessionViewGeneration += 1;
   clearTimeout(eventPollTimer);

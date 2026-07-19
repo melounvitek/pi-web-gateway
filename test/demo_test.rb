@@ -75,8 +75,17 @@ class DemoTest < Minitest::Test
     refute body.at_css(".jump-controls, .jump-button, .conversation-history-status")
     refute_includes body.text, "Earlier messages available in a connected gateway"
     view_select = body.at_css(".session-header-project [data-conversation-view-select]")
+    view_trigger = body.at_css("[data-conversation-view-trigger]")
+    view_listbox = body.at_css("[data-conversation-view-listbox]")
     assert_equal "true", body.at_css(".session-header-project-icon")["aria-hidden"]
     assert_equal [["All details", "full"], ["Messages only", "conversation"]], view_select.css("option").map { |option| [option.text, option["value"]] }
+    assert view_select.key?("aria-hidden")
+    assert_equal "combobox", view_trigger["role"]
+    assert_equal "listbox", view_trigger["aria-haspopup"]
+    assert_equal "false", view_trigger["aria-expanded"]
+    assert_equal "listbox", view_listbox["role"]
+    assert view_listbox.key?("hidden")
+    assert_equal ["All details", "Messages only"], view_listbox.css('[role="option"]').map(&:text)
     assert_nil body.at_css("[data-conversation-focus-toggle]")
     assert_equal "pi", body.at_css(".message--assistant.message--thinking .role").text
     assert_equal "pi", body.at_css(".message--assistant:not(.message--thinking):not(.message--tool-call) .role").text
@@ -279,7 +288,18 @@ class DemoTest < Minitest::Test
 
     assert_includes coarse_styles, ".session-row a.session { padding-right: 3.6rem; }"
     assert_includes coarse_styles, ".session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }"
-    assert_includes coarse_styles, ".session-header-view-select { min-height: 2.75rem; font-size: 16px; }"
+    assert_includes coarse_styles, ".session-header-view-select > select { min-height: 2.75rem; font-size: 16px; }"
+    assert_includes coarse_styles, ".session-header-view-select .project-select-trigger--plain { min-height: 2.75rem; }"
+  end
+
+  def test_demo_conversation_view_selector_supports_keyboard_navigation
+    javascript = File.read(JAVASCRIPT)
+
+    assert_includes javascript, 'element.viewTrigger.addEventListener("keydown", (event) => {'
+    assert_includes javascript, '["ArrowDown", "ArrowUp", "Home", "End"]'
+    assert_includes javascript, 'element.viewTrigger.setAttribute("aria-activedescendant", options[viewActiveIndex].id);'
+    assert_includes javascript, 'if (event.key === "Tab" && open) { closeConversationView(); return; }'
+    assert_includes javascript, 'if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); closeConversationView({ focus: true }); return; }'
   end
 
   def test_demo_mobile_composer_starts_clean_and_compact

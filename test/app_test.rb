@@ -3207,7 +3207,13 @@ class AppTest < Minitest::Test
 
     assert_includes coarse_styles, ".session-row a.session { padding-right: 3.6rem; }"
     assert_includes coarse_styles, ".session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }"
-    assert_includes coarse_styles, ".session-header-view-select { min-height: 2.75rem; font-size: 16px; }"
+    assert_includes coarse_styles, ".session-header-view-select > select { min-height: 2.75rem; font-size: 16px; }"
+    assert_includes coarse_styles, ".session-header-view-select .project-select-trigger--plain { min-height: 2.75rem; }"
+  end
+
+  def test_mobile_custom_selectors_keep_compact_typography
+    assert_includes APP_STYLESHEET, ".project-select-trigger { min-height: 2.75rem; }"
+    refute_includes APP_STYLESHEET, ".project-select-trigger { min-height: 2.75rem; font-size: 16px; }"
   end
 
   def test_narrow_header_prioritizes_the_transcript_view_selector
@@ -5654,6 +5660,8 @@ class AppTest < Minitest::Test
       assert_includes response.body, 'class="message message--error" data-role="error"'
       view_select = document.at_css(".session-header-project [data-conversation-view-select]")
       refute_nil view_select
+      assert view_select.parent.key?("data-project-select")
+      assert view_select.parent.key?("data-project-select-plain")
       assert_equal "Transcript view", view_select["aria-label"]
       assert_equal [["All details", "full"], ["Messages only", "conversation"]], view_select.css("option").map { |option| [option.text, option["value"]] }
       assert_equal "full", view_select.at_css("option[selected]")["value"]
@@ -5667,7 +5675,8 @@ class AppTest < Minitest::Test
       assert_includes APP_STYLESHEET, ".focus-activity-item { width: max-content; min-width: 100%;"
       assert_includes APP_STYLESHEET, ".focus-activity-error-count {"
       assert_includes APP_STYLESHEET, ".focus-activity-spinner {"
-      assert_includes APP_STYLESHEET, ".session-header-view-select {"
+      assert_includes APP_STYLESHEET, ".session-header-view-select .project-select-trigger--plain {"
+      assert_includes APP_STYLESHEET, ".project-select-listbox--plain .project-select-option--plain {"
       assert_includes APP_JAVASCRIPT, "conversationController.setAgentRunning(true);"
       assert_includes APP_JAVASCRIPT, "conversationController.setAgentRunning(false);"
       assert_includes response.body, 'class="message-body"'

@@ -9,7 +9,8 @@ class FrontendLifecycleJsTest < Minitest::Test
     source = File.read(File.join(ASSETS, "app.js"))
 
     assert_includes source, 'composerAutocompleteController.bind(promptTextarea, document.getElementById("composer-path-list"));'
-    assert_match(/function resetSessionViewState\(\) \{.*?composerAutocompleteController\.destroy\(\);/m, source)
+    assert_match(/function bindSessionDom\(\) \{.*?projectSelectController\.initialize\(conversationPanel\);.*?conversationController\.bind\(promptTextarea\);/m, source)
+    assert_match(/function resetSessionViewState\(\) \{.*?projectSelectController\.destroy\(conversationPanel\);.*?conversationController\.reset\(\);/m, source)
     assert_match(/if \(promptTextarea\.value\.startsWith\("\/"\).*?selectHighlightedCommand\(\);.*?if \(composerAutocompleteController\.handleKeydown\(event\)\) return;.*?cycleThinkingShortcut.*?toggleConversationPromptFocus.*?keyboardStreamingBehaviorOverride = event\.altKey/m, source)
     assert_includes source, 'if (event.key === "Escape" && !event.defaultPrevented && confirmOrStopRunningTask(event)) return;'
     assert_match(/event\.type === "compaction_end".*?composerCompacting = "false";.*?setComposerState\("running"/m, source)
@@ -1200,9 +1201,10 @@ class FrontendLifecycleJsTest < Minitest::Test
         contains(name) { return this.values.has(name); }
       }
       class ViewSelect {
-        constructor() { this.value = "full"; this.listeners = []; }
+        constructor() { this.value = "full"; this.listeners = []; this.trigger = { focus() {} }; }
         addEventListener(type, listener) { if (type === "change") this.listeners.push(listener); }
         removeEventListener(type, listener) { if (type === "change") this.listeners = this.listeners.filter((item) => item !== listener); }
+        closest() { return { _projectSelectState: { trigger: this.trigger } }; }
         select(value) { this.value = value; this.listeners.forEach((listener) => listener()); }
       }
       const scroll = {
@@ -1220,10 +1222,11 @@ class FrontendLifecycleJsTest < Minitest::Test
           return null;
         }
       };
-      const window = { location: { search: "", origin: "https://example.test" }, matchMedia: () => ({ matches: false }) };
+      const window = { Event: class { constructor(type) { this.type = type; } }, location: { search: "", origin: "https://example.test" }, matchMedia: () => ({ matches: false }) };
       const controller = new ConversationController(document, window);
       controller.bind();
       const initialView = viewSelect.value;
+      const initialControlUsesTrigger = controller.viewSelectControl === viewSelect.trigger;
       viewSelect.select("conversation");
       const firstPanelFocused = panel.classList.contains("is-conversation-focused");
       const selectedView = viewSelect.value;
@@ -1240,6 +1243,7 @@ class FrontendLifecycleJsTest < Minitest::Test
       reloadedController.bind();
       console.log(JSON.stringify({
         initialView,
+        initialControlUsesTrigger,
         firstPanelFocused,
         selectedView,
         switchedPanelFocused,
@@ -1250,6 +1254,7 @@ class FrontendLifecycleJsTest < Minitest::Test
     JS
 
     assert_equal "full", results.fetch("initialView")
+    assert_equal true, results.fetch("initialControlUsesTrigger")
     assert_equal true, results.fetch("firstPanelFocused")
     assert_equal "conversation", results.fetch("selectedView")
     assert_equal true, results.fetch("switchedPanelFocused")
