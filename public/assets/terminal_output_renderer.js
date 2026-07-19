@@ -68,7 +68,12 @@ function writeTerminal(terminal, input) {
 }
 
 function terminalLines(terminal) {
-  const buffer = terminal.buffer.active;
+  const active = terminal.buffer.active;
+  if (active !== terminal.buffer.alternate) return bufferLines(active);
+  return [...bufferLines(terminal.buffer.normal), ...bufferLines(active)];
+}
+
+function bufferLines(buffer) {
   const lines = [];
   for (let row = 0; row < buffer.length; row += 1) {
     const line = buffer.getLine(row);

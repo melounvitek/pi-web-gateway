@@ -42,6 +42,42 @@ class TerminalOutputRendererJsTest < Minitest::Test
     assert_equal ["new one", "new two"], result.dig("screen", "lines").map { |line| line["text"] }
   end
 
+  def test_preserves_normal_scrollback_before_the_current_screen
+    result = render_cases({ transcript: "one\ntwo\nthree\nfour\e[2J\e[Hcurrent" }, { maxRows: 3 })
+
+    assert_equal ["one", "current"], result.dig("transcript", "lines").map { |line| line["text"] }
+  end
+
+  def test_includes_normal_scrollback_with_an_active_alternate_screen
+    result = render_cases({ transcript: "shell one\nshell two\nshell three\nshell four\e[?1049h\e[Happ one\napp two" }, { maxRows: 3 })
+
+    assert_equal ["shell one", "shell two", "shell three", "shell four", "app one", "app two"], result.dig("transcript", "lines").map { |line| line["text"] }
+  end
+
+  def test_leaving_the_alternate_screen_restores_the_normal_transcript
+    result = render_cases({ transcript: "shell one\nshell two\nshell three\nshell four\e[?1049h\e[Happ one\napp two\e[?1049l" }, { maxRows: 3 })
+
+    assert_equal ["shell one", "shell two", "shell three", "shell four"], result.dig("transcript", "lines").map { |line| line["text"] }
+  end
+
+  def test_generic_full_history_snapshots_replace_previous_transcripts
+    reset = "\e[3J\e[2J\e[H"
+    result = render_cases({ transcript: "#{reset}history one\nhistory two\nstale screen#{reset}history one\nhistory two\nhistory three\ncurrent screen" }, { maxRows: 3 })
+
+    assert_equal ["history one", "history two", "history three", "current screen"], result.dig("transcript", "lines").map { |line| line["text"] }
+  end
+
+  def test_bounds_combined_normal_and_alternate_buffer_lines
+    normal = (1..40).map { |number| "history #{number}" }.join("\n")
+    alternate = (1..10).map { |number| "screen #{number}" }.join("\n")
+    result = render_cases({ transcript: "#{normal}\e[?1049h\e[H#{alternate}" }, { maxRows: 3 })
+    lines = result.dig("transcript", "lines").map { |line| line["text"] }
+
+    assert_operator lines.length, :<=, 36
+    assert_includes lines, "history 40"
+    assert_includes lines, "screen 10"
+  end
+
   def test_expands_geometry_for_absolute_cursor_positions
     result = render_cases(positioned: "\e[30;100HXYZ")
     rendered = result.fetch("positioned")
@@ -113,12 +149,13 @@ class TerminalOutputRendererJsTest < Minitest::Test
 
   private
 
-  def render_cases(cases)
+  def render_cases(cases, options = {})
     run_javascript(<<~JS)
       const { renderTerminalOutput } = await import(#{module_url("terminal_output_renderer.js").to_json});
       const cases = #{JSON.generate(cases)};
+      const options = #{JSON.generate(options)};
       const output = {};
-      for (const [name, value] of Object.entries(cases)) output[name] = await renderTerminalOutput(value);
+      for (const [name, value] of Object.entries(cases)) output[name] = await renderTerminalOutput(value, options);
       console.log(JSON.stringify(output));
     JS
   end
