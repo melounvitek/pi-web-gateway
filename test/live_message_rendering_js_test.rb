@@ -436,7 +436,8 @@ Extract PDFs.
   def test_server_terminal_source_hydrates_through_the_shared_screen_renderer
     result = run_javascript(<<~JS)
       const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
-      const source = "old\\x1b[2J\\x1b[H\\x1b[32mfinal\\x1b[0m";
+      const reset = "\\x1b[3J\\x1b[2J\\x1b[H";
+      const source = `${reset}history one\\nstale screen${reset}history one\\nhistory two\\n\\x1b[32mcurrent screen\\x1b[0m`;
       const body = { dataset: { terminalOutputSource: Buffer.from(source).toString("base64"), terminalToolName: "bash" } };
       const renderer = Object.create(LiveMessageRenderer.prototype);
       let followChanges = 0;
@@ -449,7 +450,11 @@ Extract PDFs.
       console.log(JSON.stringify({ rendered, sourceRemoved: body.dataset.terminalOutputSource === undefined, followChanges }));
     JS
 
-    assert_equal({ "lines" => ["final"], "rawText" => "final", "toolName" => "bash" }, result["rendered"])
+    assert_equal({
+      "lines" => ["history one", "history two", "current screen"],
+      "rawText" => "history one\nhistory two\ncurrent screen",
+      "toolName" => "bash"
+    }, result["rendered"])
     assert_equal true, result["sourceRemoved"]
     assert_equal 1, result["followChanges"]
   end

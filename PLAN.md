@@ -16,7 +16,7 @@ Show terminal output as a bounded, browser-scrollable transcript: preserved term
 ## TDD rounds
 
 - [x] Extract normal-buffer scrollback together with an active alternate screen, with explicit output bounds and generic reset-snapshot coverage.
-- [ ] Verify cumulative transcript snapshots use the shared live and restored rendering paths without duplicate or stale history.
+- [x] Verify cumulative transcript snapshots use the shared live and restored rendering paths without duplicate or stale history.
 - [ ] Add browser coverage for expanding, scrolling through, styling, and restoring a bounded transcript.
 - [ ] Run focused and full validation, browser verification with a screenshot, and independent simplification/philosophy reviews.
 

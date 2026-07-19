@@ -140,6 +140,34 @@ class LiveStreamingJsTest < Minitest::Test
     assert_equal 1, result["followChanges"]
   end
 
+  def test_renderer_applies_the_latest_cumulative_terminal_transcript_snapshot
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const body = {};
+      const rendered = [];
+      const reset = "\\x1b[3J\\x1b[2J\\x1b[H";
+      const first = `${reset}history one\\nhistory two\\nstale screen`;
+      const latest = `${first}${reset}history one\\nhistory two\\nhistory three\\n\\x1b[32mcurrent screen\\x1b[0m`;
+      renderer.parser = { displayHomePath: (text) => text };
+      renderer.terminalRenderStates = new WeakMap();
+      renderer.conversationController = { followLiveOutput: () => false, afterLiveOutputChange() {} };
+      renderer.renderResolvedToolTranscriptBody = (_body, lines, rawText) => {
+        rendered.push({ lines: lines.map((line) => line.text), rawText });
+      };
+
+      renderer.renderToolTranscriptBody(body, first, "bash");
+      renderer.renderToolTranscriptBody(body, latest, "bash");
+      while (renderer.terminalRenderStates.get(body).rendering) await new Promise((resolve) => setTimeout(resolve, 1));
+      console.log(JSON.stringify(rendered));
+    JS
+
+    assert_equal [{
+      "lines" => ["history one", "history two", "history three", "current screen"],
+      "rawText" => "history one\nhistory two\nhistory three\ncurrent screen"
+    }], result
+  end
+
   def test_renderer_drops_terminal_work_from_an_old_session_binding
     result = run_javascript(<<~JS)
       const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
