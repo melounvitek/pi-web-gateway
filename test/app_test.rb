@@ -6618,7 +6618,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, '}).filter((segment) => segment.text || segment.compact || segment.images.length > 0);'
       assert_includes APP_JAVASCRIPT, 'if (lines[lines.length - 1] === "") lines.pop();'
       assert_includes APP_JAVASCRIPT, 'renderToolTranscriptBody(body, text, toolName = "", options = {})'
-      assert_includes APP_JAVASCRIPT, 'body.dataset.rawText = text || "";'
+      assert_includes APP_JAVASCRIPT, 'body.dataset.rawText = rawText;'
       assert_includes APP_JAVASCRIPT, 'body.classList.toggle("message-body--edit-preview", preview);'
       assert_includes APP_JAVASCRIPT, 'const hasText = rawText !== "";'
       assert_includes APP_JAVASCRIPT, 'collapse.hidden = !hasText;'
@@ -7803,7 +7803,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "failHistoryStatus()"
       assert_includes APP_JAVASCRIPT, "loadOlderHistory()"
       assert_includes APP_JAVASCRIPT, "previousHeight"
-      assert_includes APP_JAVASCRIPT, "this.element.scrollTop = previousTop + (this.element.scrollHeight - previousHeight)"
+      assert_includes APP_JAVASCRIPT, "element.scrollTop = previousTop + (element.scrollHeight - previousHeight)"
     end
   end
 

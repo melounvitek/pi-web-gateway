@@ -8,6 +8,7 @@ export const sessions = {
   controlsSteer: "E2E Steer Desktop",
   controlsFollowUp: "E2E Follow-up Desktop",
   controlsAbort: "E2E Abort Desktop",
+  terminal: "E2E Terminal Desktop",
   settings: "E2E Settings Desktop",
   extension: "E2E Extension Desktop",
   mobile: "E2E Prompt Mobile",
@@ -21,14 +22,22 @@ export const prompts = {
   followUpStart: "Start the follow-up scenario",
   followUpMessage: "Continue with the queued follow-up",
   abortStart: "Start the abort scenario",
+  terminal: "Show terminal screen updates",
   extension: "Ask me for release approval",
   newSession: "Create the first deterministic response",
   realPiPrefix: "Reply with exactly this token and nothing else:"
 };
 
+const terminalFirstFrame = "\x1b[2J\x1b[H\x1b[33mTerminal frame one\x1b[0m";
+
 export const tool = {
   command: "printf tool-command-ran",
-  result: "deterministic-tool-result"
+  result: "deterministic-tool-result",
+  terminalCommand: "capture terminal screen",
+  terminalUpdates: [
+    terminalFirstFrame,
+    `${terminalFirstFrame}\x1b[2J\x1b[H\x1b[32mTerminal frame two\x1b[0m`
+  ]
 };
 
 export const replies = {

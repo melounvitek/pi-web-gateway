@@ -36,7 +36,9 @@ export async function renderTerminalOutput(text, options = {}) {
 
   try {
     await writeTerminal(terminal, input);
-    return { lines: terminalLines(terminal), columns, rows, truncated };
+    const lines = terminalLines(terminal);
+    if (truncated) lines.unshift({ text: "… terminal output truncated …", runs: [{ text: "… terminal output truncated …", style: { dim: true } }] });
+    return { lines, columns, rows, truncated };
   } finally {
     terminal.dispose();
   }

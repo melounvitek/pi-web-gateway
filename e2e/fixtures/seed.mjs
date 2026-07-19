@@ -97,6 +97,7 @@ export async function seedFixtures(root) {
     ["controls-project", "steer", sessions.controlsSteer],
     ["controls-project", "follow-up", sessions.controlsFollowUp],
     ["controls-project", "abort", sessions.controlsAbort],
+    ["controls-project", "terminal", sessions.terminal],
     ["settings-project", "settings", sessions.settings],
     ["extension-project", "extension", sessions.extension],
     ["mobile-project", "mobile", sessions.mobile],

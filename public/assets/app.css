@@ -305,6 +305,10 @@
     .tool-output-toggle:hover { background: var(--accent-tint-08); color: var(--text); transform: none; }
     .tool-output-hidden-count--mobile { display: none; }
     .tool-output-line { display: block; min-height: 1.4em; }
+    .terminal-output-run { white-space: pre; }
+    .terminal-output-run--bold { font-weight: 700; }
+    .terminal-output-run--dim { opacity: 0.65; }
+    .terminal-output-run--italic { font-style: italic; }
     @media (max-width: 720px) {
       .tool-output-collapse[data-expanded="true"] [data-tool-output-body] { max-height: min(45dvh, 18rem); }
       .tool-output-hidden-count--desktop, .tool-output-tail-desktop-extra { display: none; }

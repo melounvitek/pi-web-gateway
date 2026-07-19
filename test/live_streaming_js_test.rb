@@ -140,6 +140,26 @@ class LiveStreamingJsTest < Minitest::Test
     assert_equal 1, result["followChanges"]
   end
 
+  def test_renderer_drops_terminal_work_from_an_old_session_binding
+    result = run_javascript(<<~JS)
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const body = {};
+      let rendered = 0;
+      let followChanges = 0;
+      renderer.terminalBindingGeneration = 1;
+      renderer.terminalRenderStates = new WeakMap();
+      renderer.conversationController = { followLiveOutput: () => false, afterLiveOutputChange: () => { followChanges += 1; } };
+      renderer.renderResolvedToolTranscriptBody = () => { rendered += 1; };
+      renderer.renderToolTranscriptBody(body, "old\\rnew", "bash");
+      renderer.terminalBindingGeneration = 2;
+      while (renderer.terminalRenderStates.get(body).rendering) await new Promise((resolve) => setTimeout(resolve, 1));
+      console.log(JSON.stringify({ rendered, followChanges }));
+    JS
+
+    assert_equal({ "rendered" => 0, "followChanges" => 0 }, result)
+  end
+
   def test_renderer_builds_safe_styled_dom_for_terminal_lines
     result = run_javascript(<<~JS)
       const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});

@@ -249,7 +249,11 @@ function acceptPrompt(command) {
   if ([prompts.steerStart, prompts.followUpStart, prompts.abortStart].includes(command.message)) return;
 
   const reply = path.basename(process.cwd()).startsWith("new-session-") ? replies.newSession : replies.standard;
-  schedule(120, () => completeWithTool(reply));
+  if (command.message === prompts.terminal) {
+    schedule(120, () => completeWithTool(reply, { command: tool.terminalCommand, updates: tool.terminalUpdates, updateDelay: 350 }));
+  } else {
+    schedule(120, () => completeWithTool(reply));
+  }
 }
 
 function acceptSteer(command) {
@@ -301,31 +305,41 @@ function acceptExtensionResponse(command) {
   completeAssistant(command.confirmed ? replies.extensionApproved : "Release approval was declined.");
 }
 
-function completeWithTool(reply) {
+function completeWithTool(reply, options = {}) {
+  const command = options.command || tool.command;
+  const updates = options.updates || [tool.result];
   const toolCallId = `call_${randomUUID().slice(0, 8)}`;
-  const toolMessage = assistantMessage([{ type: "toolCall", id: toolCallId, name: "bash", arguments: { command: tool.command } }], "toolUse");
+  const toolMessage = assistantMessage([{ type: "toolCall", id: toolCallId, name: "bash", arguments: { command } }], "toolUse");
   emit({ type: "message_start", message: { ...toolMessage, content: [] } });
   emit({ type: "message_update", message: toolMessage, assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: toolMessage.content[0], partial: toolMessage } });
   emit({ type: "message_end", message: toolMessage });
   appendMessage(toolMessage);
-  emit({ type: "tool_execution_start", toolCallId, toolName: "bash", args: { command: tool.command } });
-  emit({ type: "tool_execution_update", toolCallId, toolName: "bash", args: { command: tool.command }, partialResult: { content: [{ type: "text", text: tool.result }], details: {} } });
-  const result = { content: [{ type: "text", text: tool.result }], details: {} };
-  emit({ type: "tool_execution_end", toolCallId, toolName: "bash", result, isError: false });
-  const toolResult = {
-    role: "toolResult",
-    toolCallId,
-    toolName: "bash",
-    content: result.content,
-    details: {},
-    isError: false,
-    timestamp: Date.now()
+  emit({ type: "tool_execution_start", toolCallId, toolName: "bash", args: { command } });
+
+  const finish = () => {
+    const result = { content: [{ type: "text", text: updates.at(-1) }], details: {} };
+    emit({ type: "tool_execution_end", toolCallId, toolName: "bash", result, isError: false });
+    const toolResult = {
+      role: "toolResult",
+      toolCallId,
+      toolName: "bash",
+      content: result.content,
+      details: {},
+      isError: false,
+      timestamp: Date.now()
+    };
+    appendMessage(toolResult);
+    emitMessage(toolResult);
+    emit({ type: "turn_end", message: toolMessage, toolResults: [toolResult] });
+    emit({ type: "turn_start" });
+    schedule(120, () => completeAssistant(reply));
   };
-  appendMessage(toolResult);
-  emitMessage(toolResult);
-  emit({ type: "turn_end", message: toolMessage, toolResults: [toolResult] });
-  emit({ type: "turn_start" });
-  schedule(120, () => completeAssistant(reply));
+  const publishUpdate = (index) => {
+    emit({ type: "tool_execution_update", toolCallId, toolName: "bash", args: { command }, partialResult: { content: [{ type: "text", text: updates[index] }], details: {} } });
+    if (index === updates.length - 1) finish();
+    else schedule(options.updateDelay || 0, () => publishUpdate(index + 1));
+  };
+  publishUpdate(0);
 }
 
 function completeAssistant(reply) {

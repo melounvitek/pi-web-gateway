@@ -15,10 +15,12 @@ export class LiveMessageRenderer {
     this.pendingMessages = null;
     this.lastLiveCompaction = null;
     this.terminalRenderStates = new WeakMap();
+    this.terminalBindingGeneration = 0;
     this.resetLiveAssistantTracking();
   }
 
   bind() {
+    this.terminalBindingGeneration += 1;
     this.markdownRenderer.bind();
     this.liveOutput = this.document.getElementById("live-output");
     this.conversationScroll = this.conversationController.element;
@@ -292,19 +294,28 @@ export class LiveMessageRenderer {
     const bodies = [...(root?.querySelectorAll?.("[data-terminal-output-source]") || [])];
     if (bodies.length === 0) return null;
 
+    const bindingGeneration = this.terminalBindingGeneration;
     const renders = bodies.map(async (body) => {
-      const source = this.decodeTerminalOutputSource(body.dataset.terminalOutputSource);
-      delete body.dataset.terminalOutputSource;
+      let source;
+      try {
+        source = this.decodeTerminalOutputSource(body.dataset.terminalOutputSource);
+      } catch (_error) {
+        return;
+      } finally {
+        delete body.dataset.terminalOutputSource;
+      }
       try {
         const rendered = await renderTerminalOutput(source);
+        if (bindingGeneration !== this.terminalBindingGeneration) return;
         this.renderResolvedToolTranscriptBody(body, rendered.lines, rendered.lines.map((line) => line.text).join("\n"), body.dataset.terminalToolName || "");
       } catch (_error) {
+        if (bindingGeneration !== this.terminalBindingGeneration) return;
         const lines = source.split("\n");
         this.renderResolvedToolTranscriptBody(body, lines, source, body.dataset.terminalToolName || "");
       }
     });
     return Promise.all(renders).then(() => {
-      if (notify) this.conversationController.afterLiveOutputChange(this.conversationController.followLiveOutput());
+      if (notify && bindingGeneration === this.terminalBindingGeneration) this.conversationController.afterLiveOutputChange(this.conversationController.followLiveOutput());
     });
   }
 
@@ -322,19 +333,21 @@ export class LiveMessageRenderer {
     if (state.rendering) return;
 
     state.rendering = true;
+    const bindingGeneration = this.terminalBindingGeneration;
     const renderLatest = async () => {
       while (state.latest) {
         const pending = state.latest;
         state.latest = null;
         try {
           const rendered = await renderTerminalOutput(pending.text);
-          if (state.latest || pending.generation !== state.generation) continue;
+          if (state.latest || pending.generation !== state.generation || bindingGeneration !== this.terminalBindingGeneration) continue;
           this.renderResolvedToolTranscriptBody(body, rendered.lines, rendered.lines.map((line) => line.text).join("\n"), pending.toolName, pending.options);
           this.conversationController.afterLiveOutputChange(this.conversationController.followLiveOutput());
         } catch (_error) {
-          if (state.latest || pending.generation !== state.generation) continue;
+          if (state.latest || pending.generation !== state.generation || bindingGeneration !== this.terminalBindingGeneration) continue;
           const lines = pending.text.split("\n");
           this.renderResolvedToolTranscriptBody(body, lines, pending.text, pending.toolName, pending.options);
+          this.conversationController.afterLiveOutputChange(this.conversationController.followLiveOutput());
         }
       }
       state.rendering = false;
@@ -438,9 +451,11 @@ export class LiveMessageRenderer {
       if (style.bold) span.classList.add("terminal-output-run--bold");
       if (style.dim) span.classList.add("terminal-output-run--dim");
       if (style.italic) span.classList.add("terminal-output-run--italic");
-      if (style.underline) span.classList.add("terminal-output-run--underline");
-      if (style.strikethrough) span.classList.add("terminal-output-run--strikethrough");
-      if (style.overline) span.classList.add("terminal-output-run--overline");
+      const decorations = [];
+      if (style.underline) decorations.push("underline");
+      if (style.strikethrough) decorations.push("line-through");
+      if (style.overline) decorations.push("overline");
+      if (decorations.length > 0) span.style.textDecorationLine = decorations.join(" ");
       line.append(span);
     });
   }
