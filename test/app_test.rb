@@ -3202,6 +3202,13 @@ class AppTest < Minitest::Test
     assert_match(/@media \(pointer: coarse\) \{.*?\.send-control \{ min-width: 2\.75rem; \}.*?\.send-button \{ display: inline-flex;/m, APP_STYLESHEET)
   end
 
+  def test_coarse_pointer_sidebar_keeps_pin_controls_visible_and_touch_sized
+    coarse_styles = APP_STYLESHEET.match(/@media \(pointer: coarse\) \{\n(?<styles>.*?)\n    \}/m)[:styles]
+
+    assert_includes coarse_styles, ".session-row a.session { padding-right: 3.6rem; }"
+    assert_includes coarse_styles, ".session-pin-toggle { top: 0.35rem; right: 0.35rem; width: 2.75rem; height: 2.75rem; padding: 0.8rem; opacity: 0.7; }"
+  end
+
   def test_renders_session_status_bar
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
