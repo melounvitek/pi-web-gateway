@@ -48,6 +48,93 @@ class LiveStreamingJsTest < Minitest::Test
     assert_equal false, result["seen"]
   end
 
+  def test_renderer_streams_bash_progress_into_its_existing_tool_card
+    result = run_javascript(<<~JS)
+      const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const classes = new Set();
+      const entry = {
+        article: {
+          classList: {
+            contains: (name) => classes.has(name),
+            toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }
+          },
+          dataset: { role: "assistant" }
+        },
+        body: { classList: { contains: () => false } },
+        summaryText: {},
+        toolName: "bash"
+      };
+      let appended = 0;
+      renderer.parser = new LiveMessageParser();
+      renderer.conversationController = { followLiveOutput: () => false, afterLiveOutputChange() {} };
+      renderer.conversationScroll = { querySelectorAll: () => [] };
+      renderer.liveAssistantSegments = new Map();
+      renderer.livePairedToolCalls = new Map();
+      renderer.liveToolExecutions = new Map();
+      renderer.liveUserMessages = new Map();
+      renderer.clearLiveAssistantStreaming = () => {};
+      renderer.liveMessageAlreadyRendered = () => false;
+      renderer.appendCompactMessage = (_role, summary) => { appended += 1; entry.summary = summary; return entry; };
+      renderer.renderToolTranscriptBody = (body, text) => { body.text = text; };
+      renderer.markLiveEntryRendered = () => true;
+      renderer.replaceMessageImages = () => {};
+
+      renderer.renderMessageEvent({
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "ping 1.1.1.1" } }] }
+      });
+      renderer.renderToolExecutionEvent({ type: "tool_execution_start", toolCallId: "bash-1", toolName: "bash", args: { command: "ping 1.1.1.1" } });
+      const started = entry.body.text;
+      renderer.renderToolExecutionEvent({ type: "tool_execution_update", toolCallId: "bash-1", toolName: "bash", partialResult: { content: [{ type: "text", text: "reply 1" }] } });
+      const first = entry.body.text;
+      renderer.renderToolExecutionEvent({ type: "tool_execution_update", toolCallId: "bash-1", toolName: "bash", partialResult: { content: [{ type: "text", text: "reply 1\\nreply 2" }] } });
+      const latest = entry.body.text;
+      renderer.renderToolExecutionEvent({ type: "tool_execution_end", toolCallId: "bash-1", toolName: "bash", result: { content: [{ type: "text", text: "event error" }] }, isError: true });
+      const ended = entry.body.text;
+      const erroredAtEnd = classes.has("message--tool-error");
+      const resultMessage = { role: "toolResult", toolCallId: "bash-1", toolName: "bash", content: [{ type: "text", text: "canonical error" }], isError: true };
+      renderer.renderMessageEvent({ type: "message_start", message: resultMessage });
+      const canonicalAtStart = entry.body.text;
+      renderer.renderMessageEvent({ type: "message_end", message: resultMessage });
+      console.log(JSON.stringify({ appended, summary: entry.summary, started, first, latest, ended, erroredAtEnd, canonicalAtStart, final: entry.body.text, finalError: classes.has("message--tool-error") }));
+    JS
+
+    assert_equal 1, result["appended"]
+    assert_equal "$ ping 1.1.1.1", result["summary"]
+    assert_equal "(running…)", result["started"]
+    assert_equal "reply 1", result["first"]
+    assert_equal "reply 1\nreply 2", result["latest"]
+    assert_equal "event error", result["ended"]
+    assert_equal true, result["erroredAtEnd"]
+    assert_equal "canonical error", result["canonicalAtStart"]
+    assert_equal "canonical error", result["final"]
+    assert_equal true, result["finalError"]
+  end
+
+  def test_renderer_does_not_overwrite_other_paired_tool_previews
+    result = run_javascript(<<~JS)
+      const { LiveMessageParser } = await import(#{module_url("live_message_parser.js").to_json});
+      const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});
+      const renderer = Object.create(LiveMessageRenderer.prototype);
+      const entries = new Map(["read", "edit", "write"].map((name) => [`${name}-1`, { body: { text: `${name} preview` } }]));
+      renderer.parser = new LiveMessageParser();
+      renderer.livePairedToolCalls = entries;
+      renderer.conversationController = { followLiveOutput: () => false, afterLiveOutputChange() {} };
+      renderer.renderToolTranscriptBody = (body, text) => { body.text = text; };
+      ["read", "edit", "write"].forEach((name) => renderer.renderToolExecutionEvent({
+        type: "tool_execution_update",
+        toolCallId: `${name}-1`,
+        toolName: name,
+        partialResult: { content: [{ type: "text", text: `${name} result` }] }
+      }));
+      console.log(JSON.stringify({ texts: [...entries.values()].map((entry) => entry.body.text) }));
+    JS
+
+    assert_equal ["read preview", "edit preview", "write preview"], result["texts"]
+  end
+
   def test_renderer_replaces_live_message_images
     result = run_javascript(<<~JS)
       const { LiveMessageRenderer } = await import(#{module_url("live_message_renderer.js").to_json});

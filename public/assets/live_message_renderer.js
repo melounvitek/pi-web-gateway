@@ -581,7 +581,20 @@ export class LiveMessageRenderer {
   }
 
   renderToolExecutionEvent(event, timestamp = eventTimestamp(event), timestampFallback = true, restoredPrompt = "") {
-    if (!event.toolCallId || PAIRED_TOOL_NAMES.has(event.toolName)) return;
+    if (!event.toolCallId) return;
+    if (event.toolName === "bash") {
+      const entry = this.livePairedToolCalls.get(event.toolCallId);
+      if (!entry) return;
+
+      const shouldScroll = this.conversationController.followLiveOutput();
+      this.renderToolTranscriptBody(entry.body, this.parser.toolExecutionText(event), event.toolName);
+      const errorChanged = entry.article.classList.contains("message--tool-error") !== (event.isError === true);
+      entry.article.classList.toggle("message--tool-error", event.isError === true);
+      this.conversationController.afterLiveOutputChange(shouldScroll, true, errorChanged);
+      return;
+    }
+    if (PAIRED_TOOL_NAMES.has(event.toolName)) return;
+
     const shouldScroll = this.conversationController.followLiveOutput();
     const existing = this.liveToolExecutions.get(event.toolCallId);
     if (existing) {

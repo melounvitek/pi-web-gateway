@@ -6607,7 +6607,6 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "renderToolExecutionEvent(event, timestamp = eventTimestamp(event)"
       assert_includes APP_JAVASCRIPT, "this.parser.toolExecutionText(event)"
       assert_includes APP_JAVASCRIPT, "liveMessageRenderer.renderToolExecutionEvent(event);"
-      assert_includes APP_JAVASCRIPT, "if (!event.toolCallId || PAIRED_TOOL_NAMES.has(event.toolName)) return;"
     end
   end
 
