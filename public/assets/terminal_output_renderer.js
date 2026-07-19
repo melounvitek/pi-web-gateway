@@ -70,7 +70,8 @@ function writeTerminal(terminal, input) {
 function terminalLines(terminal) {
   const active = terminal.buffer.active;
   if (active !== terminal.buffer.alternate) return bufferLines(active);
-  return [...bufferLines(terminal.buffer.normal), ...bufferLines(active)];
+  const normal = bufferLines(terminal.buffer.normal);
+  return [...(normal.length === 1 && normal[0].text === "" ? [] : normal), ...bufferLines(active)];
 }
 
 function bufferLines(buffer) {

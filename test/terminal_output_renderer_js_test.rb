@@ -54,6 +54,12 @@ class TerminalOutputRendererJsTest < Minitest::Test
     assert_equal ["shell one", "shell two", "shell three", "shell four", "app one", "app two"], result.dig("transcript", "lines").map { |line| line["text"] }
   end
 
+  def test_does_not_add_an_empty_normal_line_before_an_alternate_screen
+    result = render_cases(transcript: "\e[?1049h\e[Happ output")
+
+    assert_equal ["app output"], result.dig("transcript", "lines").map { |line| line["text"] }
+  end
+
   def test_leaving_the_alternate_screen_restores_the_normal_transcript
     result = render_cases({ transcript: "shell one\nshell two\nshell three\nshell four\e[?1049h\e[Happ one\napp two\e[?1049l" }, { maxRows: 3 })
 

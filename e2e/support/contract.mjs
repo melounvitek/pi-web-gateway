@@ -32,7 +32,7 @@ const terminalReset = "\x1b[3J\x1b[2J\x1b[H";
 const terminalFirstHistory = Array.from({ length: 28 }, (_, index) => `Terminal history ${String(index + 1).padStart(2, "0")}`);
 const terminalLatestHistory = [...terminalFirstHistory, "Terminal history 29", "Terminal history 30", "Terminal history 31", "Terminal history 32"];
 const terminalFirstFrame = `${terminalReset}${terminalFirstHistory.join("\n")}\nTerminal stale screen`;
-const terminalLatestFrame = `${terminalReset}${terminalLatestHistory.join("\n")}\n\x1b[32mTerminal current screen\x1b[0m`;
+const terminalLatestFrame = `${terminalReset}${terminalLatestHistory.join("\n")}\x1b[?1049h\x1b[H\x1b[32mTerminal current screen\x1b[0m`;
 
 export const tool = {
   command: "printf tool-command-ran",
