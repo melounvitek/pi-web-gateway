@@ -225,7 +225,7 @@ module Web
         "assistant"
       when "user"
         "user"
-      when "tool", "toolResult"
+      when "tool", "toolResult", "bashExecution"
         "tool"
       when "error"
         "error"
@@ -242,6 +242,8 @@ module Web
         "pi"
       when "toolResult"
         "tool result"
+      when "bashExecution"
+        "shell"
       when "status"
         "status"
       else
@@ -260,6 +262,10 @@ module Web
       classes = ["message", "message--#{message_role_key(message.role)}"]
       classes << "message--compact" if message.compact
       classes << "message--compaction" if message.compaction
+      classes << "message--bash-execution" if message.role == "bashExecution"
+      classes << "message--bash-excluded" if message.bash_excluded_from_context
+      classes << "message--bash-cancelled" if message.bash_cancelled
+      classes << "message--bash-truncated" if message.bash_truncated
       classes << "message--thinking" if message.thinking
       classes << "message--tool-call" if message.compact && message.role == "assistant" && !message.tool_name.to_s.empty?
       classes << "message--tool-transcript" if message.tool_transcript
@@ -269,6 +275,15 @@ module Web
 
     def message_metadata(message)
       format_time(message.timestamp) if message.timestamp
+    end
+
+    def bash_execution_status_items(message)
+      items = []
+      items << "excluded from model context" if message.bash_excluded_from_context
+      items << "exit #{message.bash_exit_code}" if message.bash_exit_code.is_a?(Integer) && !message.bash_exit_code.zero?
+      items << "cancelled" if message.bash_cancelled
+      items << "output truncated" if message.bash_truncated
+      items
     end
 
     def message_fingerprint(role, text, timestamp)

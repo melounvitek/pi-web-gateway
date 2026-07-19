@@ -23,7 +23,7 @@ class PiSessionStore
     keyword_init: true
   )
 
-  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, :compaction, keyword_init: true)
+  Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, :compaction, :bash_exit_code, :bash_cancelled, :bash_truncated, :bash_excluded_from_context, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
   Conversation = Struct.new(:messages, :latest_stable_tree_position_id, :current_stable_tree_position_id, :status, :subagent_tool_call_context, keyword_init: true)
   ConversationWindow = Struct.new(:messages, :start_index, :total_message_count, :tree_leaf_id, :latest_stable_tree_position_id, :current_stable_tree_position_id, :status, :subagent_tool_call_context, keyword_init: true)
@@ -308,7 +308,11 @@ class PiSessionStore
       { type: "thinking_level_change", thinking_level: entry["thinkingLevel"] || entry["thinking_level"] }
     when "message"
       message = entry["message"]
-      return unless message.is_a?(Hash) && message["role"] == "assistant"
+      return unless message.is_a?(Hash)
+      if native_bash_execution_message?(message)
+        return { type: "bash_execution", excluded_from_context: message["excludeFromContext"] == true }
+      end
+      return unless message["role"] == "assistant"
 
       {
         type: "assistant",
@@ -540,7 +544,8 @@ class PiSessionStore
     first_kept = index.by_id[data[:first_kept_entry_id]]
     kept_entries = first_kept ? index.entries.slice(first_kept.ordinal...compaction.ordinal) : []
     kept_messages = kept_entries.select { |entry| entry.type == "message" }
-    if kept_messages.any? { |entry| entry.estimate_text_length.nil? }
+    estimated_messages = kept_messages.reject { |entry| entry.status_data&.dig(:type) == "bash_execution" && entry.status_data[:excluded_from_context] }
+    if estimated_messages.any? { |entry| entry.estimate_text_length.nil? }
       status.context_tokens = nil
       status.context_limit = nil
       status.context_percent = nil
@@ -548,7 +553,7 @@ class PiSessionStore
       return false
     end
 
-    lengths = [data[:summary_length], *kept_messages.map(&:estimate_text_length)].compact
+    lengths = [data[:summary_length], *estimated_messages.map(&:estimate_text_length)].compact
     return true if lengths.empty?
 
     characters = lengths.sum + lengths.length - 1
@@ -776,7 +781,15 @@ class PiSessionStore
   def estimate_text_from_entry(entry)
     return unless entry["type"] == "message"
 
-    content_text(entry.dig("message", "content"))
+    message = entry["message"]
+    return unless message.is_a?(Hash)
+    if native_bash_execution_message?(message)
+      return if message["excludeFromContext"] == true
+
+      return [message["command"], message["output"]].reject(&:empty?).join("\n")
+    end
+
+    content_text(message["content"])
   end
 
   def estimate_tokens(text)
@@ -827,7 +840,7 @@ class PiSessionStore
         latest_name = nil if latest_name.empty?
       when "message"
         message = entry["message"] || {}
-        message_count += 1 unless message["role"] == "toolResult"
+        message_count += 1 unless %w[toolResult bashExecution].include?(message["role"])
         if conversation_activity_message?(message)
           entry_time = parse_time(entry["timestamp"])
           conversation_activity_at = entry_time if entry_time && (!conversation_activity_at || entry_time > conversation_activity_at)
@@ -1060,6 +1073,7 @@ class PiSessionStore
     message = entry["message"] || {}
     role = message["role"]
     return [] if role.nil?
+    return [bash_execution_message_from_entry(entry, message)] if native_bash_execution_message?(message)
 
     if role == "assistant"
       assistant_messages_from_entry(message, parse_time(entry["timestamp"]))
@@ -1085,6 +1099,37 @@ class PiSessionStore
         tool_transcript: general_subagent || transcript_tool?(message["toolName"])
       )]
     end
+  end
+
+  def native_bash_execution_message?(message)
+    return false unless message.is_a?(Hash) && message["role"] == "bashExecution"
+    return false unless message["command"].is_a?(String) && message["output"].is_a?(String)
+    return false unless message["cancelled"] == true || message["cancelled"] == false
+    return false unless message["truncated"] == true || message["truncated"] == false
+    return false unless message["timestamp"].is_a?(Numeric)
+    return false unless !message.key?("exitCode") || message["exitCode"].nil? || message["exitCode"].is_a?(Integer)
+    return false unless !message.key?("fullOutputPath") || message["fullOutputPath"].is_a?(String)
+
+    !message.key?("excludeFromContext") || message["excludeFromContext"] == true || message["excludeFromContext"] == false
+  end
+
+  def bash_execution_message_from_entry(entry, message)
+    excluded = message["excludeFromContext"] == true
+    command = display_home_path(message["command"])
+    Message.new(
+      role: "bashExecution",
+      text: message["output"],
+      timestamp: parse_time(entry["timestamp"]),
+      entry_id: entry["id"],
+      compact: true,
+      summary: "$ #{command}",
+      error: message["exitCode"].is_a?(Integer) && !message["exitCode"].zero?,
+      tool_name: "bash",
+      bash_exit_code: message["exitCode"],
+      bash_cancelled: message["cancelled"],
+      bash_truncated: message["truncated"],
+      bash_excluded_from_context: excluded
+    )
   end
 
   def assistant_messages_from_entry(message, timestamp)

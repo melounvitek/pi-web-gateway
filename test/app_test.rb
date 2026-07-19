@@ -6183,6 +6183,68 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_renders_native_bash_execution_history_with_status_and_terminal_output
+    Dir.mktmpdir do |dir|
+      terminal_output = "progress 10%\rprogress 20%\e[2J\e[H\e[31m<done>\e[0m"
+      full_output_path = "/tmp/private-full-output.log"
+      path = write_session_with_raw_messages(dir, [
+        {
+          type: "message", id: "bash-1", timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "bashExecution", command: "printf '<command>'", output: "<output>& text", exitCode: 9,
+            cancelled: false, truncated: false, fullOutputPath: full_output_path, timestamp: 1
+          }
+        },
+        {
+          type: "message", id: "bash-2", timestamp: "2026-06-13T10:01:00Z",
+          message: {
+            role: "bashExecution", command: "empty <script>alert(1)</script>", output: "",
+            cancelled: true, truncated: true, fullOutputPath: full_output_path, timestamp: 2,
+            excludeFromContext: true
+          }
+        },
+        {
+          type: "message", id: "bash-3", timestamp: "2026-06-13T10:02:00Z",
+          message: {
+            role: "bashExecution", command: "terminal command", output: terminal_output, exitCode: 0,
+            cancelled: false, truncated: false, timestamp: 3
+          }
+        }
+      ])
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_factory, [->(_session_path) { FakeRpcClient.new([]) }]
+
+      response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path })
+
+      assert_equal 200, response.status
+      document = Nokogiri::HTML(response.body)
+      cards = document.css(".message--bash-execution")
+      assert_equal 3, cards.length
+      included, excluded, terminal = cards
+      assert_equal "bashExecution", included["data-role"]
+      assert_includes included["class"], "message--tool-error"
+      assert_equal "shell", included.at_css(".role").text
+      assert_equal "$ printf '<command>'", included.at_css(".compact-summary").text
+      assert_equal ["exit 9"], included.css(".bash-execution-status-item").map(&:text)
+      assert_equal "<output>& text", included.at_css(".message-body").text
+      assert_includes response.body, "&lt;output&gt;&amp; text"
+
+      assert_includes excluded["class"], "message--bash-excluded"
+      assert_includes excluded["class"], "message--bash-cancelled"
+      assert_includes excluded["class"], "message--bash-truncated"
+      assert_equal "$ empty <script>alert(1)</script>", excluded.at_css(".compact-summary").text
+      assert_equal ["excluded from model context", "cancelled", "output truncated"], excluded.css(".bash-execution-status-item").map(&:text)
+      assert_nil excluded.at_css(".message-body")
+      terminal_body = terminal.at_css("[data-terminal-output-source]")
+      assert_equal "bash", terminal_body["data-terminal-tool-name"]
+      assert_equal terminal_output, Base64.strict_decode64(terminal_body["data-terminal-output-source"])
+      refute_includes response.body, terminal_output
+      refute_includes response.body, full_output_path
+      refute_includes response.body, "<script>alert(1)</script>"
+      assert_includes response.body, "&lt;script&gt;alert(1)&lt;/script&gt;"
+    end
+  end
+
   def test_open_session_renders_images_from_read_results
     Dir.mktmpdir do |dir|
       image_data = Base64.strict_encode64("fake image data")

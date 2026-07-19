@@ -311,6 +311,7 @@ class PiSessionIndexScanner
       if role == "toolResult"
         return unless exact_string?(["message", "toolCallId"]) && exact_string?(["message", "toolName"])
       end
+      return bash_execution_metadata if role == "bashExecution"
       if role == "assistant" && @keys[["message"]] != %w[role content]
         return unless exact_string?(["message", "provider"]) && exact_string?(["message", "model"])
       end
@@ -342,6 +343,30 @@ class PiSessionIndexScanner
         end,
         status_data: assistant_status_data(role),
         estimate_text_length: estimate_content_characters(parts)
+      }
+    end
+
+    def bash_execution_metadata
+      command = @strings[["message", "command"]]
+      output = @strings[["message", "output"]]
+      return unless command && output
+      return unless @scalars[["message", "timestamp"]].is_a?(Numeric)
+      return unless boolean_scalar?(["message", "cancelled"]) && boolean_scalar?(["message", "truncated"])
+      return unless optional_integer_scalar?(["message", "exitCode"])
+      return unless optional_boolean_scalar?(["message", "excludeFromContext"])
+      return unless !@keys[["message"]].include?("fullOutputPath") || @strings.key?(["message", "fullOutputPath"])
+
+      separator = command.empty? || output.empty? ? 0 : 1
+      {
+        type: "message",
+        id: string_value(["id"]),
+        parent_id: nullable_string(["parentId"]),
+        target_id: nil,
+        role: "bashExecution",
+        segments: [segment("bashExecution", (command.bytes + output.bytes) * 2, nil, "bash")],
+        subagent_tool_call_ids: [],
+        status_data: { type: "bash_execution", excluded_from_context: @scalars[["message", "excludeFromContext"]] == true },
+        estimate_text_length: @scalars[["message", "excludeFromContext"]] == true ? nil : command.characters + output.characters + separator
       }
     end
 
@@ -633,6 +658,9 @@ class PiSessionIndexScanner
           Array(keys)[0, 4] == %w[role toolCallId toolName content] && keys.include?("isError")
       when "assistant"
         canonical_assistant_keys?(keys)
+      when "bashExecution"
+        ordered_subset?(keys, %w[role command output exitCode cancelled truncated fullOutputPath timestamp excludeFromContext]) &&
+          (keys & %w[role command output cancelled truncated timestamp]) == %w[role command output cancelled truncated timestamp]
       else
         false
       end
@@ -663,6 +691,23 @@ class PiSessionIndexScanner
 
       positions = actual.map { |key| expected.index(key) }
       positions.none?(&:nil?) && positions.each_cons(2).all? { |left, right| left < right }
+    end
+
+    def boolean_scalar?(path)
+      @scalars[path] == true || @scalars[path] == false
+    end
+
+    def optional_boolean_scalar?(path)
+      !@keys[["message"]].include?(path.last) || boolean_scalar?(path)
+    end
+
+    def optional_integer_scalar?(path)
+      return true unless @keys[["message"]].include?(path.last)
+
+      return false unless @scalars.key?(path)
+
+      value = @scalars[path]
+      value.nil? || value.is_a?(Integer)
     end
 
     def exact_string?(path)
@@ -701,7 +746,7 @@ class PiSessionIndexScanner
       return true if path.length == 1 && %w[type id parentId targetId timestamp summary firstKeptEntryId customType fromId].include?(path[0])
       return true if path[0, 1] == ["content"] && (path.length <= 3)
       return true if path[0, 2] == ["message", "content"] && path.length <= 4
-      return true if path.length == 2 && path[0] == "message" && %w[role toolCallId toolName provider model stopReason].include?(path[1])
+      return true if path.length == 2 && path[0] == "message" && %w[role toolCallId toolName provider model stopReason command output fullOutputPath].include?(path[1])
       return true if path == ["message", "details", "diff"] || path == ["message", "details", "streamingText"] || path == ["message", "details", "model"]
 
       false
@@ -711,6 +756,7 @@ class PiSessionIndexScanner
       custom_content_item = path.length == 2 && path[0] == "content" && path[1].is_a?(Integer)
       message_content_item = path.length == 3 && path[0, 2] == ["message", "content"] && path[2].is_a?(Integer)
       path == ["parentId"] || path == ["display"] || path == ["message", "isError"] ||
+        (path.length == 2 && path[0] == "message" && %w[exitCode cancelled truncated timestamp excludeFromContext fullOutputPath].include?(path[1])) ||
         path[0, 2] == ["message", "usage"] || custom_content_item || message_content_item
     end
 

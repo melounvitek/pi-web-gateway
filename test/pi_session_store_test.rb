@@ -846,6 +846,124 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_reads_native_bash_execution_messages_in_full_and_indexed_history
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session-1", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+        {
+          type: "message", id: "bash-1", parentId: nil, timestamp: "2026-06-13T10:01:00Z",
+          message: {
+            role: "bashExecution", command: "printf included", output: "included output", exitCode: 7,
+            cancelled: false, truncated: false, fullOutputPath: "/tmp/private-included.log", timestamp: 1
+          }
+        },
+        {
+          type: "message", id: "bash-2", parentId: "bash-1", timestamp: "2026-06-13T10:02:00Z",
+          message: {
+            role: "bashExecution", command: "printf excluded", output: "",
+            cancelled: true, truncated: true, fullOutputPath: "/tmp/private-excluded.log", timestamp: 2,
+            excludeFromContext: true
+          }
+        }
+      ]
+      write_jsonl(path, entries)
+      store = PiSessionStore.new(root: dir)
+
+      full_messages = store.messages(path)
+      indexed_messages = store.conversation_window(path).messages
+
+      assert_equal full_messages.map(&:to_h), indexed_messages.map(&:to_h)
+      assert_equal 2, indexed_messages.length
+      included, excluded = indexed_messages
+      assert_equal "bashExecution", included.role
+      assert_equal "included output", included.text
+      assert_equal "$ printf included", included.summary
+      assert_equal "bash", included.tool_name
+      assert included.compact
+      assert_equal 7, included.bash_exit_code
+      refute included.bash_cancelled
+      refute included.bash_truncated
+      refute included.bash_excluded_from_context
+      assert_equal Time.iso8601("2026-06-13T10:01:00Z"), included.timestamp
+      assert_equal "$ printf excluded", excluded.summary
+      assert_equal "", excluded.text
+      assert excluded.bash_cancelled
+      assert excluded.bash_truncated
+      assert excluded.bash_excluded_from_context
+      refute_includes indexed_messages.map(&:to_h).join, "private-included"
+      refute_includes indexed_messages.map(&:to_h).join, "private-excluded"
+    end
+  end
+
+  def test_bash_execution_context_estimates_include_command_and_output_but_not_double_bang_entries
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      summary = "Summary"
+      command = "printf included"
+      output = "included output"
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "included", parentId: nil, message: { role: "bashExecution", command: command, output: output, exitCode: 0, cancelled: false, truncated: false, timestamp: 1 } },
+        { type: "message", id: "excluded", parentId: "included", message: { role: "bashExecution", command: "secret command", output: "secret output", exitCode: 0, cancelled: false, truncated: false, timestamp: 2, excludeFromContext: true } },
+        { type: "compaction", id: "compaction-1", parentId: "excluded", summary: summary, firstKeptEntryId: "included", tokensBefore: 100 }
+      ])
+      store = PiSessionStore.new(root: dir)
+      expected_tokens = ([summary, command, output].join("\n").length / 4.0).ceil
+
+      assert_equal expected_tokens, store.conversation(path).status.context_tokens
+      assert_equal expected_tokens, store.conversation_window(path).status.context_tokens
+    end
+  end
+
+  def test_large_native_bash_execution_uses_indexed_source_and_byte_estimates
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      output = "large-native-bash-output-#{"x" * 300_000}"
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "bash-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", message: { role: "bashExecution", command: "generate output", output: output, exitCode: 0, cancelled: false, truncated: false, timestamp: 1 } }
+      ]
+      parent_id = "bash-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, message: { role: "user", content: [{ type: "text", text: "Message #{index}" }] } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+      parsed_large_entry = false
+      parse = JSON.method(:parse)
+      window = nil
+
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_large_entry = true if line.include?("large-native-bash-output-"); parse.call(line, *args) }) do
+        window = PiSessionStore.new(root: dir).conversation_window(path)
+      end
+
+      assert_equal 26, window.total_message_count
+      assert_equal 1, window.start_index
+      assert_equal (0...25).map { |index| "Message #{index}" }, window.messages.map(&:text)
+      refute parsed_large_entry
+    end
+  end
+
+  def test_session_metadata_does_not_count_bash_execution_as_conversation_activity
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" },
+        { type: "message", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Prompt" }] } },
+        { type: "message", timestamp: "2026-06-13T10:02:00Z", message: { role: "bashExecution", command: "echo later", output: "later", exitCode: 0, cancelled: false, truncated: false, timestamp: 2 } }
+      ])
+
+      session = PiSessionStore.new(root: dir).sessions.first
+
+      assert_equal 1, session.message_count
+      assert_equal Time.iso8601("2026-06-13T10:01:00Z"), session.conversation_activity_at
+      assert_nil session.latest_activity_kind
+      assert_nil session.latest_activity_preview
+    end
+  end
+
   def test_reads_messages_for_a_selected_session
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")

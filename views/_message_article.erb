@@ -24,6 +24,13 @@
                 <% else %>
                   <div class="message-details message-details--always-open">
                     <div class="message-details-summary"><span class="compact-summary"><%= message.tool_summary_html || h(message.summary) %></span></div>
+                    <% if message.role == "bashExecution" && bash_execution_status_items(message).any? %>
+                      <div class="bash-execution-status" role="status" aria-label="Shell command status">
+                        <% bash_execution_status_items(message).each do |item| %>
+                          <span class="bash-execution-status-item"><%= h item %></span>
+                        <% end %>
+                      </div>
+                    <% end %>
                     <% if message.tool_prompt.to_s != "" %>
                       <details class="subagent-prompt" data-subagent-prompt>
                         <summary class="subagent-prompt-summary">
