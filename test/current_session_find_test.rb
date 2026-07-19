@@ -359,7 +359,7 @@ class CurrentSessionFindTest < Minitest::Test
     assert_equal({ "status" => "more", "fetchCount" => 1, "cursor" => "150", "hasOlder" => "true" }, results)
   end
 
-  def test_complete_history_load_fetches_all_remaining_messages_once
+  def test_complete_history_load_fetches_bounded_windows_until_complete
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});
       const scroll = { dataset: { olderMessageCursor: "300", hasOlderMessages: "true", olderMessagesUrl: "/older" }, querySelector: () => null };
@@ -369,13 +369,14 @@ class CurrentSessionFindTest < Minitest::Test
       let fetchCount = 0; const urls = [];
       globalThis.fetch = async (url) => {
         fetchCount += 1; urls.push(url.toString());
-        return { ok: true, json: async () => ({ html: "older", next_cursor: 0, has_older_messages: false, older_message_count: 0 }) };
+        const complete = fetchCount === 2;
+        return { ok: true, json: async () => ({ html: "older", next_cursor: complete ? 0 : 150, has_older_messages: !complete, older_message_count: complete ? 0 : 150 }) };
       };
       const status = await controller.loadOlderHistory();
-      console.log(JSON.stringify({ status, fetchCount, cursor: scroll.dataset.olderMessageCursor, hasOlder: scroll.dataset.hasOlderMessages, loadAll: urls[0].includes("all=1") }));
+      console.log(JSON.stringify({ status, fetchCount, cursor: scroll.dataset.olderMessageCursor, hasOlder: scroll.dataset.hasOlderMessages, bounded: urls.every((url) => !url.includes("all=1")) }));
     JS
 
-    assert_equal({ "status" => "complete", "fetchCount" => 1, "cursor" => "0", "hasOlder" => "false", "loadAll" => true }, results)
+    assert_equal({ "status" => "complete", "fetchCount" => 2, "cursor" => "0", "hasOlder" => "false", "bounded" => true }, results)
   end
 
   def test_oldest_window_load_starts_at_zero_and_keeps_the_middle_gap
@@ -475,7 +476,7 @@ class CurrentSessionFindTest < Minitest::Test
       console.log(JSON.stringify({ status, after: url.searchParams.get("after"), loadAll: url.searchParams.get("all"), oldestEnd: scroll.dataset.oldestMessageEndCursor, hasOlder: scroll.dataset.hasOlderMessages }));
     JS
 
-    assert_equal({ "status" => "complete", "after" => "150", "loadAll" => "1", "oldestEnd" => "300", "hasOlder" => "false" }, results)
+    assert_equal({ "status" => "complete", "after" => "150", "loadAll" => nil, "oldestEnd" => "300", "hasOlder" => "false" }, results)
   end
 
   def test_complete_history_load_replaces_an_in_flight_window_request
@@ -497,7 +498,7 @@ class CurrentSessionFindTest < Minitest::Test
       console.log(JSON.stringify({ statuses: await Promise.all([windowLoad, historyLoad]), fetchCount, firstAborted, loadAll: urls[1].includes("all=1") }));
     JS
 
-    assert_equal({ "statuses" => ["cancelled", "complete"], "fetchCount" => 2, "firstAborted" => true, "loadAll" => true }, results)
+    assert_equal({ "statuses" => ["cancelled", "complete"], "fetchCount" => 2, "firstAborted" => true, "loadAll" => false }, results)
   end
 
   def test_scrolling_near_top_requests_one_older_window

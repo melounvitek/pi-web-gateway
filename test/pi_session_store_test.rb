@@ -38,6 +38,7 @@ class PiSessionStoreTest < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")
       canonical_tool_result_text = "x" * 100_000
+      later_user_text = "y" * 300_000
       canonical_tool_result = JSON.generate({
         type: "message",
         id: "result-1",
@@ -54,6 +55,7 @@ class PiSessionStoreTest < Minitest::Test
         JSON.generate({ type: "session", id: "session-1", timestamp: "2026-06-13T10:00:00Z", cwd: "/tmp/project" }),
         JSON.generate({ type: "message", id: "user-1", message: { role: "user", content: [{ type: "text", text: "First prompt" }] } }),
         canonical_tool_result,
+        JSON.generate({ type: "message", id: "user-2", parentId: "result-1", timestamp: "2026-06-13T10:02:00Z", message: { role: "user", content: [{ type: "text", text: later_user_text }] } }),
         reordered_tool_result
       ].join("\n"))
       parsed_lines = []
@@ -64,10 +66,11 @@ class PiSessionStoreTest < Minitest::Test
         session = store.sessions.first
 
         assert_equal "First prompt", session.display_name
-        assert_equal 1, session.message_count
+        assert_equal 2, session.message_count
       end
 
       refute parsed_lines.include?(canonical_tool_result)
+      refute parsed_lines.any? { |line| line.include?(later_user_text) }
       assert parsed_lines.include?(reordered_tool_result)
       assert store.messages(path).any? { |message| message.text == canonical_tool_result_text }
     end
@@ -1001,6 +1004,646 @@ class PiSessionStoreTest < Minitest::Test
 
       assert_equal "anthropic", status.provider
       assert_equal "claude-sonnet-4", status.model_id
+    end
+  end
+
+  def test_indexed_conversation_window_matches_full_projection_with_tool_pairing
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "assistant-1",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "Inspecting" },
+              { type: "text", text: "Running it" },
+              { type: "toolCall", id: "call-1", name: "bash", arguments: { command: "echo hi" } }
+            ]
+          }
+        },
+        {
+          type: "message",
+          id: "result-1",
+          parentId: "assistant-1",
+          timestamp: "2026-06-13T10:00:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "bash",
+            content: [{ type: "text", text: "hi" }],
+            isError: false
+          }
+        },
+        { type: "message", id: "user-1", parentId: "result-1", message: { role: "user", content: [{ type: "text", text: "Thanks" }] } }
+      ])
+      store = PiSessionStore.new(root: dir)
+
+      full_messages = store.messages(path)
+      window = store.conversation_window(path)
+
+      assert_equal full_messages.map(&:to_h), window.messages.map(&:to_h)
+      assert_equal full_messages.length, window.total_message_count
+      assert_equal 0, window.start_index
+    end
+  end
+
+  def test_indexes_a_large_assistant_tool_call_without_parsing_it_outside_the_window
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      sentinel = "large-assistant-arguments-#{"x" * 300_000}"
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "assistant-1",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "Opaque reasoning", thinkingSignature: "encrypted", redacted: true },
+              { type: "toolCall", id: "call-1", name: "inspect", arguments: { payload: sentinel }, thoughtSignature: "opaque-signature" }
+            ],
+            api: "responses",
+            provider: "openai-codex",
+            model: "gpt-5.5",
+            usage: { totalTokens: 100 },
+            stopReason: "toolUse",
+            timestamp: 1_781_341_200_000,
+            responseModel: "gpt-5.5-2026-06-13"
+          }
+        }
+      ]
+      parent_id = "assistant-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Message #{index}" }], timestamp: 1_781_341_260_000 } }
+        parent_id = id
+      end
+      entries << { type: "compaction", id: "compaction-1", parentId: parent_id, timestamp: "2026-06-13T10:02:00Z", summary: "Compacted", firstKeptEntryId: "assistant-1", tokensBefore: 100 }
+      write_jsonl(path, entries)
+      parsed_lines = []
+      parse = JSON.method(:parse)
+      window = nil
+
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_lines << line; parse.call(line, *args) }) do
+        window = PiSessionStore.new(root: dir).conversation_window(path)
+      end
+
+      refute_nil window
+      assert_equal 28, window.total_message_count
+      assert_equal 2, window.start_index
+      assert_equal [*(0...25).map { |index| "Message #{index}" }, "Compacted"], window.messages.map(&:text)
+      assert_nil window.status.context_tokens
+      refute parsed_lines.any? { |line| line.include?("large-assistant-arguments-") }
+    end
+  end
+
+  def test_indexes_large_unicode_thinking_when_capture_ends_mid_character
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "assistant-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", message: { role: "assistant", content: [{ type: "thinking", thinking: "😀" * 80_000 }] } }
+      ]
+      parent_id = "assistant-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, message: { role: "user", content: [{ type: "text", text: "Message #{index}" }] } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+
+      window = PiSessionStore.new(root: dir).conversation_window(path)
+
+      assert_equal 26, window.total_message_count
+      assert_equal 1, window.start_index
+      assert_equal (0...25).map { |index| "Message #{index}" }, window.messages.map(&:text)
+    end
+  end
+
+  def test_indexes_large_assistant_thinking_with_decoded_control_whitespace
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "assistant-1",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "thinking", thinking: "**Heading**\n\n\n\t", thinkingSignature: "x" * 300_000 }]
+          }
+        }
+      ])
+      store = PiSessionStore.new(root: dir)
+
+      assert_equal store.messages(path).map(&:to_h), store.conversation_window(path).messages.map(&:to_h)
+    end
+  end
+
+  def test_does_not_parse_a_large_bash_command_outside_the_window
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      command = "large-bash-command-#{"x" * 300_000}"
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message", id: "assistant-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z",
+          message: { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: command } }] }
+        }
+      ]
+      parent_id = "assistant-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, message: { role: "user", content: [{ type: "text", text: "Message #{index}" }] } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+      parsed_large_entry = false
+      parse = JSON.method(:parse)
+
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_large_entry = true if line.include?("large-bash-command-"); parse.call(line, *args) }) do
+        assert_equal 1, PiSessionStore.new(root: dir).conversation_window(path).start_index
+      end
+      refute parsed_large_entry
+    end
+  end
+
+  def test_does_not_parse_a_large_whitespace_compaction_outside_the_window
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "compaction", id: "compaction-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", summary: " " * 300_000, firstKeptEntryId: "", tokensBefore: 100 }
+      ]
+      parent_id = "compaction-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, message: { role: "user", content: [{ type: "text", text: "Message #{index}" }] } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+      parsed_large_entry = false
+      parse = JSON.method(:parse)
+
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_large_entry = true if line.bytesize > 300_000; parse.call(line, *args) }) do
+        assert_equal 1, PiSessionStore.new(root: dir).conversation_window(path).start_index
+      end
+      refute parsed_large_entry
+    end
+  end
+
+  def test_does_not_parse_a_large_general_subagent_result_outside_the_window
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      sentinel = "large-subagent-output-#{"x" * 1_048_576}"
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "result-1",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "subagent",
+            content: [{ type: "text", text: "Done" }],
+            details: {
+              task: "Review",
+              status: "done",
+              tools: [{ name: "bash", status: "done", args: { command: sentinel }, output: "Reviewed" }],
+              textItems: [],
+              streamingText: "Done",
+              usage: {}
+            },
+            isError: false,
+            timestamp: 1_781_341_200_000
+          }
+        }
+      ]
+      parent_id = "result-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Message #{index}" }], timestamp: 1_781_341_260_000 } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+      parsed_lines = []
+      parse = JSON.method(:parse)
+      window = nil
+
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_lines << line; parse.call(line, *args) }) do
+        window = PiSessionStore.new(root: dir).conversation_window(path)
+      end
+
+      refute_nil window
+      assert_equal 26, window.total_message_count
+      assert_equal 1, window.start_index
+      refute parsed_lines.any? { |line| line.include?("large-subagent-output-") }
+    end
+  end
+
+  def test_indexes_large_general_subagent_detail_values_without_using_them_for_preflight
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "result-1",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "subagent",
+            content: [{ type: "text", text: "Done" }],
+            details: { tools: [], textItems: ["x" * 300_000], streamingText: {}, usage: {} },
+            isError: false,
+            timestamp: 1_781_341_200_000
+          }
+        }
+      ])
+      store = PiSessionStore.new(root: dir)
+
+      assert_equal store.messages(path).map(&:to_h), store.conversation_window(path).messages.map(&:to_h)
+    end
+  end
+
+  def test_large_empty_tool_result_does_not_add_a_rendered_cursor
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "result-1",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "inspect",
+            content: [{ type: "text", text: "" }],
+            details: { ignored: "x" * 300_000 },
+            isError: false
+          }
+        }
+      ]
+      parent_id = "result-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, message: { role: "user", content: [{ type: "text", text: "Message #{index}" }] } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+      store = PiSessionStore.new(root: dir)
+
+      assert_equal store.messages(path, current_leaf_id: parent_id).map(&:to_h), store.conversation_window(path).messages.map(&:to_h)
+      assert_equal 25, store.conversation_window(path).total_message_count
+    end
+  end
+
+  def test_does_not_parse_a_large_tool_result_outside_the_window
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      sentinel = "large-tool-output-#{" " * 300_000}"
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "assistant-1",
+          parentId: nil,
+          timestamp: "2026-06-13T09:59:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "large.txt" } }],
+            api: "responses",
+            provider: "openai-codex",
+            model: "gpt-5.5",
+            usage: { totalTokens: 100 },
+            stopReason: "toolUse",
+            timestamp: 1_781_341_140_000
+          }
+        },
+        {
+          type: "message",
+          id: "result-1",
+          parentId: "assistant-1",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "read",
+            content: [{ type: "text", text: sentinel }],
+            addedToolNames: ["inspect"],
+            isError: true,
+            timestamp: 1_781_341_200_000
+          }
+        }
+      ]
+      parent_id = "result-1"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Message #{index}" }], timestamp: 1_781_341_260_000 } }
+        parent_id = id
+      end
+      write_jsonl(path, entries)
+      parsed_lines = []
+      parse = JSON.method(:parse)
+
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_lines << line; parse.call(line, *args) }) do
+        window = PiSessionStore.new(root: dir).conversation_window(path)
+        assert_equal 1, window.start_index
+      end
+
+      refute parsed_lines.any? { |line| line.include?("large-tool-output-") }
+    end
+  end
+
+  def test_includes_a_large_bash_result_when_only_ignored_details_are_large
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      ignored_details = "ignored-bash-details-#{"x" * 1_048_576}"
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "assistant-1",
+          parentId: nil,
+          timestamp: "2026-06-13T09:59:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "echo ok" } }],
+            api: "responses",
+            provider: "openai-codex",
+            model: "gpt-5.5",
+            usage: { totalTokens: 100 },
+            stopReason: "toolUse",
+            timestamp: 1_781_341_140_000
+          }
+        },
+        {
+          type: "message",
+          id: "result-1",
+          parentId: "assistant-1",
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "bash",
+            content: [{ type: "text", text: "ok" }],
+            details: { ignored: ignored_details },
+            isError: false,
+            timestamp: 1_781_341_200_000
+          }
+        },
+        { type: "message", id: "user-1", parentId: "result-1", timestamp: "2026-06-13T10:01:00Z", message: { role: "user", content: [{ type: "text", text: "Continue" }], timestamp: 1_781_341_260_000 } }
+      ])
+
+      window = PiSessionStore.new(root: dir).conversation_window(path)
+
+      refute_nil window
+      assert_equal 0, window.start_index
+      assert_equal ["ok", "Continue"], window.messages.map(&:text)
+    end
+  end
+
+  def test_indexes_large_canonical_compaction_branch_summary_and_custom_message_entries
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      ignored_details = { payload: "x" * 300_000 }
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "compaction", id: "compaction-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", summary: "Compacted", firstKeptEntryId: "", tokensBefore: 100, details: ignored_details, fromHook: false },
+        { type: "branch_summary", id: "summary-1", parentId: "compaction-1", timestamp: "2026-06-13T10:01:00Z", fromId: "compaction-1", summary: "Branch summary", details: ignored_details, fromHook: false },
+        { type: "custom_message", customType: "notice", content: "Visible notice", display: true, details: ignored_details, id: "custom-1", parentId: "summary-1", timestamp: "2026-06-13T10:02:00Z" }
+      ])
+
+      store = PiSessionStore.new(root: dir)
+      window = store.conversation_window(path)
+
+      refute_nil window
+      assert_equal store.messages(path).map(&:to_h), window.messages.map(&:to_h)
+      assert_equal ["Compacted", "Visible notice"], window.messages.map(&:text)
+    end
+  end
+
+  def test_indexed_subagent_result_loads_prompt_and_timestamp_from_its_hidden_call
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        {
+          type: "message",
+          id: "call-entry",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "subagent", arguments: { task: "Review the change" } }]
+          }
+        }
+      ]
+      parent_id = "call-entry"
+      25.times do |index|
+        id = "user-#{index}"
+        entries << { type: "message", id: id, parentId: parent_id, message: { role: "user", content: [{ type: "text", text: "Message #{index}" }] } }
+        parent_id = id
+      end
+      entries << {
+        type: "message",
+        id: "result-entry",
+        parentId: parent_id,
+        timestamp: "2026-06-13T10:05:00Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "subagent",
+          content: [{ type: "text", text: "No findings" }]
+        }
+      }
+      write_jsonl(path, entries)
+
+      result = PiSessionStore.new(root: dir).conversation_window(path).messages.last
+
+      assert_equal "No findings", result.text
+      assert_equal "Review the change", result.tool_prompt
+      assert_equal Time.iso8601("2026-06-13T10:00:00Z"), result.timestamp
+    end
+  end
+
+  def test_indexed_conversation_window_is_invalidated_after_append
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "user-1", parentId: nil, message: { role: "user", content: [{ type: "text", text: "First" }] } }
+      ]
+      File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
+      store = PiSessionStore.new(root: dir)
+      assert_equal 1, store.conversation_window(path).total_message_count
+
+      File.open(path, "a") do |file|
+        file.puts JSON.generate(type: "message", id: "user-2", parentId: "user-1", message: { role: "user", content: [{ type: "text", text: "Second" }] })
+      end
+      parsed_lines = []
+      parse = JSON.method(:parse)
+      window = nil
+      replace_singleton_method(JSON, :parse, ->(line, *args) { parsed_lines << line; parse.call(line, *args) }) do
+        window = store.conversation_window(path)
+      end
+
+      assert_equal 2, window.total_message_count
+      assert_equal ["First", "Second"], window.messages.map(&:text)
+      assert_equal 3, parsed_lines.length
+      assert_equal 2, parsed_lines.count { |line| line.include?('"id":"user-2"') }
+      assert_equal 1, parsed_lines.count { |line| line.include?('"id":"user-1"') }
+    end
+  end
+
+  def test_indexed_conversation_rebuilds_after_an_in_place_rewrite_and_append
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      initial_entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "entry-a", parentId: nil, message: { role: "user", content: [{ type: "text", text: "First" }] } },
+        { type: "message", id: "entry-b", parentId: "entry-a", message: { role: "user", content: [{ type: "text", text: "Second" }] } }
+      ]
+      File.write(path, initial_entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
+      store = PiSessionStore.new(root: dir)
+      assert_equal ["First", "Second"], store.conversation_window(path).messages.map(&:text)
+
+      rewritten_entries = [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "entry-x", parentId: nil, message: { role: "user", content: [{ type: "text", text: "One" }] } },
+        { type: "message", id: "entry-y", parentId: "entry-x", message: { role: "user", content: [{ type: "text", text: "Two" }] } },
+        { type: "message", id: "entry-z", parentId: "entry-y", message: { role: "user", content: [{ type: "text", text: "Three" }] } }
+      ]
+      File.write(path, rewritten_entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
+
+      window = store.conversation_window(path, current_leaf_id: "entry-z", current_leaf_supplied: true)
+      assert_equal ["One", "Two", "Three"], window.messages.map(&:text)
+    end
+  end
+
+  def test_indexed_conversation_defaults_to_the_latest_persisted_branch
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "user-1", parentId: nil, message: { role: "user", content: [{ type: "text", text: "Root" }] } },
+        { type: "message", id: "assistant-1", parentId: "user-1", message: { role: "assistant", content: [{ type: "text", text: "Root answer" }] } },
+        { type: "message", id: "old-user", parentId: "assistant-1", message: { role: "user", content: [{ type: "text", text: "Old branch" }] } },
+        { type: "message", id: "old-answer", parentId: "old-user", message: { role: "assistant", content: [{ type: "text", text: "Old answer" }] } },
+        { type: "message", id: "latest-user", parentId: "assistant-1", message: { role: "user", content: [{ type: "text", text: "Latest branch" }] } }
+      ])
+
+      window = PiSessionStore.new(root: dir).conversation_window(path)
+
+      assert_equal ["Root", "Root answer", "Latest branch"], window.messages.map(&:text)
+      assert_equal "latest-user", window.tree_leaf_id
+      assert_equal 3, window.total_message_count
+    end
+  end
+
+  def test_indexed_conversation_distinguishes_an_explicit_root_leaf
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "user-1", parentId: nil, message: { role: "user", content: [{ type: "text", text: "First" }] } },
+        { type: "message", id: "assistant-1", parentId: "user-1", message: { role: "assistant", content: [{ type: "text", text: "Answer" }] } },
+        { type: "leaf", id: "leaf-1", parentId: "assistant-1", targetId: nil }
+      ])
+      store = PiSessionStore.new(root: dir)
+
+      assert_equal 2, store.conversation_window(path, current_leaf_id: "assistant-1").total_message_count
+      assert_equal 0, store.conversation_window(path).total_message_count
+      root_window = store.conversation_window(path, current_leaf_id: nil, current_leaf_supplied: true)
+      assert_equal 0, root_window.total_message_count
+      assert_empty root_window.messages
+      assert_nil root_window.latest_stable_tree_position_id
+    end
+  end
+
+  def test_indexed_conversation_falls_back_for_unknown_large_custom_message_content
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "custom_message", customType: "notice", content: { text: "x" * 300_000 }, display: true, id: "custom-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z" }
+      ])
+
+      assert_nil PiSessionStore.new(root: dir).conversation_window(path)
+
+      scalar_path = File.join(dir, "scalar-content.jsonl")
+      write_jsonl(scalar_path, [
+        { type: "session", id: "session-2", cwd: "/tmp/project" },
+        { type: "custom_message", customType: "notice", content: [{ type: "text", text: "x" * 300_000 }, 123], display: true, id: "custom-2", parentId: nil, timestamp: "2026-06-13T10:00:00Z" }
+      ])
+      assert_nil PiSessionStore.new(root: dir).conversation_window(scalar_path)
+    end
+  end
+
+  def test_indexed_conversation_falls_back_for_truncated_semantic_identifiers
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      tool_call_id = "call-#{"x" * 9_000}"
+      write_jsonl(path, [
+        { type: "session", id: "session-1", cwd: "/tmp/project" },
+        { type: "message", id: "assistant-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", message: { role: "assistant", content: [{ type: "toolCall", id: tool_call_id, name: "bash", arguments: { command: "large output" } }] } },
+        { type: "message", id: "result-1", parentId: "assistant-1", timestamp: "2026-06-13T10:00:01Z", message: { role: "toolResult", toolCallId: tool_call_id, toolName: "bash", content: [{ type: "text", text: "x" * 300_000 }], isError: false } }
+      ])
+
+      assert_nil PiSessionStore.new(root: dir).conversation_window(path)
+
+      branch_path = File.join(dir, "branch-summary.jsonl")
+      write_jsonl(branch_path, [
+        { type: "session", id: "session-2", cwd: "/tmp/project" },
+        { type: "branch_summary", id: "summary-1", parentId: nil, timestamp: "2026-06-13T10:00:00Z", fromId: "entry-#{"x" * 9_000}", summary: "x" * 300_000 }
+      ])
+      assert_nil PiSessionStore.new(root: dir).conversation_window(branch_path)
+    end
+  end
+
+  def test_indexed_conversation_falls_back_for_malformed_large_json
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      malformed = JSON.generate(
+        type: "custom_message",
+        customType: "notice",
+        content: "Visible notice",
+        display: true,
+        details: { ignored: "x" * 300_000 },
+        id: "custom-1",
+        parentId: nil,
+        timestamp: "2026-06-13T10:00:00Z"
+      ).sub(/\}\z/, ",}")
+      File.write(path, [JSON.generate(type: "session", id: "session-1", cwd: "/tmp/project"), malformed].join("\n"))
+
+      assert_nil PiSessionStore.new(root: dir).conversation_window(path)
+    end
+  end
+
+  def test_indexed_conversation_falls_back_for_an_unfamiliar_large_entry_layout
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      File.write(path, [
+        JSON.generate(type: "session", id: "session-1", cwd: "/tmp/project"),
+        JSON.generate(message: { content: [{ type: "text", text: "x" * 300_000 }], role: "user" }, timestamp: "2026-06-13T10:00:00Z", parentId: nil, id: "user-1", type: "message")
+      ].join("\n") + "\n")
+
+      assert_nil PiSessionStore.new(root: dir).conversation_window(path)
     end
   end
 

@@ -7761,7 +7761,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_serves_all_remaining_conversation_messages_for_explicit_full_history_load
+  def test_keeps_explicit_full_history_requests_bounded
     Dir.mktmpdir do |dir|
       messages = (1..220).map { |index| { role: "user", text: "Message #{index}" } }
       path = write_session_with_messages(dir, messages)
@@ -7775,9 +7775,10 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       payload = JSON.parse(response.body)
-      assert_equal 0, payload.fetch("next_cursor")
-      refute payload.fetch("has_older_messages")
-      assert_includes payload.fetch("html"), "Message 1"
+      assert_equal 20, payload.fetch("next_cursor")
+      assert payload.fetch("has_older_messages")
+      refute_includes payload.fetch("html"), "Message 20"
+      assert_includes payload.fetch("html"), "Message 21"
       assert_includes payload.fetch("html"), "Message 170"
       refute_includes payload.fetch("html"), "Message 171"
     end
@@ -7801,8 +7802,9 @@ class AppTest < Minitest::Test
       assert_nil response["content-length"]
       assert_includes response["vary"], "Accept-Encoding"
       payload = JSON.parse(Zlib.gunzip(response.body))
-      assert_equal 0, payload.fetch("next_cursor")
-      assert_includes payload.fetch("html"), "Message 1 with compressible conversation content"
+      assert_equal 20, payload.fetch("next_cursor")
+      refute_includes payload.fetch("html"), "Message 20 with compressible conversation content"
+      assert_includes payload.fetch("html"), "Message 21 with compressible conversation content"
       assert_includes payload.fetch("html"), "Message 170 with compressible conversation content"
     end
   end
@@ -8969,6 +8971,12 @@ class AppTest < Minitest::Test
     FileUtils.mkdir_p(session_dir)
     FileUtils.mkdir_p(project_cwd(root))
     path = File.join(session_dir, "messages.jsonl")
+    parent_id = nil
+    messages = messages.map do |entry|
+      entry = entry.merge(parentId: parent_id) if entry[:id] && !entry.key?(:parentId)
+      parent_id = entry[:id] if entry[:id]
+      entry
+    end
     entries = [{ type: "session", id: "session-1", cwd: project_cwd(root) }] + messages
     File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
     path

@@ -5,9 +5,9 @@ require_relative "sidebar"
 module Sessions
   class SessionView
     PENDING_SESSION_DISPLAY_NAME = "New session (pending first assistant response)"
-    CONVERSATION_WINDOW_MIN_MESSAGES = 20
-    CONVERSATION_WINDOW_MAX_MESSAGES = 150
-    CONVERSATION_WINDOW_BYTE_BUDGET = 128 * 1024
+    CONVERSATION_WINDOW_MIN_MESSAGES = PiSessionStore::CONVERSATION_WINDOW_MIN_MESSAGES
+    CONVERSATION_WINDOW_MAX_MESSAGES = PiSessionStore::CONVERSATION_WINDOW_MAX_MESSAGES
+    CONVERSATION_WINDOW_BYTE_BUDGET = PiSessionStore::CONVERSATION_WINDOW_BYTE_BUDGET
 
     attr_reader :store,
       :groups,
@@ -37,19 +37,25 @@ module Sessions
       new(**kwargs).build
     end
 
-    def self.older_window(sessions_root:, session_path:, cursor:, current_leaf_id:, attachment_store:, load_all: false, after_cursor: nil)
+    def self.older_window(sessions_root:, session_path:, cursor:, current_leaf_id:, attachment_store:, after_cursor: nil)
       return empty_older_window unless session_path_within_root?(session_path, sessions_root)
 
       store = PiSessionStore.new(root: sessions_root)
-      all_messages = store.messages(session_path, current_leaf_id: current_leaf_id)
-      cursor = [[cursor.to_i, 0].max, all_messages.length].min
+      window = store.conversation_window(
+        session_path,
+        current_leaf_id: current_leaf_id,
+        cursor: cursor,
+        after_cursor: after_cursor
+      )
+      return legacy_older_window(store, session_path, cursor, current_leaf_id, attachment_store, after_cursor) unless window
+
+      cursor = [[cursor.to_i, 0].max, window.total_message_count].min
+      messages = window.messages
       if after_cursor.nil?
-        messages = load_all ? all_messages.first(cursor) : conversation_window_before(all_messages, cursor)
-        next_cursor = cursor - messages.length
+        next_cursor = window.start_index
         remaining_count = next_cursor
       else
         after_cursor = [[after_cursor.to_i, 0].max, cursor].min
-        messages = load_all ? all_messages.slice(after_cursor...cursor) : conversation_window_after(all_messages, after_cursor, cursor)
         next_cursor = after_cursor + messages.length
         remaining_count = cursor - next_cursor
       end
@@ -73,6 +79,29 @@ module Sessions
         older_message_count: 0,
         attachment_counts: {},
         attachment_images: {}
+      }
+    end
+
+    def self.legacy_older_window(store, session_path, cursor, current_leaf_id, attachment_store, after_cursor)
+      all_messages = store.messages(session_path, current_leaf_id: current_leaf_id)
+      cursor = [[cursor.to_i, 0].max, all_messages.length].min
+      if after_cursor.nil?
+        messages = conversation_window_before(all_messages, cursor)
+        next_cursor = cursor - messages.length
+        remaining_count = next_cursor
+      else
+        after_cursor = [[after_cursor.to_i, 0].max, cursor].min
+        messages = conversation_window_after(all_messages, after_cursor, cursor)
+        next_cursor = after_cursor + messages.length
+        remaining_count = cursor - next_cursor
+      end
+      {
+        messages: messages,
+        next_cursor: next_cursor,
+        has_older_messages: remaining_count.positive?,
+        older_message_count: remaining_count,
+        attachment_counts: attachment_store.counts_for_messages(session_path, messages),
+        attachment_images: attachment_store.images_for_messages(session_path, messages)
       }
     end
 
@@ -252,6 +281,32 @@ module Sessions
       elsif !@session_synchronizer
         @conversation_tree_leaf_id = current_leaf_id_for(true)
       end
+      @live_snapshot = @rpc_clients.live_snapshot(@selected_session.path)
+      active_tool_call_ids = @live_snapshot.fetch(:active_tool_events).filter_map { |event| event["toolCallId"] }.uniq
+      conversation = @store.conversation_window(
+        @selected_session.path,
+        current_leaf_id: @conversation_tree_leaf_id,
+        current_leaf_supplied: @current_tree_leaf_known || !!sync_state&.blocked?,
+        active_tool_call_ids: active_tool_call_ids
+      )
+      if conversation
+        @conversation_tree_leaf_id = conversation.tree_leaf_id
+        @latest_tree_leaf_id = conversation.latest_stable_tree_position_id
+        @viewing_older_tree_leaf = @current_tree_leaf_known && conversation.current_stable_tree_position_id != @latest_tree_leaf_id
+        @messages = conversation.messages
+        @conversation_start_index = conversation.start_index
+        @conversation_older_message_count = @conversation_start_index
+        @conversation_has_older_messages = @conversation_older_message_count.positive?
+        @session_status = conversation.status
+        @subagent_tool_call_context = conversation.subagent_tool_call_context
+      else
+        prepare_legacy_conversation(active_tool_call_ids)
+      end
+      @attachment_counts = @attachment_store.counts_for_messages(@selected_session.path, @messages)
+      @attachment_images = @attachment_store.images_for_messages(@selected_session.path, @messages)
+    end
+
+    def prepare_legacy_conversation(active_tool_call_ids)
       conversation = @store.conversation(@selected_session.path, current_leaf_id: @conversation_tree_leaf_id)
       @latest_tree_leaf_id = conversation.latest_stable_tree_position_id
       @viewing_older_tree_leaf = @current_tree_leaf_known && conversation.current_stable_tree_position_id != @latest_tree_leaf_id
@@ -259,11 +314,7 @@ module Sessions
       @conversation_start_index = conversation.messages.length - @messages.length
       @conversation_older_message_count = @conversation_start_index
       @conversation_has_older_messages = @conversation_older_message_count.positive?
-      @attachment_counts = @attachment_store.counts_for_messages(@selected_session.path, @messages)
-      @attachment_images = @attachment_store.images_for_messages(@selected_session.path, @messages)
       @session_status = conversation.status
-      @live_snapshot = @rpc_clients.live_snapshot(@selected_session.path)
-      active_tool_call_ids = @live_snapshot.fetch(:active_tool_events).filter_map { |event| event["toolCallId"] }.uniq
       @subagent_tool_call_context = conversation.subagent_tool_call_context.slice(*active_tool_call_ids)
       missing_tool_call_ids = active_tool_call_ids - @subagent_tool_call_context.keys
       if missing_tool_call_ids.any?

@@ -1,6 +1,7 @@
 require "json"
 require "time"
 require "erb"
+require_relative "pi_session_index"
 
 class PiSessionStore
   Session = Struct.new(
@@ -25,9 +26,17 @@ class PiSessionStore
   Message = Struct.new(:role, :text, :timestamp, :compact, :summary, :error, :tool_call_id, :tool_name, :thinking, :tool_summary_html, :tool_transcript, :tool_preview, :tool_prompt, :final_assistant_response, :entry_id, :images, :custom_type, :compaction, keyword_init: true)
   Status = Struct.new(:provider, :model_id, :thinking_level, :context_tokens, :context_limit, :context_percent, :context_estimated, :cost_total, keyword_init: true)
   Conversation = Struct.new(:messages, :latest_stable_tree_position_id, :current_stable_tree_position_id, :status, :subagent_tool_call_context, keyword_init: true)
+  ConversationWindow = Struct.new(:messages, :start_index, :total_message_count, :tree_leaf_id, :latest_stable_tree_position_id, :current_stable_tree_position_id, :status, :subagent_tool_call_context, keyword_init: true)
+  ProjectedUnit = Struct.new(:key, :entry_ordinal, :dependencies, :tool_name, :minimum_window_bytes, keyword_init: true)
   MAX_SESSION_CACHE_ENTRIES = 10_000
+  MAX_SESSION_INDEX_CACHE_BYTES = 32 * 1024 * 1024
+  MAX_SESSION_INDEX_CACHE_ENTRIES = 1_000
+  CONVERSATION_WINDOW_MIN_MESSAGES = 20
+  CONVERSATION_WINDOW_MAX_MESSAGES = 150
+  CONVERSATION_WINDOW_BYTE_BUDGET = 128 * 1024
   # Unknown layouts fall back to JSON parsing; only Pi's native key order takes this metadata fast path.
   NATIVE_TOOL_RESULT_PREFIX = /\A\{"type":"message","id":"[^"]+","parentId":(?:null|"[^"]+"),"timestamp":"[^"]+","message":\{"role":"toolResult"/.freeze
+  NATIVE_USER_MESSAGE_PREFIX = /\A\{"type":"message","id":"[^"]+","parentId":(?:null|"[^"]+"),"timestamp":"([^"]+)","message":\{"role":"user"/.freeze
 
   FileSnapshot = Struct.new(:device, :inode, :size, :mtime_ns, :append_cursor, :persisted_leaf_id, :complete, keyword_init: true) do
     def revision
@@ -38,6 +47,10 @@ class PiSessionStore
   @session_cache = {}
   @session_cache_mutex = Mutex.new
   @session_cache_clock = 0
+  @session_index_cache = {}
+  @session_index_cache_mutex = Mutex.new
+  @session_index_cache_clock = 0
+  @session_index_cache_bytes = 0
 
   class << self
     def fetch_session(path)
@@ -66,6 +79,41 @@ class PiSessionStore
             @session_cache.select { |_cached_path, cached| cached[:users].zero? }
                           .min_by(excess) { |_cached_path, cached| cached[:last_used] }
                           .each { |cached_path, _cached| @session_cache.delete(cached_path) }
+          end
+        end
+      end
+    end
+
+    def fetch_session_index(path)
+      state = @session_index_cache_mutex.synchronize do
+        @session_index_cache_clock += 1
+        state = @session_index_cache[path] ||= { lock: Mutex.new, users: 0, bytes: 0 }
+        state[:users] += 1
+        state[:last_used] = @session_index_cache_clock
+        state
+      end
+      state.fetch(:lock).synchronize do
+        return state[:index] if state[:index]&.valid_for_current_path?
+
+        index = yield(state[:index])
+        @session_index_cache_mutex.synchronize do
+          @session_index_cache_bytes -= state[:bytes]
+          state[:bytes] = index.estimated_bytes
+          @session_index_cache_bytes += state[:bytes]
+        end
+        state[:index] = index
+      end
+    ensure
+      if state
+        @session_index_cache_mutex.synchronize do
+          state[:users] -= 1
+          while @session_index_cache_bytes > MAX_SESSION_INDEX_CACHE_BYTES || @session_index_cache.length > MAX_SESSION_INDEX_CACHE_ENTRIES
+            cached_path, cached = @session_index_cache.reject { |_path, candidate| candidate[:users].positive? }
+                                                              .min_by { |_path, candidate| candidate[:last_used] }
+            break unless cached_path
+
+            @session_index_cache_bytes -= cached[:bytes]
+            @session_index_cache.delete(cached_path)
           end
         end
       end
@@ -101,6 +149,37 @@ class PiSessionStore
   def messages(path, current_leaf_id: nil)
     entries = read_entries(path)
     messages_from_entries(session_entries(entries, current_leaf_id: current_leaf_id))
+  end
+
+  def conversation_window(path, current_leaf_id: nil, current_leaf_supplied: !current_leaf_id.nil?, cursor: nil, after_cursor: nil, active_tool_call_ids: [])
+    index = session_index(path)
+    return unless index.supported
+
+    effective_leaf_id = current_leaf_supplied ? current_leaf_id : index.latest_leaf_id
+    branch_entries = index.entries_for_leaf(effective_leaf_id, supplied: true)
+    return unless branch_entries
+
+    units, subagent_sources = projected_units(branch_entries)
+    return unless units
+
+    cursor = [[cursor.nil? ? units.length : cursor.to_i, 0].max, units.length].min
+    messages, start_index = render_window(path, index, units, cursor, after_cursor)
+    status = status_from_index(index)
+    subagent_context = indexed_subagent_tool_call_context(path, index, subagent_sources, active_tool_call_ids)
+    raise Errno::EAGAIN unless index.valid_for_current_path?
+
+    ConversationWindow.new(
+      messages: messages,
+      start_index: start_index,
+      total_message_count: units.length,
+      tree_leaf_id: effective_leaf_id,
+      latest_stable_tree_position_id: stable_tree_position_id_from_index(index, index.latest_leaf_id),
+      current_stable_tree_position_id: stable_tree_position_id_from_index(index, current_leaf_id),
+      status: status,
+      subagent_tool_call_context: subagent_context
+    )
+  rescue JSON::ParserError, Errno::EAGAIN
+    nil
   end
 
   def tool_call_timestamps(path, tool_call_ids)
@@ -198,28 +277,321 @@ class PiSessionStore
 
   private
 
-  def messages_from_entries(entries)
+  def session_index(path)
+    self.class.fetch_session_index(path) do |previous|
+      PiSessionIndex.build(path, previous: previous) { |entry| index_metadata_from_entry(entry) }
+    end
+  end
+
+  def index_metadata_from_entry(entry)
+    messages = unpaired_messages_from_entry(entry)
+    {
+      type: entry["type"],
+      id: entry["id"],
+      parent_id: entry["parentId"],
+      target_id: entry["targetId"],
+      role: entry.dig("message", "role"),
+      segments: messages.map do |message|
+        PiSessionIndex::Segment.new(role: message.role, tool_call_id: message.tool_call_id, tool_name: message.tool_name, minimum_window_bytes: nil, paired_minimum_window_bytes: nil)
+      end,
+      subagent_tool_call_ids: subagent_tool_calls_from_entries([entry]).keys,
+      status_data: index_status_data(entry),
+      estimate_text_length: estimate_text_from_entry(entry)&.length
+    }
+  end
+
+  def index_status_data(entry)
+    case entry["type"]
+    when "model_change"
+      { type: "model_change", provider: entry["provider"], model_id: entry["modelId"] || entry["model"] }
+    when "thinking_level_change"
+      { type: "thinking_level_change", thinking_level: entry["thinkingLevel"] || entry["thinking_level"] }
+    when "message"
+      message = entry["message"]
+      return unless message.is_a?(Hash) && message["role"] == "assistant"
+
+      {
+        type: "assistant",
+        provider: message["provider"],
+        model_id: message["model"],
+        usage: indexed_usage_data(message["usage"]),
+        stop_reason: message["stopReason"]
+      }
+    when "compaction"
+      {
+        type: "compaction",
+        summary_length: entry["summary"]&.length,
+        first_kept_entry_id: entry["firstKeptEntryId"]
+      }
+    end
+  end
+
+  def indexed_usage_data(usage)
+    return unless usage.is_a?(Hash)
+
+    keys = %w[totalTokens total_tokens tokens contextWindow context_window contextLimit context_limit contextPercent context_percent costTotal cost_total]
+    usage.slice(*keys).tap do |indexed|
+      indexed["cost"] = { "total" => usage.dig("cost", "total") } if usage["cost"].is_a?(Hash)
+    end
+  end
+
+  def projected_units(entries)
+    return unless entries.all?(&:segments)
+
+    subagent_sources = {}
+    entries.each do |entry|
+      entry.subagent_tool_call_ids.each { |tool_call_id| subagent_sources[tool_call_id] ||= entry.ordinal }
+    end
+
+    pending_tool_calls = {}
+    units = []
+    entries.each do |entry|
+      entry.segments.each_with_index do |segment, segment_index|
+        if segment.role == "toolResult" && pending_tool_calls[segment.tool_call_id]
+          paired_unit = pending_tool_calls.delete(segment.tool_call_id)
+          return unless paired_unit.tool_name == segment.tool_name
+
+          paired_unit.dependencies << entry.ordinal
+          paired_unit.minimum_window_bytes = combined_minimum_window_bytes(paired_unit.minimum_window_bytes, segment.paired_minimum_window_bytes)
+          next
+        end
+
+        dependencies = []
+        if segment.role == "toolResult" && segment.tool_name == "subagent" && subagent_sources[segment.tool_call_id]
+          dependencies << subagent_sources[segment.tool_call_id]
+        end
+        unit = ProjectedUnit.new(
+          key: [entry.ordinal, segment_index],
+          entry_ordinal: entry.ordinal,
+          dependencies: dependencies,
+          tool_name: segment.tool_name,
+          minimum_window_bytes: segment.minimum_window_bytes
+        )
+        units << unit
+        if segment.tool_call_id && pair_tool_result?(segment.tool_name)
+          pending_tool_calls[segment.tool_call_id] = unit
+        end
+      end
+    end
+    [units, subagent_sources]
+  end
+
+  def combined_minimum_window_bytes(left, right)
+    return :deferred if left == :deferred || right == :deferred
+
+    [left, right].compact.max
+  end
+
+  def render_window(path, index, units, cursor, after_cursor)
+    File.open(path, "rb") do |file|
+      validate_index_file!(file, index)
+      parsed_entries = {}
+      scanned_metadata = {}
+      result = if after_cursor.nil?
+        messages = []
+        bytes = 0
+        has_user_message = false
+        (cursor - 1).downto(0) do |unit_index|
+          unit = units.fetch(unit_index)
+          enough_context = has_user_message || messages.length >= CONVERSATION_WINDOW_MIN_MESSAGES
+          break if messages.length >= CONVERSATION_WINDOW_MAX_MESSAGES
+          minimum_window_bytes = resolved_minimum_window_bytes(file, index, unit, scanned_metadata)
+          if enough_context && minimum_window_bytes && bytes + minimum_window_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
+            break
+          end
+
+          message = render_projected_unit(file, index, unit, parsed_entries)
+          message_bytes = indexed_window_message_bytes(message)
+          break if enough_context && bytes + message_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
+
+          messages << message
+          bytes += message_bytes
+          has_user_message ||= message.role == "user"
+        end
+        messages.reverse!
+        [messages, cursor - messages.length]
+      else
+        start_index = [[after_cursor.to_i, 0].max, cursor].min
+        messages = []
+        bytes = 0
+        has_user_message = false
+        units.slice(start_index...cursor).each do |unit|
+          enough_context = has_user_message || messages.length >= CONVERSATION_WINDOW_MIN_MESSAGES
+          break if messages.length >= CONVERSATION_WINDOW_MAX_MESSAGES
+          minimum_window_bytes = resolved_minimum_window_bytes(file, index, unit, scanned_metadata)
+          if enough_context && minimum_window_bytes && bytes + minimum_window_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
+            break
+          end
+
+          message = render_projected_unit(file, index, unit, parsed_entries)
+          message_bytes = indexed_window_message_bytes(message)
+          break if enough_context && bytes + message_bytes > CONVERSATION_WINDOW_BYTE_BUDGET
+
+          messages << message
+          bytes += message_bytes
+          has_user_message ||= message.role == "user"
+        end
+        [messages, start_index]
+      end
+      validate_index_file!(file, index)
+      raise Errno::EAGAIN unless index.valid_for_current_path?
+
+      result
+    end
+  end
+
+  def resolved_minimum_window_bytes(file, index, unit, scanned_metadata)
+    return unit.minimum_window_bytes unless unit.minimum_window_bytes == :deferred
+
+    source = index.entries.fetch(unit.entry_ordinal)
+    source_metadata = scanned_metadata[source.ordinal] ||= index.scan_metadata(file, source)
+    return unless source_metadata
+
+    minimums = [source_metadata[:segments].fetch(unit.key[1]).minimum_window_bytes]
+    unit.dependencies.each do |ordinal|
+      dependency = index.entries.fetch(ordinal)
+      next unless dependency.deferred_metadata
+
+      metadata = scanned_metadata[ordinal] ||= index.scan_metadata(file, dependency)
+      return unless metadata
+
+      result_segment = metadata[:segments].find { |segment| segment.role == "toolResult" && segment.tool_name == unit.tool_name }
+      minimums << result_segment&.paired_minimum_window_bytes
+    end
+    minimums.compact.max
+  end
+
+  def render_projected_unit(file, index, unit, parsed_entries)
+    ordinals = [unit.entry_ordinal, *unit.dependencies].uniq.sort
+    entries = ordinals.map do |ordinal|
+      parsed_entries[ordinal] ||= read_indexed_entry(file, index.entries.fetch(ordinal))
+    end
+    messages = messages_from_entries(entries, source_ordinals: ordinals)
+    messages.find { |message| message.instance_variable_get(:@gripi_source_key) == unit.key } or
+      raise JSON::ParserError, "Indexed session projection changed"
+  end
+
+  def read_indexed_entry(file, indexed_entry)
+    file.seek(indexed_entry.offset)
+    JSON.parse(file.read(indexed_entry.length))
+  end
+
+  def validate_index_file!(file, index)
+    stat = file.stat
+    return if stat.dev == index.device && stat.ino == index.inode && stat.size == index.size && stat_mtime_ns(stat) == index.mtime_ns
+
+    raise Errno::EAGAIN, "Session changed while its conversation window was read"
+  end
+
+  def indexed_window_message_bytes(message)
+    text_bytes = [message.role, message.text, message.summary].compact.sum { |value| value.to_s.bytesize }
+    image_bytes = Array(message.images).sum { |image| (image[:data] || image["data"]).to_s.bytesize }
+    (text_bytes * 2) + image_bytes
+  end
+
+  def stable_tree_position_id_from_index(index, leaf_id)
+    visited = {}
+    entry = index.by_id[leaf_id]
+    while entry && !visited[entry.id] && (entry.type == "custom_message" || entry.role == "user")
+      visited[entry.id] = true
+      leaf_id = entry.parent_id
+      entry = index.by_id[leaf_id]
+    end
+    leaf_id
+  end
+
+  def status_from_index(index)
+    latest = Status.new
+    latest_usage_ordinal = nil
+    latest_compaction = nil
+
+    index.entries.each do |entry|
+      data = entry.status_data
+      next unless data
+
+      case data[:type]
+      when "model_change"
+        latest.provider = data[:provider] unless data[:provider].to_s.empty?
+        latest.model_id = data[:model_id] unless data[:model_id].to_s.empty?
+      when "thinking_level_change"
+        latest.thinking_level = data[:thinking_level] unless data[:thinking_level].to_s.empty?
+      when "assistant"
+        latest.provider = data[:provider] unless data[:provider].to_s.empty?
+        latest.model_id = data[:model_id] unless data[:model_id].to_s.empty?
+        message = {
+          "role" => "assistant",
+          "usage" => data[:usage],
+          "stopReason" => data[:stop_reason]
+        }
+        latest_usage_ordinal = entry.ordinal if apply_usage(latest, message)
+      when "compaction"
+        latest_compaction = entry
+      end
+    end
+
+    if latest_compaction && (!latest_usage_ordinal || latest_compaction.ordinal > latest_usage_ordinal)
+      apply_indexed_compaction_estimate(latest, index, latest_compaction)
+    end
+    latest
+  end
+
+  def apply_indexed_compaction_estimate(status, index, compaction)
+    data = compaction.status_data
+    first_kept = index.by_id[data[:first_kept_entry_id]]
+    kept_entries = first_kept ? index.entries.slice(first_kept.ordinal...compaction.ordinal) : []
+    kept_messages = kept_entries.select { |entry| entry.type == "message" }
+    if kept_messages.any? { |entry| entry.estimate_text_length.nil? }
+      status.context_tokens = nil
+      status.context_limit = nil
+      status.context_percent = nil
+      status.context_estimated = nil
+      return false
+    end
+
+    lengths = [data[:summary_length], *kept_messages.map(&:estimate_text_length)].compact
+    return true if lengths.empty?
+
+    characters = lengths.sum + lengths.length - 1
+    return true unless characters.positive?
+
+    status.context_tokens = (characters / 4.0).ceil
+    status.context_limit = nil
+    status.context_percent = nil
+    status.context_estimated = true
+    true
+  end
+
+  def indexed_subagent_tool_call_context(path, index, sources, tool_call_ids)
+    requested = Array(tool_call_ids).uniq
+    return {} if requested.empty?
+
+    missing = requested - sources.keys
+    if missing.any?
+      index.entries.each do |entry|
+        entry.subagent_tool_call_ids.each do |tool_call_id|
+          sources[tool_call_id] ||= entry.ordinal if missing.include?(tool_call_id)
+        end
+      end
+    end
+    ordinals = requested.filter_map { |tool_call_id| sources[tool_call_id] }.uniq.sort
+    return {} if ordinals.empty?
+
+    File.open(path, "rb") do |file|
+      validate_index_file!(file, index)
+      entries = ordinals.map { |ordinal| read_indexed_entry(file, index.entries.fetch(ordinal)) }
+      normalized_subagent_tool_call_context(subagent_tool_calls_from_entries(entries)).slice(*requested)
+    end
+  end
+
+  def messages_from_entries(entries, source_ordinals: nil)
     subagent_tool_calls = subagent_tool_calls_from_entries(entries)
     pending_tool_calls = {}
-    entries.each_with_object([]) do |entry, rendered_messages|
-      if entry["type"] == "compaction"
-        rendered_messages << compaction_message_from_entry(entry)
-        next
-      end
+    entries.each_with_index.each_with_object([]) do |(entry, entry_index), rendered_messages|
+      unpaired_messages_from_entry(entry).each_with_index do |message, segment_index|
+        if source_ordinals
+          message.instance_variable_set(:@gripi_source_key, [source_ordinals.fetch(entry_index), segment_index])
+        end
 
-      if (error_message = error_message_from_entry(entry))
-        rendered_messages << error_message
-        next
-      end
-
-      if entry["type"] == "custom_message"
-        rendered_messages << custom_message_from_entry(entry) if entry["display"] == true
-        next
-      end
-
-      next unless entry["type"] == "message"
-
-      messages_from_entry(entry).each do |message|
         if message.role == "toolResult" && message.tool_name == "subagent" && (tool_call = subagent_tool_calls[message.tool_call_id])
           message.timestamp = tool_call[:timestamp] if tool_call[:timestamp]
           message.tool_prompt = tool_call[:prompt] unless tool_call[:prompt].to_s.empty?
@@ -238,6 +610,16 @@ class PiSessionStore
         pending_tool_calls[message.tool_call_id] = message if message.tool_call_id && pair_tool_result?(message.tool_name)
       end
     end
+  end
+
+  def unpaired_messages_from_entry(entry)
+    return [compaction_message_from_entry(entry)] if entry["type"] == "compaction"
+    error_message = error_message_from_entry(entry)
+    return [error_message] if error_message
+    return entry["display"] == true ? [custom_message_from_entry(entry)] : [] if entry["type"] == "custom_message"
+    return messages_from_entry(entry) if entry["type"] == "message"
+
+    []
   end
 
   def latest_leaf_id_from_entries(entries)
@@ -424,7 +806,19 @@ class PiSessionStore
     latest_activity_preview = nil
     conversation_activity_at = nil
 
-    each_entry(path, skip_canonical_tool_results: true) do |entry|
+    File.foreach(path, chomp: true) do |line|
+      next if line.empty? || canonical_tool_result_entry?(line)
+
+      if first_user_message && (match = line.match(NATIVE_USER_MESSAGE_PREFIX))
+        entry = { "type" => "message", "timestamp" => match[1], "message" => { "role" => "user" } }
+      else
+        entry = begin
+          JSON.parse(line)
+        rescue JSON::ParserError
+          next
+        end
+      end
+
       case entry["type"]
       when "session"
         session_entry ||= entry

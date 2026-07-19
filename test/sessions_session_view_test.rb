@@ -371,6 +371,66 @@ class SessionsSessionViewTest < Minitest::Test
     end
   end
 
+  def test_initial_window_does_not_parse_a_huge_old_tool_result
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      sentinel = "off-window-tool-output-#{"x" * 1_000_000}"
+      entries = [
+        { type: "session", id: "session", cwd: dir },
+        {
+          type: "message",
+          id: "call-entry",
+          parentId: nil,
+          timestamp: "2026-06-13T10:00:00Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "generate output" } }]
+          }
+        },
+        {
+          type: "message",
+          id: "result-entry",
+          parentId: "call-entry",
+          timestamp: "2026-06-13T10:00:01Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "bash",
+            content: [{ type: "text", text: sentinel }],
+            isError: false
+          }
+        }
+      ]
+      parent_id = "result-entry"
+      40.times do |index|
+        id = "recent-#{index + 1}"
+        entries << {
+          type: "message",
+          id: id,
+          parentId: parent_id,
+          timestamp: "2026-06-13T10:01:#{format("%02d", index)}Z",
+          message: { role: "user", content: [{ type: "text", text: "Recent #{index + 1}" }] }
+        }
+        parent_id = id
+      end
+      File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
+      parse = JSON.method(:parse)
+      parsed_huge_entry = false
+
+      replace_singleton_method(JSON, :parse, lambda { |json, *args|
+        parsed_huge_entry = true if json.bytesize > 1_000_000
+        parse.call(json, *args)
+      }) do
+        messages = build_conversation(dir, path).messages
+
+        assert_equal "Recent 1", messages.first.text
+        assert_equal "Recent 40", messages.last.text
+      end
+
+      refute parsed_huge_entry
+    end
+  end
+
   private
 
   def build_conversation(root, session_path)
@@ -413,5 +473,13 @@ class SessionsSessionViewTest < Minitest::Test
     end
     File.write(path, entries.map { |entry| JSON.generate(entry) }.join("\n") + "\n")
     path
+  end
+
+  def replace_singleton_method(receiver, name, replacement)
+    original = receiver.method(name)
+    receiver.singleton_class.define_method(name, replacement)
+    yield
+  ensure
+    receiver.singleton_class.define_method(name, original)
   end
 end

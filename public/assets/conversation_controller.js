@@ -512,11 +512,10 @@ export class ConversationController {
     return this.document.querySelector('.prompt-form input[name="session"]')?.value || new URLSearchParams(this.window.location.search).get("session") || "";
   }
 
-  olderConversationUrl(cursor, element = this.element, loadAll = false, afterCursor = null) {
+  olderConversationUrl(cursor, element = this.element, afterCursor = null) {
     const url = new URL(element.dataset.olderMessagesUrl, this.window.location.origin);
     url.searchParams.set("cursor", cursor);
     if (afterCursor !== null) url.searchParams.set("after", afterCursor);
-    if (loadAll) url.searchParams.set("all", "1");
     return url;
   }
 
@@ -595,7 +594,7 @@ export class ConversationController {
     this.insertHistoryHtml(html, insertionPoint, preserveViewport);
   }
 
-  loadOlderWindow({ loadAll = false, afterCursor = null } = {}) {
+  loadOlderWindow({ afterCursor = null } = {}) {
     if (!this.element) return Promise.resolve("cancelled");
     if (this.olderWindowPromise) return this.olderWindowPromise;
     const cursor = Number(this.element.dataset.olderMessageCursor || 0);
@@ -612,7 +611,7 @@ export class ConversationController {
     this.loadingHistoryStatus();
     const load = (async () => {
       try {
-        const response = await fetch(this.olderConversationUrl(cursor, scrollElement, loadAll, afterCursor), { headers: { "Accept": "application/json" }, signal: abortController.signal });
+        const response = await fetch(this.olderConversationUrl(cursor, scrollElement, afterCursor), { headers: { "Accept": "application/json" }, signal: abortController.signal });
         if (!unchanged()) return "cancelled";
         if (!response.ok) {
           this.failHistoryStatus();
@@ -627,7 +626,7 @@ export class ConversationController {
           return "failed";
         }
 
-        const preserveGapViewport = forward && loadAll && this.historyGapAboveViewport();
+        const preserveGapViewport = forward && this.historyGapAboveViewport();
         if (forward) scrollElement.dataset.oldestMessageEndCursor = String(nextCursor);
         else scrollElement.dataset.olderMessageCursor = String(nextCursor);
         scrollElement.dataset.hasOlderMessages = payload.has_older_messages ? "true" : "false";
@@ -681,7 +680,13 @@ export class ConversationController {
     if (!this.element) return Promise.resolve("cancelled");
     if (this.olderHistoryPromise) return this.olderHistoryPromise;
     if (this.olderWindowPromise) this.cancelOlderHistory();
-    const load = this.loadOlderWindow({ loadAll: true });
+    const load = (async () => {
+      let status;
+      do {
+        status = await this.loadOlderWindow();
+      } while (status === "more");
+      return status;
+    })();
     const shared = load.finally(() => {
       if (this.olderHistoryPromise === shared) this.olderHistoryPromise = null;
     });
