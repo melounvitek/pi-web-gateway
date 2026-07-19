@@ -302,6 +302,16 @@ class DemoTest < Minitest::Test
     assert_includes javascript, 'if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); closeConversationView({ focus: true }); return; }'
   end
 
+  def test_demo_conversation_view_selector_opens_on_first_touch
+    javascript = File.read(JAVASCRIPT)
+
+    assert_includes javascript, "function openSelectOnFirstTouch(trigger, closed, open) {"
+    assert_includes javascript, 'trigger.addEventListener("touchmove", trackTouch);'
+    assert_includes javascript, 'openSelectOnFirstTouch(element.projectTrigger, () => element.projectList.hidden, openProjectList);'
+    assert_includes javascript, 'openSelectOnFirstTouch(element.viewTrigger, () => element.viewList.hidden, openConversationView);'
+    assert_includes javascript, 'openSelectOnFirstTouch(newSessionTrigger, () => newSessionList.hidden, openNewSessionList);'
+  end
+
   def test_demo_mobile_composer_starts_clean_and_compact
     html = File.read(HTML)
     body = Nokogiri::HTML5(html).at_css("body")

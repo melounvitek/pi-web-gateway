@@ -1,3 +1,5 @@
+const TOUCH_TAP_TOLERANCE = 10;
+
 export class ProjectSelectController {
   constructor(document, window) {
     this.document = document;
@@ -5,6 +7,7 @@ export class ProjectSelectController {
     this.openWrapper = null;
     this.serial = 0;
     this.listenersBound = false;
+    this.touchStart = null;
   }
 
   initialize(root = this.document) {
@@ -65,6 +68,9 @@ export class ProjectSelectController {
     if (this.listenersBound) return;
     this.listenersBound = true;
     this.document.addEventListener("click", () => this.close());
+    this.document.addEventListener("touchstart", (event) => {
+      if (event.touches.length > 1) this.touchStart = null;
+    }, true);
     this.window.addEventListener("resize", () => this.position(this.openWrapper));
     this.window.addEventListener("scroll", () => this.position(this.openWrapper), true);
   }
@@ -146,6 +152,28 @@ export class ProjectSelectController {
     this.document.body.append(listbox);
     this.sync(select);
 
+    trigger.addEventListener("touchstart", (event) => {
+      const touch = event.touches.length === 1 ? event.touches[0] : null;
+      this.touchStart = touch ? { wrapper, identifier: touch.identifier, x: touch.clientX, y: touch.clientY } : null;
+    });
+    trigger.addEventListener("touchmove", (event) => {
+      const start = this.touchStart;
+      if (!start || start.wrapper !== wrapper) return;
+      const touch = [...event.touches].find((candidate) => candidate.identifier === start.identifier);
+      if (!touch || Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > TOUCH_TAP_TOLERANCE) this.touchStart = null;
+    });
+    trigger.addEventListener("touchcancel", () => {
+      if (this.touchStart?.wrapper === wrapper) this.touchStart = null;
+    });
+    trigger.addEventListener("touchend", (event) => {
+      const start = this.touchStart;
+      if (start?.wrapper === wrapper) this.touchStart = null;
+      if (!start || start.wrapper !== wrapper || !listbox.hidden) return;
+      const touch = [...event.changedTouches].find((candidate) => candidate.identifier === start.identifier);
+      if (!touch || Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > TOUCH_TAP_TOLERANCE) return;
+      event.preventDefault();
+      this.open(wrapper);
+    }, { passive: false });
     trigger.addEventListener("click", (event) => {
       event.stopPropagation();
       if (listbox.hidden) this.open(wrapper);

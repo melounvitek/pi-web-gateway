@@ -2,6 +2,7 @@
   "use strict";
 
   const FOCUSED_ACTIVITY_ITEM_LIMIT = 10;
+  const TOUCH_TAP_TOLERANCE = 10;
   const initialSessions = [
     {
       id: "welcome", name: "Welcome to Gripi", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "just now", pinned: true,
@@ -767,6 +768,32 @@
 
   document.querySelector("[data-sidebar-search-toggle]").addEventListener("click", (event) => { const open = !element.searchForm.classList.contains("is-open"); element.searchForm.classList.toggle("is-open", open); event.currentTarget.classList.toggle("is-active", open); event.currentTarget.setAttribute("aria-expanded", String(open)); if (open) element.search.focus(); });
   element.search.addEventListener("input", renderSidebar);
+  function openSelectOnFirstTouch(trigger, closed, open) {
+    let touchStart = null;
+    const trackTouch = (event) => {
+      if (!touchStart) return;
+      const touch = [...event.touches].find((candidate) => candidate.identifier === touchStart.identifier);
+      if (!touch || Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) > TOUCH_TAP_TOLERANCE) touchStart = null;
+    };
+    document.addEventListener("touchstart", (event) => {
+      if (event.touches.length > 1) touchStart = null;
+    }, true);
+    trigger.addEventListener("touchstart", (event) => {
+      const touch = event.touches.length === 1 ? event.touches[0] : null;
+      touchStart = touch ? { identifier: touch.identifier, x: touch.clientX, y: touch.clientY } : null;
+    });
+    trigger.addEventListener("touchmove", trackTouch);
+    trigger.addEventListener("touchcancel", () => { touchStart = null; });
+    trigger.addEventListener("touchend", (event) => {
+      const start = touchStart;
+      touchStart = null;
+      if (!start || !closed()) return;
+      const touch = [...event.changedTouches].find((candidate) => candidate.identifier === start.identifier);
+      if (!touch || Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > TOUCH_TAP_TOLERANCE) return;
+      event.preventDefault();
+      open();
+    }, { passive: false });
+  }
   function selectProject(value) {
     const option = element.projectList.querySelector(`[data-project-value="${value}"]`) || element.projectList.querySelector('[data-project-value=""]');
     element.project.value = option.dataset.projectValue;
@@ -776,7 +803,17 @@
     element.projectList.hidden = true; element.projectTrigger.setAttribute("aria-expanded", "false"); renderSidebar();
   }
   element.clearFilters.addEventListener("click", (event) => { event.preventDefault(); element.search.value = ""; selectProject(""); });
-  element.projectTrigger.addEventListener("click", () => { const open = element.projectList.hidden; element.projectList.hidden = !open; element.projectTrigger.setAttribute("aria-expanded", String(open)); if (open) { const rect = element.projectTrigger.getBoundingClientRect(); Object.assign(element.projectList.style, { left: `${rect.left}px`, top: `${rect.bottom + 4}px`, width: `${rect.width}px` }); } });
+  function openProjectList() {
+    element.projectList.hidden = false;
+    element.projectTrigger.setAttribute("aria-expanded", "true");
+    const rect = element.projectTrigger.getBoundingClientRect();
+    Object.assign(element.projectList.style, { left: `${rect.left}px`, top: `${rect.bottom + 4}px`, width: `${rect.width}px` });
+  }
+  openSelectOnFirstTouch(element.projectTrigger, () => element.projectList.hidden, openProjectList);
+  element.projectTrigger.addEventListener("click", () => {
+    if (element.projectList.hidden) openProjectList();
+    else { element.projectList.hidden = true; element.projectTrigger.setAttribute("aria-expanded", "false"); }
+  });
   element.projectList.addEventListener("click", (event) => { const option = event.target.closest("[data-project-value]"); if (option) selectProject(option.dataset.projectValue); });
   document.querySelector("[data-notification-toggle]").addEventListener("click", (event) => { const enabled = !event.currentTarget.classList.contains("is-enabled"); event.currentTarget.classList.toggle("is-enabled", enabled); event.currentTarget.classList.toggle("is-disabled", !enabled); event.currentTarget.querySelector("[data-notification-toggle-state]").textContent = enabled ? "Demo on" : "Demo off"; });
   function conversationViewOptions() { return [...element.viewList.querySelectorAll("[role=option]")]; }
@@ -810,6 +847,7 @@
     closeConversationView({ focus: true });
     element.viewSelect.dispatchEvent(new Event("change", { bubbles: true }));
   }
+  openSelectOnFirstTouch(element.viewTrigger, () => element.viewList.hidden, openConversationView);
   element.viewTrigger.addEventListener("click", () => {
     if (element.viewList.hidden) openConversationView();
     else closeConversationView();
@@ -887,14 +925,16 @@
   const newSessionCwd = document.querySelector("[data-new-session-cwd-value]");
   const newSessionMessage = document.querySelector("[data-new-session-cwd-message]");
 
+  function openNewSessionList() {
+    newSessionList.hidden = false;
+    newSessionTrigger.setAttribute("aria-expanded", "true");
+    const rect = newSessionTrigger.getBoundingClientRect();
+    Object.assign(newSessionList.style, { left: `${rect.left}px`, top: `${rect.bottom + 4}px`, width: `${rect.width}px` });
+  }
+  openSelectOnFirstTouch(newSessionTrigger, () => newSessionList.hidden, openNewSessionList);
   newSessionTrigger.addEventListener("click", () => {
-    const open = newSessionList.hidden;
-    newSessionList.hidden = !open;
-    newSessionTrigger.setAttribute("aria-expanded", String(open));
-    if (open) {
-      const rect = newSessionTrigger.getBoundingClientRect();
-      Object.assign(newSessionList.style, { left: `${rect.left}px`, top: `${rect.bottom + 4}px`, width: `${rect.width}px` });
-    }
+    if (newSessionList.hidden) openNewSessionList();
+    else { newSessionList.hidden = true; newSessionTrigger.setAttribute("aria-expanded", "false"); }
   });
   newSessionList.addEventListener("click", (event) => {
     const option = event.target.closest("[data-new-project]");

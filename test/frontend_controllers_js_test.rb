@@ -520,6 +520,79 @@ class FrontendControllersJsTest < Minitest::Test
     assert_equal 1, results.fetch("windowResizes")
   end
 
+  def test_project_select_controller_opens_on_the_first_touch
+    results = run_javascript(<<~JS)
+      const { ProjectSelectController } = await import(#{module_url("project_select_controller.js").to_json});
+      #{dom_fakes}
+
+      const document = new FakeDocument();
+      const window = new FakeEventTarget();
+      window.Event = class { constructor(type, options) { this.type = type; this.bubbles = options?.bubbles; } };
+      window.matchMedia = () => ({ matches: true });
+      const wrapper = new FakeElement("div", ["[data-project-select]"]);
+      wrapper.setAttribute("data-project-select-plain", "");
+      const select = new FakeElement("select");
+      select.setAttribute("aria-label", "Transcript view");
+      select.options = [nativeOption("full", "All details"), nativeOption("conversation", "Messages only")];
+      select.selectedIndex = 0;
+      Object.defineProperty(select, "selectedOptions", { get() { return [this.options[this.selectedIndex]]; } });
+      wrapper.append(select);
+      document.body.append(wrapper);
+
+      const controller = new ProjectSelectController(document, window);
+      controller.initialize();
+      const state = wrapper._projectSelectState;
+      const touch = (x, y) => ({ identifier: 1, clientX: x, clientY: y });
+      let dragPrevented = false;
+      state.trigger.listeners.get("touchstart")[0]({ touches: [touch(0, 0)] });
+      state.trigger.listeners.get("touchmove")[0]({ touches: [touch(0, 20)] });
+      state.trigger.listeners.get("touchend")[0]({ changedTouches: [touch(0, 20)], preventDefault() { dragPrevented = true; } });
+      const afterDrag = { prevented: dragPrevented, expanded: state.trigger.getAttribute("aria-expanded"), hidden: state.listbox.hidden };
+
+      let multitouchPrevented = false;
+      state.trigger.listeners.get("touchstart")[0]({ touches: [touch(0, 0)] });
+      document.listeners.get("touchstart").forEach((listener) => listener({ touches: [touch(0, 0), { identifier: 2, clientX: 20, clientY: 20 }] }));
+      state.trigger.listeners.get("touchend")[0]({ changedTouches: [touch(0, 0)], preventDefault() { multitouchPrevented = true; } });
+      const afterMultitouch = { prevented: multitouchPrevented, expanded: state.trigger.getAttribute("aria-expanded"), hidden: state.listbox.hidden };
+
+      let cancelPrevented = false;
+      state.trigger.listeners.get("touchstart")[0]({ touches: [touch(0, 0)] });
+      state.trigger.listeners.get("touchcancel")[0]();
+      state.trigger.listeners.get("touchend")[0]({ changedTouches: [touch(0, 0)], preventDefault() { cancelPrevented = true; } });
+      const afterCancel = { prevented: cancelPrevented, expanded: state.trigger.getAttribute("aria-expanded"), hidden: state.listbox.hidden };
+
+      let openingPrevented = false;
+      state.trigger.listeners.get("touchstart")[0]({ touches: [touch(10, 10)] });
+      state.trigger.listeners.get("touchend")[0]({ changedTouches: [touch(12, 12)], preventDefault() { openingPrevented = true; } });
+      const afterTouch = { prevented: openingPrevented, expanded: state.trigger.getAttribute("aria-expanded"), hidden: state.listbox.hidden };
+      let closingPrevented = false;
+      state.trigger.listeners.get("touchstart")[0]({ touches: [touch(12, 12)] });
+      state.trigger.listeners.get("touchend")[0]({ changedTouches: [touch(12, 12)], preventDefault() { closingPrevented = true; } });
+      state.trigger.listeners.get("click")[0]({ stopPropagation() {} });
+
+      console.log(JSON.stringify({
+        afterDrag,
+        afterMultitouch,
+        afterCancel,
+        afterTouch,
+        afterNextTouch: { prevented: closingPrevented, expanded: state.trigger.getAttribute("aria-expanded"), hidden: state.listbox.hidden }
+      }));
+
+      function nativeOption(value, text) {
+        const option = new FakeElement("option");
+        option.value = value;
+        option.textContent = text;
+        return option;
+      }
+    JS
+
+    assert_equal({ "prevented" => false, "expanded" => "false", "hidden" => true }, results.fetch("afterDrag"))
+    assert_equal({ "prevented" => false, "expanded" => "false", "hidden" => true }, results.fetch("afterMultitouch"))
+    assert_equal({ "prevented" => false, "expanded" => "false", "hidden" => true }, results.fetch("afterCancel"))
+    assert_equal({ "prevented" => true, "expanded" => "true", "hidden" => false }, results.fetch("afterTouch"))
+    assert_equal({ "prevented" => false, "expanded" => "false", "hidden" => true }, results.fetch("afterNextTouch"))
+  end
+
   def test_project_select_controller_renders_and_selects_plain_options
     results = run_javascript(<<~JS)
       const { ProjectSelectController } = await import(#{module_url("project_select_controller.js").to_json});
