@@ -42,9 +42,7 @@ module Web
     rescue Sessions::SessionSynchronizer::BlockedError => error
       halt_session_sync_error(error)
     rescue Sessions::SessionSynchronizer::BusyError, PiRpcClientRegistry::OperationPending
-      status 409
-      content_type :json
-      halt JSON.generate(error: "Another session operation is pending")
+      halt_session_operation_pending
     rescue PiRpcClientRegistry::ClientRetiring, PiRpcClientRegistry::ClientStarting
       status 503
       headers "Retry-After" => "1"
@@ -68,9 +66,7 @@ module Web
       content_type :json
       halt JSON.generate(error: "A bash command is already running for this session")
     rescue Sessions::SessionSynchronizer::BusyError, PiRpcClientRegistry::OperationPending
-      status 409
-      content_type :json
-      halt JSON.generate(error: "Another session operation is pending")
+      halt_session_operation_pending
     rescue PiRpcClientRegistry::ClientRetiring, PiRpcClientRegistry::ClientStarting
       status 503
       headers "Retry-After" => "1"
@@ -127,6 +123,15 @@ module Web
       )
     end
 
+    def halt_session_operation_pending
+      status 409
+      content_type :json
+      halt JSON.generate(
+        code: "session_operation_pending",
+        error: "Another session operation is pending. Please retry."
+      )
+    end
+
     def halt_session_sync_error(error)
       status 409
       content_type :json
@@ -158,9 +163,7 @@ module Web
     def with_existing_control_rpc_client(session_path)
       rpc_clients.with_existing_client(session_path) { |client| yield client }
     rescue PiRpcClientRegistry::OperationPending
-      status 409
-      content_type :json
-      halt JSON.generate(error: "Another session operation is pending")
+      halt_session_operation_pending
     rescue PiRpcClientRegistry::ClientRetiring, PiRpcClientRegistry::ClientStarting
       status 503
       headers "Retry-After" => "1"

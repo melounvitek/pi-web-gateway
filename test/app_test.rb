@@ -961,6 +961,47 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_json_prompt_marks_session_operation_contention_as_retryable
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      client = FakeRpcClient.new([], [], path)
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      request = Rack::MockRequest.new(Gripi)
+      request.get("/events", params: { "session" => path, "after" => "0" })
+      operation_started = Queue.new
+      release_operation = Queue.new
+      operation = Thread.new do
+        Gripi.settings.session_synchronizer.with_mutable_client(path) do
+          operation_started << true
+          release_operation.pop
+        end
+      end
+      operation_started.pop
+
+      response = request.post(
+        "/prompt",
+        params: { "session" => path, "message" => "Hello Pi" },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 409, response.status
+      assert_equal(
+        {
+          "code" => "session_operation_pending",
+          "error" => "Another session operation is pending. Please retry."
+        },
+        JSON.parse(response.body)
+      )
+    ensure
+      release_operation << true if operation&.alive?
+      operation&.join
+    end
+  end
+
   def test_runs_native_bash_commands_and_returns_native_result_data
     [
       ["!  printf 'one\\ntwo'\n| cat  ", "printf 'one\\ntwo'\n| cat", false],
