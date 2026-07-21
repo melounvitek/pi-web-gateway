@@ -266,6 +266,7 @@ class PiSessionStore
   def cwd_for_session(path)
     expanded_path = File.expand_path(path)
     expanded_root = File.expand_path(@root)
+    return unless path == expanded_path
     return unless expanded_path.start_with?("#{expanded_root}#{File::SEPARATOR}") && File.extname(expanded_path) == ".jsonl"
 
     real_root = File.realpath(expanded_root)

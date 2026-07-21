@@ -42,6 +42,17 @@ class GatewayReadStateStore
     end
   end
 
+  def mark_read_count(path, response_count)
+    @mutex.synchronize do
+      state = read_state
+      count = [state.fetch(path, 0), response_count.to_i].max
+      return if state[path] == count
+
+      state[path] = count
+      write_state(state)
+    end
+  end
+
   def unread?(session)
     @mutex.synchronize do
       read_state.fetch(session.path, session.assistant_response_count.to_i) < session.assistant_response_count.to_i

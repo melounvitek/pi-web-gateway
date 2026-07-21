@@ -15,6 +15,7 @@ module Web
     TREE_ENTRY_ID_BYTES = 1_024
     TREE_LABEL_BYTES = 4_096
     TREE_CUSTOM_INSTRUCTIONS_BYTES = 64 * 1_024
+    ASSISTANT_RESPONSE_COUNT_LIMIT = 2_147_483_647
 
     module Helpers
       private
@@ -689,10 +690,14 @@ module Web
 
       app.post "/sessions/mark_read" do
         session_path = require_current_workspace_session!(params.fetch("session"))
-        session = PiSessionStore.new(root: settings.sessions_root).sessions.find { |candidate| candidate.path == session_path }
-        halt 404 unless session
+        response_count = params["assistant_response_count"]
+        halt 400 unless response_count&.match?(/\A\d+\z/)
 
-        read_state_store.mark_read(session)
+        response_count = Integer(response_count, 10)
+        halt 400 if response_count > ASSISTANT_RESPONSE_COUNT_LIMIT
+        halt 404 unless known_session_path?(session_path)
+
+        read_state_store.mark_read_count(session_path, response_count)
         status 204
       end
 

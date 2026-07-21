@@ -25,6 +25,32 @@ class GatewayReadStateStoreTest < Minitest::Test
     end
   end
 
+  def test_marking_a_response_count_read_does_not_move_state_backwards
+    Dir.mktmpdir do |dir|
+      state_path = File.join(dir, "read-state.json")
+      path = "/tmp/session.jsonl"
+      File.write(state_path, JSON.generate(path => 5))
+      store = GatewayReadStateStore.new(path: state_path)
+
+      store.mark_read_count(path, 3)
+
+      assert_equal 5, JSON.parse(File.read(state_path)).fetch(path)
+    end
+  end
+
+  def test_marking_a_session_read_can_reset_state_after_a_rewrite
+    Dir.mktmpdir do |dir|
+      state_path = File.join(dir, "read-state.json")
+      session = Session.new("/tmp/session.jsonl", 2)
+      File.write(state_path, JSON.generate(session.path => 5))
+      store = GatewayReadStateStore.new(path: state_path)
+
+      store.mark_read(session)
+
+      assert_equal 2, JSON.parse(File.read(state_path)).fetch(session.path)
+    end
+  end
+
   def test_observing_a_reduced_response_count_keeps_future_responses_detectable
     Dir.mktmpdir do |dir|
       state_path = File.join(dir, "read-state.json")

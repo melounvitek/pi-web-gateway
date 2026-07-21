@@ -79,6 +79,33 @@ class FrontendLifecycleJsTest < Minitest::Test
     assert_equal 2, results.fetch("sendFocuses")
   end
 
+  def test_mark_read_request_sends_the_rendered_assistant_response_count
+    source = File.read(File.join(ASSETS, "app.js"))
+    mark_read_source = source.match(/async function markCurrentSessionRead\(\).*?(?=\nasync function openRecentSessionShortcut)/m).to_s
+
+    result = run_javascript(<<~JS)
+      let markReadAfterVisible = false;
+      let markReadInFlight = false;
+      let markReadQueued = false;
+      const liveOutput = { dataset: { assistantResponseCount: "7" } };
+      const sidebarController = { element: null };
+      const document = { hidden: false, hasFocus: () => true };
+      const currentSessionPath = () => "/tmp/session.jsonl";
+      let request = null;
+      const fetch = async (url, options) => {
+        request = { url, body: Object.fromEntries(options.body.entries()) };
+        return { ok: true };
+      };
+      eval(#{(mark_read_source + "\nglobalThis.markRead = markCurrentSessionRead;").to_json});
+
+      await globalThis.markRead();
+      console.log(JSON.stringify(request));
+    JS
+
+    assert_equal "/sessions/mark_read", result.fetch("url")
+    assert_equal({ "session" => "/tmp/session.jsonl", "assistant_response_count" => "7" }, result.fetch("body"))
+  end
+
   def test_conversation_rebinding_detaches_old_scroll_events_and_timers
     results = run_javascript(<<~JS)
       const { ConversationController } = await import(#{module_url("conversation_controller.js").to_json});

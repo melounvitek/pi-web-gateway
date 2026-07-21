@@ -3785,6 +3785,19 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_status_rejects_noncanonical_session_paths
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      FileUtils.mkdir_p(File.join(dir, "nested"))
+      Gripi.set :sessions_root, dir
+      noncanonical_path = File.join(dir, "nested", "..", File.basename(path))
+
+      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => noncanonical_path })
+
+      assert_equal 404, response.status
+    end
+  end
+
   def test_returns_live_rpc_status_for_an_active_session
     Dir.mktmpdir do |dir|
       path = write_session_with_raw_messages(dir, [
@@ -8384,11 +8397,27 @@ class AppTest < Minitest::Test
       unread_response = request.get("/sidebar", params: { "session" => first_path })
       assert_includes unread_response.body, "class=\"session recent-session unread"
 
-      mark_response = request.post("/sessions/mark_read", params: { "session" => second_path })
+      mark_response = replace_instance_method(PiSessionStore, :sessions, ->(*) { raise "sessions should not be parsed" }) do
+        request.post("/sessions/mark_read", params: { "session" => second_path, "assistant_response_count" => "1" })
+      end
       assert_equal 204, mark_response.status
 
       read_response = request.get("/sidebar", params: { "session" => first_path })
       assert_empty Nokogiri::HTML(read_response.body).css("a.session.unread")
+    end
+  end
+
+  def test_mark_read_endpoint_rejects_invalid_response_counts
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      Gripi.set :sessions_root, dir
+      request = Rack::MockRequest.new(Gripi)
+
+      [nil, "", "-1", "1.5", "2147483648"].each do |count|
+        response = request.post("/sessions/mark_read", params: { "session" => path, "assistant_response_count" => count })
+
+        assert_equal 400, response.status
+      end
     end
   end
 
@@ -8458,9 +8487,11 @@ class AppTest < Minitest::Test
       response = Rack::MockRequest.new(Gripi).get("/", params: { "session" => path, "session_only" => "1" })
 
       assert_equal 200, response.status
+      assert_equal "0", Nokogiri::HTML(response.body).at_css("#live-output")["data-assistant-response-count"]
       assert_includes APP_JAVASCRIPT, "function markCurrentSessionRead()"
       assert_includes APP_JAVASCRIPT, "fetch(\"/sessions/mark_read\""
-      assert_includes APP_JAVASCRIPT, "if (outcome.finalAssistantEnded) {\n      conversationController.setAgentRunning(false);\n      markCurrentSessionRead();\n    }"
+      assert_includes APP_JAVASCRIPT, "if (outcome.finalAssistantEnded) {\n      conversationController.setAgentRunning(false);\n      liveOutput.dataset.assistantResponseCount = String(Number(liveOutput.dataset.assistantResponseCount) + 1);\n      markCurrentSessionRead();\n    }"
+      assert_includes APP_JAVASCRIPT, "assistant_response_count: liveOutput.dataset.assistantResponseCount"
       assert_includes APP_JAVASCRIPT, "if (document.hidden || !document.hasFocus())"
       assert_includes APP_JAVASCRIPT, "markReadAfterVisible = true;"
       assert_includes APP_JAVASCRIPT, "if (markReadAfterVisible) markCurrentSessionRead();"
@@ -9566,6 +9597,7 @@ class AppTest < Minitest::Test
       model_settings_response = Rack::MockRequest.new(Gripi).get("/sessions/model_settings", params: { "session" => other_path }, "HTTP_COOKIE" => own_cookie)
       apply_model_response = Rack::MockRequest.new(Gripi).post("/sessions/model_settings", params: { "session" => other_path, "provider" => "openai", "model" => "gpt-5", "thinking" => "high" }, "HTTP_COOKIE" => own_cookie)
       cycle_thinking_response = Rack::MockRequest.new(Gripi).post("/sessions/cycle_thinking", params: { "session" => other_path }, "HTTP_COOKIE" => own_cookie)
+      mark_read_response = Rack::MockRequest.new(Gripi).post("/sessions/mark_read", params: { "session" => other_path, "assistant_response_count" => "1" }, "HTTP_COOKIE" => own_cookie)
       tree_label_response = Rack::MockRequest.new(Gripi).post("/sessions/tree/label", params: { "session" => other_path, "entry_id" => "entry-1", "label" => "checkpoint" }, "HTTP_COOKIE" => own_cookie)
 
       assert_equal 404, status_response.status
@@ -9573,6 +9605,7 @@ class AppTest < Minitest::Test
       assert_equal 404, model_settings_response.status
       assert_equal 404, apply_model_response.status
       assert_equal 404, cycle_thinking_response.status
+      assert_equal 404, mark_read_response.status
       assert_equal 404, tree_label_response.status
       assert_empty calls
     end

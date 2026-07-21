@@ -1283,6 +1283,7 @@ function renderEvent(event) {
     const outcome = liveMessageRenderer.renderMessageEvent(event);
     if (outcome.finalAssistantEnded) {
       conversationController.setAgentRunning(false);
+      liveOutput.dataset.assistantResponseCount = String(Number(liveOutput.dataset.assistantResponseCount) + 1);
       markCurrentSessionRead();
     }
     notifyFinalAssistantReply(event);
@@ -2482,7 +2483,10 @@ async function markCurrentSessionRead() {
   }
 
   markReadInFlight = true;
-  const body = new URLSearchParams({ session: sessionPath });
+  const body = new URLSearchParams({
+    session: sessionPath,
+    assistant_response_count: liveOutput.dataset.assistantResponseCount
+  });
   try {
     await fetch("/sessions/mark_read", { method: "POST", body });
   } catch (_error) {

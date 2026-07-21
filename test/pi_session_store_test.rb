@@ -1095,6 +1095,17 @@ class PiSessionStoreTest < Minitest::Test
     end
   end
 
+  def test_cwd_for_session_rejects_noncanonical_paths
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "session.jsonl")
+      FileUtils.mkdir_p(File.join(dir, "nested"))
+      write_jsonl(path, [{ type: "session", id: "session-1", cwd: "/tmp/project" }])
+      noncanonical_path = File.join(dir, "nested", "..", File.basename(path))
+
+      assert_nil PiSessionStore.new(root: dir).cwd_for_session(noncanonical_path)
+    end
+  end
+
   def test_status_does_not_materialize_large_tool_results
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")
