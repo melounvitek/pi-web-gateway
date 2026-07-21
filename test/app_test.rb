@@ -8415,11 +8415,14 @@ class AppTest < Minitest::Test
       request = Rack::MockRequest.new(Gripi)
 
       generation = PiSessionStore.new(root: dir).session_generation(path)
-      [nil, "", "-1", "1.5", "2147483648", "1" * 1_000].each do |count|
+      [nil, "", "-1", "1.5", "2147483648", "1" * 1_000, ["1"]].each do |count|
         response = request.post("/sessions/mark_read", params: { "session" => path, "assistant_response_count" => count, "session_generation" => generation })
 
         assert_equal 400, response.status
       end
+
+      response = request.post("/sessions/mark_read", params: { "session" => path, "assistant_response_count" => "1", "session_generation" => [generation] })
+      assert_equal 400, response.status
     end
   end
 

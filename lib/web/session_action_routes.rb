@@ -696,7 +696,7 @@ module Web
         session_path = require_current_workspace_session!(params.fetch("session"))
         response_count = params["assistant_response_count"]
         generation = params["session_generation"]
-        halt 400 unless response_count&.match?(/\A\d{1,10}\z/) && generation && generation.bytesize <= 256
+        halt 400 unless response_count.is_a?(String) && response_count.match?(/\A\d{1,10}\z/) && generation.is_a?(String) && generation.bytesize <= 256
 
         response_count = Integer(response_count, 10)
         halt 400 if response_count > ASSISTANT_RESPONSE_COUNT_LIMIT
