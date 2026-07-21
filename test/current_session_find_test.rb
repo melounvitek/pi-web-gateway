@@ -119,6 +119,34 @@ class CurrentSessionFindTest < Minitest::Test
     assert_equal({ "loads" => 1, "refreshes" => 2, "count" => "abc" }, results.fetch("readyAgain"))
   end
 
+  def test_show_can_seed_the_find_query
+    results = run_javascript(<<~JS)
+      const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
+      const input = { value: "old", addEventListener() {}, focus() {}, select() {} };
+      const count = { textContent: "" };
+      const bar = {
+        hidden: true,
+        querySelector(selector) {
+          if (selector.includes("input]")) return input;
+          if (selector.includes("count]")) return count;
+          return { addEventListener() {} };
+        }
+      };
+      const conversation = {
+        element: { querySelectorAll() { return []; } }, bindingEpoch: 1, olderHistoryLoading: false,
+        async loadOlderHistory() { return "complete"; }
+      };
+      const controller = new CurrentSessionFindController({ querySelector: () => bar }, conversation);
+      const refreshes = [];
+      controller.refresh = (options) => refreshes.push({ query: input.value, resetIndex: options.resetIndex });
+      controller.bind();
+      await controller.show("Webhook");
+      console.log(JSON.stringify({ value: input.value, open: controller.open, refreshes }));
+    JS
+
+    assert_equal({ "value" => "Webhook", "open" => true, "refreshes" => [{ "query" => "Webhook", "resetIndex" => true }] }, results)
+  end
+
   def test_reopening_find_loads_pending_history_but_reuses_complete_history
     results = run_javascript(<<~JS)
       const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});

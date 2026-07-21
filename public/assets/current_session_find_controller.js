@@ -340,9 +340,10 @@ export class CurrentSessionFindController {
     }
   }
 
-  async show() {
+  async show(query = null) {
     if (!this.available) return;
     this.bar.hidden = false;
+    if (query !== null) this.input.value = query;
     this.input.focus({ preventScroll: true });
     this.input.select();
     return this.search({ resetIndex: true });

@@ -8,6 +8,7 @@ test("switch focus between the composer and conversation in a narrow desktop win
   await searchSessions(page, "History Desktop");
   await page.getByRole("link", { name: new RegExp(sessions.history) }).click();
   await expect(page.getByRole("heading", { level: 1, name: sessions.history })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Find in conversation" })).toBeHidden();
   await page.setViewportSize({ width: 600, height: 900 });
 
   const composer = page.locator('textarea[name="message"]');
@@ -18,6 +19,34 @@ test("switch focus between the composer and conversation in a narrow desktop win
 
   await page.keyboard.press("Tab");
   await expect(composer).toBeFocused();
+});
+
+test("opens conversation find for a known session search match without trapping scroll", async ({ page }) => {
+  await page.goto("/");
+
+  await searchSessions(page, "Persisted browser");
+  await page.getByRole("link", { name: new RegExp(sessions.history) }).click();
+
+  const find = page.getByRole("searchbox", { name: "Find in conversation" });
+  await expect(find).toBeVisible();
+  await expect(find).toHaveValue("Persisted browser");
+  await expect(page.locator("[data-current-session-find-count]")).toHaveText("1 / 2");
+  await expect(page.locator("mark.current-session-find-match.is-active")).toHaveText("Persisted browser");
+
+  await page.getByRole("button", { name: "Close find" }).click();
+  await page.getByRole("link", { name: new RegExp(sessions.history) }).click();
+  await expect(find).toBeVisible();
+  await expect(find).toHaveValue("Persisted browser");
+
+  const scroll = page.locator("#conversation-scroll");
+  const manualTop = await scroll.evaluate((element) => {
+    const spacer = document.createElement("div");
+    spacer.style.height = "2000px";
+    element.querySelector("#live-output").before(spacer);
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBe(manualTop);
 });
 
 test("find, select, and pin a session with persisted history", async ({ page }) => {
