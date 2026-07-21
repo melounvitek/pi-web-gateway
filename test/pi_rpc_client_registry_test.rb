@@ -321,6 +321,33 @@ class PiRpcClientRegistryTest < Minitest::Test
     concurrent&.join
   end
 
+  def test_moves_a_client_while_an_observer_keeps_it_open
+    client = FakeClient.new([])
+    registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+    registry.register("/tmp/session.jsonl", client)
+    observer_started = Queue.new
+    release_observer = Queue.new
+    observer = Thread.new do
+      registry.with_observing_client("/tmp/session.jsonl") do
+        observer_started << true
+        release_observer.pop
+      end
+    end
+    observer_started.pop
+
+    registry.move("/tmp/session.jsonl", "/tmp/moved.jsonl")
+
+    refute registry.active?("/tmp/session.jsonl")
+    assert_same client, registry.client_for("/tmp/moved.jsonl")
+    refute registry.close_client_if_idle("/tmp/moved.jsonl")
+    release_observer << true
+    observer.join
+    assert registry.close_client_if_idle("/tmp/moved.jsonl")
+  ensure
+    release_observer << true if observer&.alive?
+    observer&.join
+  end
+
   def test_bash_lane_is_serialized_without_blocking_operation_or_interrupt_lanes
     registry = PiRpcClientRegistry.new(factory: ->(_session_path) { FakeClient.new([]) })
     bash_started = Queue.new

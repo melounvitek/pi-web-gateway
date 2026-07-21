@@ -8,7 +8,7 @@ class PiRpcClientRegistry
   class ClientRetiring < StandardError; end
   class ClientStarting < StandardError; end
 
-  Entry = Struct.new(:client, :last_used_at, :active_requests, :operation_mutex, :interrupt_mutex, :bash_mutex, :retiring, keyword_init: true)
+  Entry = Struct.new(:client, :last_used_at, :active_requests, :observers, :operation_mutex, :interrupt_mutex, :bash_mutex, :retiring, keyword_init: true)
 
   def initialize(factory:, clock: -> { Time.now })
     @factory = factory
@@ -137,6 +137,10 @@ class PiRpcClientRegistry
     with_entry(session_path, serialize: false, create: false, touch: touch, &block)
   end
 
+  def with_observing_client(session_path, touch: true, &block)
+    with_entry(session_path, serialize: false, create: false, touch: touch, observer: true, &block)
+  end
+
   def move(old_path, new_path)
     old_client = nil
     @mutex.synchronize do
@@ -145,7 +149,7 @@ class PiRpcClientRegistry
       entry = @clients[old_path]
       return unless entry
       raise ClientRetiring, "Pi RPC client is restarting" if entry.retiring
-      raise OperationPending, "Source session operation is pending" if entry.active_requests.positive?
+      raise OperationPending, "Source session operation is pending" if entry.active_requests > entry.observers
 
       destination = @clients[new_path]
       raise ClientRetiring, "Pi RPC client is restarting" if destination&.retiring
@@ -223,8 +227,8 @@ class PiRpcClientRegistry
 
   private
 
-  def with_entry(session_path, serialize:, create: true, touch: true)
-    entry = acquire_entry(session_path, create: create, touch: touch)
+  def with_entry(session_path, serialize:, create: true, touch: true, observer: false)
+    entry = acquire_entry(session_path, create: create, touch: touch, observer: observer)
     return unless entry
 
     lock = case serialize
@@ -255,16 +259,17 @@ class PiRpcClientRegistry
     discard_entry(entry, reason: error.class.name) if entry
     raise
   ensure
-    release_entry(entry, touch: touch) if entry
+    release_entry(entry, touch: touch, observer: observer) if entry
   end
 
-  def acquire_entry(session_path, create:, touch:)
+  def acquire_entry(session_path, create:, touch:, observer: false)
     creation_token = nil
     entry = @mutex.synchronize do
       existing = @clients[session_path]
       raise ClientRetiring, "Pi RPC client is restarting" if existing&.retiring
       if existing
         existing.active_requests += 1
+        existing.observers += 1 if observer
         touch_entry(existing) if touch
         next existing
       end
@@ -322,9 +327,10 @@ class PiRpcClientRegistry
     entry
   end
 
-  def release_entry(entry, touch:)
+  def release_entry(entry, touch:, observer: false)
     @mutex.synchronize do
       entry.active_requests -= 1 if entry.active_requests.positive?
+      entry.observers -= 1 if observer && entry.observers.positive?
       touch_entry(entry) if touch
     end
   end
@@ -351,7 +357,7 @@ class PiRpcClientRegistry
   end
 
   def new_entry(client)
-    Entry.new(client: client, last_used_at: @clock.call, active_requests: 0, operation_mutex: Mutex.new, interrupt_mutex: Mutex.new, bash_mutex: Mutex.new, retiring: false)
+    Entry.new(client: client, last_used_at: @clock.call, active_requests: 0, observers: 0, operation_mutex: Mutex.new, interrupt_mutex: Mutex.new, bash_mutex: Mutex.new, retiring: false)
   end
 
   def touch_entry(entry)

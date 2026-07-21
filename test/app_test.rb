@@ -3122,6 +3122,62 @@ class AppTest < Minitest::Test
     end
   end
 
+  def test_status_request_does_not_prevent_clone_session_remapping
+    Dir.mktmpdir do |dir|
+      path = write_session(dir)
+      cloned_path = File.join(File.dirname(path), "cloned.jsonl")
+      status_started = Queue.new
+      release_status = Queue.new
+      state_calls = 0
+      state_mutex = Mutex.new
+      client = FakeRpcClient.new([])
+      client.define_singleton_method(:get_state) do
+        first = state_mutex.synchronize do
+          state_calls += 1
+          state_calls == 1
+        end
+        if first
+          status_started << true
+          release_status.pop
+        end
+        {
+          "success" => true,
+          "data" => {
+            "sessionFile" => cloned_path,
+            "model" => { "provider" => "openai-codex", "id" => "gpt-5.6-sol" },
+            "thinkingLevel" => "high"
+          }
+        }
+      end
+      client.define_singleton_method(:get_session_stats) do
+        { "success" => true, "data" => { "contextUsage" => { "tokens" => 8_597, "contextWindow" => 372_000, "percent" => 2.311021505376344 } } }
+      end
+      client.define_singleton_method(:clone_session) { { "success" => true, "data" => {} } }
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" })
+      registry.register(path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+
+      status_request = Thread.new { Rack::MockRequest.new(Gripi).get("/status", params: { "session" => path }) }
+      status_started.pop
+      clone_response = Rack::MockRequest.new(Gripi).post(
+        "/sessions/clone",
+        params: { "session" => path },
+        "HTTP_ACCEPT" => "application/json"
+      )
+
+      assert_equal 200, clone_response.status
+      assert_equal cloned_path, JSON.parse(clone_response.body).fetch("session")
+      assert registry.active?(cloned_path)
+      refute registry.active?(path)
+      release_status << true
+      assert_equal 200, status_request.value.status
+    ensure
+      release_status << true if status_request&.alive?
+      status_request&.join
+    end
+  end
+
   def test_validates_new_session_cwd_as_json
     Dir.mktmpdir do |dir|
       cwd = File.join(dir, "project")
