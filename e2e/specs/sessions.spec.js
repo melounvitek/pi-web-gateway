@@ -30,8 +30,13 @@ test("opens conversation find for a known session search match without trapping 
   const find = page.getByRole("searchbox", { name: "Find in conversation" });
   await expect(find).toBeVisible();
   await expect(find).toHaveValue("Persisted browser");
-  await expect(page.locator("[data-current-session-find-count]")).toHaveText("1 / 2");
+  const count = page.locator("[data-current-session-find-count]");
+  await expect(count).toHaveText("1 / 2");
   await expect(page.locator("mark.current-session-find-match.is-active")).toHaveText("Persisted browser");
+
+  await page.getByRole("button", { name: "Next match" }).click();
+  await expect(count).toHaveText("2 / 2");
+  await expect(message(page, "assistant", "Persisted browser answer").locator("mark.current-session-find-match.is-active")).toHaveText("Persisted browser");
 
   await page.getByRole("button", { name: "Close find" }).click();
   await page.getByRole("link", { name: new RegExp(sessions.history) }).click();

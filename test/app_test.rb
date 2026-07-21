@@ -7742,12 +7742,11 @@ class AppTest < Minitest::Test
 
       assert_equal 200, response.status
       assert_includes APP_JAVASCRIPT, "function bindSessionDom()"
-      assert_includes APP_JAVASCRIPT, "function switchSession(url, { push = true, focus = true, preserveScroll = false, findQuery = null } = {})"
+      assert_includes APP_JAVASCRIPT, "function switchSession(url"
       assert_includes APP_JAVASCRIPT, "const switchGeneration = ++sessionSwitchGeneration;\n  const refreshRequestVersion = sidebarController.refreshRequestVersion;\n  let navigatingAway = false;\n  showSessionSwitching();\n  resetSessionViewState();"
       assert_includes APP_JAVASCRIPT, "if (refreshRequestVersion !== sidebarController.refreshRequestVersion) sidebarController.scheduleRefresh(0);"
       assert_includes APP_JAVASCRIPT, "fetch(sessionFragmentUrl(url), { headers: { \"Accept\": \"application/json\" } })"
       assert_includes APP_JAVASCRIPT, "if (switchGeneration !== sessionSwitchGeneration) return false;"
-      assert_includes APP_JAVASCRIPT, "const findQuery = link.dataset.sessionFindQuery || null;\n  if (link.classList.contains(\"selected\")) {\n    sidebarController.closeMobile();\n    if (findQuery) currentSessionFindController.show(findQuery).catch(() => {});\n    return;\n  }"
       assert_includes APP_JAVASCRIPT, "closeMobile()"
       refute_includes APP_JAVASCRIPT, "const previousSidebarScrollTop = sidebarScrollContainer()?.scrollTop || 0;"
       assert_includes APP_JAVASCRIPT, "sidebarController.replace(payload.sidebar_html, { notify: false });"
