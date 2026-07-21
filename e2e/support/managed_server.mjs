@@ -51,7 +51,8 @@ const serverEnv = {
   GRIPI_WORKSPACE_SECRET_PATH: path.join(fixture.state, "workspace-secret"),
   GRIPI_WORKSPACE_ACCESS_PATH: path.join(fixture.state, "workspace-access.json"),
   GRIPI_WORKSPACE_OWNERSHIP_PATH: path.join(fixture.state, "session-owners.json"),
-  GRIPI_RPC_IDLE_TIMEOUT_SECONDS: "0",
+  GRIPI_RPC_IDLE_TIMEOUT_SECONDS: process.env.GRIPI_E2E_RPC_IDLE_TIMEOUT_SECONDS || "0",
+  GRIPI_RPC_IDLE_SWEEP_SECONDS: process.env.GRIPI_E2E_RPC_IDLE_SWEEP_SECONDS || "30",
   GRIPI_NODE: realPi ? "" : process.execPath,
   GRIPI_PI: realPi ? "" : fakePiPath,
   GRIPI_E2E_SESSIONS_ROOT: fixture.sessionsRoot,
@@ -90,7 +91,8 @@ try {
       GRIPI_E2E_ADMIN_PASSWORD: ADMIN_PASSWORD,
       GRIPI_E2E_AUTH_STATE: authStatePath,
       GRIPI_E2E_EXPECT_ACCESS: realPi ? "" : "1",
-      GRIPI_E2E_REAL_PI: realPi ? "1" : ""
+      GRIPI_E2E_REAL_PI: realPi ? "1" : "",
+      GRIPI_E2E_FAKE_PI_LOG: fakeLogPath
     },
     stdio: "inherit"
   });

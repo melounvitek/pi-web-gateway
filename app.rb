@@ -3,6 +3,7 @@ require "rack/deflater"
 require "json"
 require "securerandom"
 require_relative "lib/rpc/pending_session_registry"
+require_relative "lib/rpc/idle_client_maintenance"
 require_relative "lib/sessions/session_family"
 require_relative "lib/sessions/sidebar"
 require_relative "lib/sessions/session_synchronizer"
@@ -181,6 +182,7 @@ class Gripi < Sinatra::Base
   end
 
   set :rpc_idle_timeout_seconds, ENV.fetch("GRIPI_RPC_IDLE_TIMEOUT_SECONDS", "300").to_i
+  set :rpc_idle_sweep_seconds, ENV.fetch("GRIPI_RPC_IDLE_SWEEP_SECONDS", "30").to_f
   set :resource_monitoring_enabled, ENV.fetch("GRIPI_RESOURCE_MONITORING", "").match?(/\A(?:1|true|yes|on)\z/i)
   set :resource_usage_monitor, ResourceUsageMonitor.new
   set :access_request_rate_limiter, RequestRateLimiter.new(limit: 30, window: 60)
@@ -219,6 +221,22 @@ class Gripi < Sinatra::Base
     ) do |session_path|
       synchronizer.inspect_if_available(session_path) if File.exist?(session_path)
     end
+  end
+
+  set :rpc_idle_client_maintenance, Rpc::IdleClientMaintenance.new(
+    interval: rpc_idle_sweep_seconds,
+    cleanup: -> { Gripi.cleanup_idle_rpc_clients },
+    on_error: ->(error) { warn("Idle Pi cleanup failed: #{error.class}: #{error.message}") }
+  )
+
+  def self.start_rpc_client_maintenance
+    settings.rpc_idle_client_maintenance.start
+  end
+
+  def self.stop_rpc_client_maintenance
+    settings.rpc_idle_client_maintenance.stop
+  ensure
+    settings.rpc_client_registry&.close_all
   end
 
   before do

@@ -52,20 +52,44 @@ class AppTest < Minitest::Test
     FileUtils.remove_entry(@workspace_root) if @workspace_root && Dir.exist?(@workspace_root)
   end
 
+  def test_rpc_client_maintenance_starts_and_stops_with_remaining_clients
+    calls = []
+    maintenance = Object.new
+    maintenance.define_singleton_method(:start) { calls << :start }
+    maintenance.define_singleton_method(:stop) { calls << :stop }
+    registry = Object.new
+    registry.define_singleton_method(:close_all) { calls << :close_all }
+    previous_maintenance = Gripi.settings.rpc_idle_client_maintenance if Gripi.settings.respond_to?(:rpc_idle_client_maintenance)
+    Gripi.set :rpc_idle_client_maintenance, maintenance
+    Gripi.set :rpc_client_registry, registry
+
+    Gripi.start_rpc_client_maintenance
+    Gripi.stop_rpc_client_maintenance
+
+    assert_equal [:start, :stop, :close_all], calls
+  ensure
+    Gripi.set :rpc_idle_client_maintenance, previous_maintenance
+    Gripi.set :rpc_client_registry, nil
+  end
+
   def test_rpc_idle_timeout_defaults_to_five_minutes_and_accepts_an_override
     Dir.mktmpdir do |home|
       env = ENV.to_h.merge(
         "GRIPI_ENV_PATH" => File.join(home, "missing-env"),
         "GRIPI_BROWSER_AUTH_DISABLED" => "1",
-        "GRIPI_RPC_IDLE_TIMEOUT_SECONDS" => nil
+        "GRIPI_RPC_IDLE_TIMEOUT_SECONDS" => nil,
+        "GRIPI_RPC_IDLE_SWEEP_SECONDS" => nil
       )
-      command = [RbConfig.ruby, "-I.", "-e", "require './app'; print Gripi.settings.rpc_idle_timeout_seconds"]
+      command = [RbConfig.ruby, "-I.", "-e", "require './app'; print [Gripi.settings.rpc_idle_timeout_seconds, Gripi.settings.rpc_idle_sweep_seconds].join(',')"]
 
       stdout, = Open3.capture3(env, *command)
-      overridden_stdout, = Open3.capture3(env.merge("GRIPI_RPC_IDLE_TIMEOUT_SECONDS" => "17"), *command)
+      overridden_stdout, = Open3.capture3(
+        env.merge("GRIPI_RPC_IDLE_TIMEOUT_SECONDS" => "17", "GRIPI_RPC_IDLE_SWEEP_SECONDS" => "2.5"),
+        *command
+      )
 
-      assert_equal "300", stdout
-      assert_equal "17", overridden_stdout
+      assert_equal "300,30.0", stdout
+      assert_equal "17,2.5", overridden_stdout
     end
   end
 

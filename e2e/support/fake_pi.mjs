@@ -28,6 +28,7 @@ const timers = new Set();
 if (sessionPath) loadSession(sessionPath);
 else prepareNewSession();
 log({ event: "started", sessionPath, cwd: process.cwd() });
+process.once("exit", () => log({ event: "stopped" }));
 
 attachJsonlReader(process.stdin, handleCommand);
 process.on("SIGTERM", shutdown);

@@ -107,6 +107,21 @@ With automatic approval disabled, Gripi omits `--approve` and Pi uses its normal
 
 Changing this setting requires restarting the gateway after active work finishes.
 
+## Pi process lifetime
+
+Gripi closes a settled Pi RPC process after five minutes without a user operation. It checks for idle processes every 30 seconds. Browser polling for events, status, sidebar content, or resource usage does not extend the timeout, so a forgotten open tab cannot keep Pi running indefinitely.
+
+Active agent turns, compaction, gateway bash commands, and in-flight requests remain protected. Conversation history stays in Pi's JSONL session file. Using the session again starts a fresh Pi process, which adds startup latency and does not restore process-local replay buffers, extension UI state, or warm configuration.
+
+Override either interval in `~/.config/gripi/env` when needed:
+
+```sh
+GRIPI_RPC_IDLE_TIMEOUT_SECONDS=300
+GRIPI_RPC_IDLE_SWEEP_SECONDS=30
+```
+
+Set `GRIPI_RPC_IDLE_TIMEOUT_SECONDS=0` to disable idle retirement. The sweep interval must remain positive. Changing either setting requires restarting the gateway.
+
 ## Custom Pi runtime
 
 To run Pi with explicit Node and Pi executables instead of resolving `pi` from `PATH`, set both variables:
