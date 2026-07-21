@@ -52,13 +52,13 @@ class ResourceUsageControllerJsTest < Minitest::Test
     JS
 
     assert_equal false, result.dig("first", "hidden")
-    assert_equal "RAM ~480 MB working set · CPU —", result.dig("first", "total")
+    assert_equal "RAM 608 MB · CPU —", result.dig("first", "total")
     assert_equal "Puma 362 MB · Pi 357 MB (2) · inactive file cache 128 MB", result.dig("first", "breakdown")
-    assert_equal "Cgroup total 608 MB; approximate working set excludes inactive file cache; Puma and Pi RSS do not sum to the cgroup working set; CPU 100% equals one logical core", result.dig("first", "title")
+    assert_equal "Raw cgroup memory matching systemctl; approximate working set 480 MB after inactive file cache; Puma and Pi RSS do not sum to the cgroup total; CPU 100% equals one logical core", result.dig("first", "title")
     assert_equal 1_000, result.dig("first", "delay")
-    assert_equal "RAM ~1.5 GB working set · CPU 10%", result.dig("second", "total")
+    assert_equal "RAM 2 GB · CPU 10%", result.dig("second", "total")
     assert_equal "Puma 1.25 GB · Pi 358 MB (2) · inactive file cache 512 MB", result.dig("second", "breakdown")
-    assert_equal "Cgroup total 2 GB; approximate working set excludes inactive file cache; Puma and Pi RSS do not sum to the cgroup working set; CPU 100% equals one logical core", result.dig("second", "title")
+    assert_equal "Raw cgroup memory matching systemctl; approximate working set 1.5 GB after inactive file cache; Puma and Pi RSS do not sum to the cgroup total; CPU 100% equals one logical core", result.dig("second", "title")
     assert_equal 10_000, result.dig("second", "delay")
     assert_equal [["/resource-usage", "no-store", "application/json"], ["/resource-usage", "no-store", "application/json"]], result.fetch("requests")
   end

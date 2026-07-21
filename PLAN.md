@@ -4,7 +4,7 @@ Status: implementation complete; production restart verification pending
 
 ## Goal
 
-Make the resource indicator distinguish the service working set from reclaimable cgroup file cache, and stop sidebar polling from repeatedly rescanning growing session files while gateway-managed Pi sessions are busy.
+Keep the resource indicator's primary RAM number aligned with `systemctl`'s raw cgroup memory while explaining inactive file cache separately, and stop sidebar polling from repeatedly rescanning growing session files while gateway-managed Pi sessions are busy.
 
 This plan deliberately keeps the Ruby application and the system allocator. It adds no jemalloc dependency and does not change Pi-owned session files or native Pi workflows.
 
@@ -60,7 +60,7 @@ This bounded staleness is preferred over an incremental metadata parser. A truly
 
 ## TDD rounds
 
-### Round 1 — report working-set memory
+### Round 1 — clarify cgroup memory reporting
 
 Tests first:
 
@@ -77,9 +77,9 @@ Implementation:
 - Parse `memory.stat` in `ResourceUsageMonitor`.
 - Add `working_set_bytes` and `inactive_file_bytes` to the snapshot.
 - Expose them as `workingSetBytes` and `inactiveFileBytes`; retain raw `memoryBytes`.
-- Render the primary value as `RAM 2.4 GB approx. working set` or similarly precise wording.
-- Show `inactive file cache` separately in the breakdown or tooltip so the raw total remains explainable without describing all of it as unconditionally reclaimable.
-- Keep wording explicit that process RSS values do not have to sum to the cgroup working set.
+- Keep raw `memoryBytes` as the primary RAM value so it matches `systemctl --user status gripi.service`.
+- Show `inactive file cache` separately in the breakdown and retain the approximate working set in the tooltip/API for diagnostics.
+- Keep wording explicit that process RSS values do not have to sum to the cgroup total.
 
 Verification:
 
@@ -135,7 +135,7 @@ Verification:
 
 ## Implementation results
 
-- Working-set reporting was implemented in `3d6e28e`.
+- Cgroup working-set and inactive-file diagnostics were implemented in `3d6e28e`; the primary UI value remains raw cgroup memory to match `systemctl`.
 - Busy-session metadata deferral was implemented in `c179ca8`.
 - The implemented real-session benchmark recorded 457 MiB logical reads, 66 MiB peak RSS, and 0.9 seconds for eight threads with 40 appends each.
 - The full Ruby suite passed with 1,030 runs and 6,832 assertions.

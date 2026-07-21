@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("shows approximate working memory separately from inactive file cache", async ({ page }) => {
+test("shows systemctl cgroup memory with inactive file cache context", async ({ page }) => {
   await page.route("**/resource-usage", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -18,7 +18,7 @@ test("shows approximate working memory separately from inactive file cache", asy
 
   const usage = page.locator("[data-resource-usage]");
   await expect(usage).toBeVisible();
-  await expect(usage.locator("[data-resource-usage-total]")).toContainText("RAM ~1.5 GB working set");
+  await expect(usage.locator("[data-resource-usage-total]")).toContainText("RAM 2 GB");
   await expect(usage.locator("[data-resource-usage-breakdown]")).toHaveText("Puma 1.25 GB · Pi 358 MB (2) · inactive file cache 512 MB");
-  await expect(usage).toHaveAttribute("title", /Puma and Pi RSS do not sum to the cgroup working set/);
+  await expect(usage).toHaveAttribute("title", /Raw cgroup memory matching systemctl/);
 });
