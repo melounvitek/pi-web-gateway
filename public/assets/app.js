@@ -2405,7 +2405,7 @@ function detachSession() {
   return switchSession(detachedSessionFallbackUrl(currentSessionPath()), { push: true, focus: true });
 }
 
-async function switchSession(url, { push = true, focus = true, preserveScroll = false } = {}) {
+async function switchSession(url, { push = true, focus = true, preserveScroll = false, findQuery = null } = {}) {
   const scrollSnapshot = preserveScroll ? conversationScrollSnapshot() : null;
   persistStoredComposerDraft();
   sidebarController.invalidate({ clearSessionsLimit: true });
@@ -2442,7 +2442,7 @@ async function switchSession(url, { push = true, focus = true, preserveScroll = 
       document.title = payload.title ? `${payload.title} · Gripi` : "Gripi";
     }
     sidebarController.closeMobile();
-    initializeSessionView({ focus, scrollSnapshot });
+    initializeSessionView({ focus, scrollSnapshot, findQuery });
     if (refreshRequestVersion !== sidebarController.refreshRequestVersion) sidebarController.scheduleRefresh(0);
     return true;
   } catch (_error) {
@@ -2966,12 +2966,14 @@ document.addEventListener("click", async (event) => {
   if (!link || !normalLeftClick(event)) return;
 
   event.preventDefault();
+  const findQuery = link.dataset.sessionFindQuery || null;
   if (link.classList.contains("selected")) {
     sidebarController.closeMobile();
+    if (findQuery) currentSessionFindController.show(findQuery).catch(() => {});
     return;
   }
 
-  await switchSession(link.href, { push: true, focus: true });
+  await switchSession(link.href, { push: true, focus: true, findQuery });
 });
 
 document.addEventListener("submit", async (event) => {
@@ -3060,7 +3062,7 @@ function restorePreservedConversationScroll(scrollSnapshot) {
   return true;
 }
 
-function initializeSessionView({ focus = true, scrollSnapshot = null } = {}) {
+function initializeSessionView({ focus = true, scrollSnapshot = null, findQuery = null } = {}) {
   const generation = sessionViewGeneration;
   projectSelectController.initialize(document.querySelector('[data-modal="new-session-modal"]'));
   newSessionFormController.initialize();
@@ -3106,6 +3108,7 @@ function initializeSessionView({ focus = true, scrollSnapshot = null } = {}) {
       resizePromptTextarea();
       if (focus) syncComposerFocus();
       if (!restorePreservedConversationScroll(scrollSnapshot)) conversationController.forceInitialBottomFollow();
+      if (findQuery) currentSessionFindController.show(findQuery).catch(() => {});
     });
   }
   sidebarController.scheduleRefresh();

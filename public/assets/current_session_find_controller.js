@@ -248,7 +248,7 @@ export class CurrentSessionFindController {
     this.conversation.withProgrammaticScroll(() => scroll.scrollTo({ top: Math.max(top, 0), behavior: "smooth" }));
   }
 
-  refresh({ resetIndex = false } = {}) {
+  refresh({ resetIndex = false, scroll = true } = {}) {
     if (!this.open || this.historyStatus !== "complete") return;
     this.observer?.disconnect();
     this.removeHighlights();
@@ -257,7 +257,7 @@ export class CurrentSessionFindController {
     this.index = this.matches.length > 0 ? Math.min(Math.max(previousIndex, 0), this.matches.length - 1) : -1;
     this.renderHighlights();
     this.updateCount();
-    this.scrollMatchIntoView();
+    if (scroll) this.scrollMatchIntoView();
   }
 
   scheduleRefresh() {
@@ -266,7 +266,7 @@ export class CurrentSessionFindController {
     const frame = requestAnimationFrame(() => {
       if (this.refreshFrame !== frame) return;
       this.refreshFrame = null;
-      if (epoch === this.bindingEpoch) this.refresh();
+      if (epoch === this.bindingEpoch) this.refresh({ scroll: false });
     });
     this.refreshFrame = frame;
   }
@@ -340,9 +340,10 @@ export class CurrentSessionFindController {
     }
   }
 
-  async show() {
+  async show(query = null) {
     if (!this.available) return;
     this.bar.hidden = false;
+    if (query !== null) this.input.value = query;
     this.input.focus({ preventScroll: true });
     this.input.select();
     return this.search({ resetIndex: true });

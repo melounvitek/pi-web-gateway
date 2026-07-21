@@ -119,6 +119,34 @@ class CurrentSessionFindTest < Minitest::Test
     assert_equal({ "loads" => 1, "refreshes" => 2, "count" => "abc" }, results.fetch("readyAgain"))
   end
 
+  def test_show_can_seed_the_find_query
+    results = run_javascript(<<~JS)
+      const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
+      const input = { value: "old", addEventListener() {}, focus() {}, select() {} };
+      const count = { textContent: "" };
+      const bar = {
+        hidden: true,
+        querySelector(selector) {
+          if (selector.includes("input]")) return input;
+          if (selector.includes("count]")) return count;
+          return { addEventListener() {} };
+        }
+      };
+      const conversation = {
+        element: { querySelectorAll() { return []; } }, bindingEpoch: 1, olderHistoryLoading: false,
+        async loadOlderHistory() { return "complete"; }
+      };
+      const controller = new CurrentSessionFindController({ querySelector: () => bar }, conversation);
+      const refreshes = [];
+      controller.refresh = (options) => refreshes.push({ query: input.value, resetIndex: options.resetIndex });
+      controller.bind();
+      await controller.show("Webhook");
+      console.log(JSON.stringify({ value: input.value, open: controller.open, refreshes }));
+    JS
+
+    assert_equal({ "value" => "Webhook", "open" => true, "refreshes" => [{ "query" => "Webhook", "resetIndex" => true }] }, results)
+  end
+
   def test_reopening_find_loads_pending_history_but_reuses_complete_history
     results = run_javascript(<<~JS)
       const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
@@ -273,6 +301,31 @@ class CurrentSessionFindTest < Minitest::Test
     JS
 
     assert_equal({ "highlights" => [0, 1], "removals" => 2, "firstCount" => "1 / 3", "secondCount" => "2 / 3" }, results)
+  end
+
+  def test_passive_find_refresh_does_not_scroll_but_explicit_refresh_does
+    results = run_javascript(<<~JS)
+      const { CurrentSessionFindController } = await import(#{module_url("current_session_find_controller.js").to_json});
+      let scheduledFrame;
+      globalThis.requestAnimationFrame = (callback) => { scheduledFrame = callback; return 1; };
+      const controller = new CurrentSessionFindController({}, { element: {} });
+      controller.bar = { hidden: false };
+      controller.count = { textContent: "" };
+      controller.historyStatus = "complete";
+      controller.matches = [{ root: {} }];
+      controller.index = 0;
+      controller.collectMatches = () => [{ root: {} }];
+      controller.renderHighlights = () => {};
+      let scrolls = 0;
+      controller.scrollMatchIntoView = () => { scrolls += 1; };
+      controller.scheduleRefresh();
+      scheduledFrame();
+      const afterPassiveRefresh = scrolls;
+      controller.refresh({ resetIndex: true });
+      console.log(JSON.stringify({ afterPassiveRefresh, afterExplicitRefresh: scrolls }));
+    JS
+
+    assert_equal({ "afterPassiveRefresh" => 0, "afterExplicitRefresh" => 1 }, results)
   end
 
   def test_find_removes_only_the_active_highlights
