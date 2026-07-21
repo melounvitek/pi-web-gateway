@@ -2366,6 +2366,7 @@ class AppTest < Minitest::Test
     synchronizer.define_singleton_method(:reconcile_if_available) do |_session_path, &block|
       block.call if reconciliation_available
     end
+    synchronizer.define_singleton_method(:forget) { |_session_path| }
     Gripi.set :rpc_client_registry, registry
     Gripi.set :session_synchronizer, synchronizer
     Gripi.set :rpc_idle_timeout_seconds, 1_800
@@ -2395,6 +2396,7 @@ class AppTest < Minitest::Test
       synchronizer = Object.new
       synchronizer.define_singleton_method(:configured_for?) { |_root, candidate| candidate.equal?(registry) }
       synchronizer.define_singleton_method(:reconcile_if_available) { |_path, &block| block.call }
+      synchronizer.define_singleton_method(:forget) { |_path| }
       Gripi.set :sessions_root, dir
       Gripi.set :rpc_client_registry, registry
       Gripi.set :session_synchronizer, synchronizer
@@ -4779,7 +4781,7 @@ class AppTest < Minitest::Test
     end
   end
 
-  def test_idle_persisted_pending_session_moves_workspace_ownership_before_retirement
+  def test_idle_persisted_pending_session_preserves_its_workspace_alias_after_retirement
     Dir.mktmpdir do |dir|
       now = Time.at(1_000)
       persisted_path = write_session(dir)
@@ -4788,7 +4790,8 @@ class AppTest < Minitest::Test
       registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" }, clock: -> { now })
       registry.register(pending_path, FakeRpcClient.new(calls, [], persisted_path))
       pending_sessions = Rpc::PendingSessionRegistry.new({ pending_path => project_cwd(dir) }, clock: -> { now })
-      owner = "workspace-owner"
+      cookie = workspace_cookie_for("Idle Pending Workspace")
+      owner = workspace_id_from_cookie(cookie)
       ownership = WorkspaceSessionOwnershipStore.new(path: Gripi.settings.workspace_ownership_path)
       ownership.claim(pending_path, owner)
       Gripi.set :sessions_root, dir
@@ -4803,10 +4806,41 @@ class AppTest < Minitest::Test
       refute registry.active?(pending_path)
       refute registry.active?(persisted_path)
       refute_includes pending_sessions.paths, pending_path
-      refute ownership.owned_by?(pending_path, owner)
+      assert_equal persisted_path, pending_sessions.persisted_path_for(pending_path)
+      assert ownership.owned_by?(pending_path, owner)
       assert ownership.owned_by?(persisted_path, owner)
       assert_includes calls, [:get_state]
       assert_includes calls, [:close]
+
+      response = Rack::MockRequest.new(Gripi).get("/status", params: { "session" => pending_path }, "HTTP_COOKIE" => cookie)
+      assert_equal 200, response.status
+    end
+  end
+
+  def test_recently_used_pending_session_is_not_retired_from_a_stale_candidate
+    Dir.mktmpdir do |dir|
+      now = Time.at(1_000)
+      persisted_path = write_session(dir)
+      pending_path = File.join(dir, "pending-session.jsonl")
+      calls = []
+      client = FakeRpcClient.new(calls, [], persisted_path)
+      registry = PiRpcClientRegistry.new(factory: ->(_session_path) { raise "unexpected start" }, clock: -> { now })
+      original_get_state = client.method(:get_state)
+      client.define_singleton_method(:get_state) do
+        registry.touch(pending_path)
+        original_get_state.call
+      end
+      registry.register(pending_path, client)
+      Gripi.set :sessions_root, dir
+      Gripi.set :rpc_client_registry, registry
+      Gripi.set :pending_session_registry, Rpc::PendingSessionRegistry.new({ pending_path => project_cwd(dir) }, clock: -> { now })
+      Gripi.set :rpc_idle_timeout_seconds, 1_800
+
+      now = Time.at(2_801)
+      assert_empty Gripi.cleanup_idle_rpc_clients
+
+      assert registry.active?(pending_path)
+      refute_includes calls, [:close]
     end
   end
 

@@ -74,6 +74,10 @@ module Sessions
       lock&.unlock if acquired
     end
 
+    def forget(session_path)
+      @mutex.synchronize { @states.delete(session_path) }
+    end
+
     def message_for(result)
       blocked_message(result.mode, result.error)
     end

@@ -235,24 +235,33 @@ class Gripi < Sinatra::Base
     errors = []
     registry.idle_client_paths(idle_timeout: timeout).each do |candidate_path|
       begin
-        session_path, remapped = remap_idle_pending_rpc_client(candidate_path, registry)
-        next unless session_path
+        if settings.pending_session_registry.cwd_for(candidate_path)
+          persisted_path = prepare_idle_pending_rpc_client(candidate_path, registry)
+          next if persisted_path == :defer
 
-        closed = false
-        if File.exist?(session_path)
-          synchronizer.reconcile_if_available(session_path) do
-            closed = if remapped
-              registry.close_client_if_idle(session_path)
+          if registry.close_client_if_expired(candidate_path, idle_timeout: timeout)
+            if persisted_path == :unpersisted
+              settings.pending_session_registry.forget(candidate_path)
+              closed_paths << candidate_path
             else
-              registry.close_client_if_expired(session_path, idle_timeout: timeout)
+              closed_paths << persisted_path
             end
           end
+          next
+        end
+
+        closed = false
+        if File.exist?(candidate_path)
+          synchronizer.reconcile_if_available(candidate_path) do
+            closed = registry.close_client_if_expired(candidate_path, idle_timeout: timeout)
+            synchronizer.forget(candidate_path) if closed
+          end
         else
-          closed = registry.close_client_if_expired(session_path, idle_timeout: timeout)
+          closed = registry.close_client_if_expired(candidate_path, idle_timeout: timeout)
         end
         if closed
-          settings.pending_session_registry.forget(session_path)
-          closed_paths << session_path
+          settings.pending_session_registry.forget(candidate_path)
+          closed_paths << candidate_path
         end
       rescue StandardError => error
         errors << error
@@ -263,25 +272,28 @@ class Gripi < Sinatra::Base
     closed_paths
   end
 
-  def self.remap_idle_pending_rpc_client(session_path, registry)
-    cwd = settings.pending_session_registry.cwd_for(session_path)
-    return [session_path, false] unless cwd
+  def self.prepare_idle_pending_rpc_client(session_path, registry)
+    pending_sessions = settings.pending_session_registry
+    persisted_path = pending_sessions.persisted_path_for(session_path)
+    return persisted_path if persisted_path
 
+    cwd = pending_sessions.cwd_for(session_path)
     response = registry.with_existing_client(session_path, touch: false) { |client| client.get_state }
     data = response.is_a?(Hash) && response["data"].is_a?(Hash) ? response["data"] : response
     persisted_path = data["sessionFile"] || data["session_file"] || data["path"] if data.is_a?(Hash)
-    return [session_path, false] unless persisted_path
-    return [nil, false] unless File.exist?(persisted_path)
-    return [nil, false] unless PiSessionStore.new(root: settings.sessions_root).cwd_for_session(persisted_path) == cwd
+    return :unpersisted unless persisted_path
+    return :defer unless File.exist?(persisted_path)
+    return :defer unless PiSessionStore.new(root: settings.sessions_root).cwd_for_session(persisted_path) == cwd
 
-    registry.move(session_path, persisted_path)
     PiAttachmentStore.new(root: settings.attachments_root).migrate_session(session_path, persisted_path)
-    WorkspaceSessionOwnershipStore.new(path: settings.workspace_ownership_path).move(session_path, persisted_path)
-    settings.pending_session_registry.forget(session_path)
-    [persisted_path, true]
+    if settings.multi_user_mode
+      WorkspaceSessionOwnershipStore.new(path: settings.workspace_ownership_path).copy(session_path, persisted_path)
+    end
+    pending_sessions.remember_persisted_path(session_path, persisted_path)
+    persisted_path
   rescue PiRpcClientRegistry::OperationPending, PiRpcClientRegistry::ClientRetiring, PiRpcClientRegistry::ClientStarting,
     PiRpcClient::RequestTimeout, IOError, SystemCallError
-    [nil, false]
+    :defer
   end
 
   set :rpc_idle_client_maintenance, Rpc::IdleClientMaintenance.new(
