@@ -2945,7 +2945,7 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest(".session-sidebar")) exitSessionShortcutMode();
 });
 
-document.addEventListener("gripi:sidebar-project-filtered", (event) => {
+document.addEventListener("gripi:sidebar-filtered", (event) => {
   replaceNewSessionModalHtml(event.detail.modalHtml);
 });
 

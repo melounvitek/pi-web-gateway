@@ -979,6 +979,66 @@ class FrontendControllersJsTest < Minitest::Test
     assert_equal true, results.fetch("fallbackFocused")
   end
 
+  def test_obsolete_sidebar_filter_failure_does_not_fall_back_or_cancel_the_newer_filter
+    results = run_javascript(<<~JS)
+      const { SidebarController } = await import(#{module_url("sidebar_controller.js").to_json});
+      const sidebar = {
+        dataset: {},
+        classList: { toggle() {} },
+        querySelector: () => null,
+        querySelectorAll: () => []
+      };
+      const document = {
+        body: { classList: { contains: () => false } },
+        addEventListener() {},
+        querySelector: (selector) => selector === ".session-sidebar" ? sidebar : null,
+        querySelectorAll: () => [], getElementById: () => null, dispatchEvent() {}
+      };
+      const pushed = [];
+      const window = {
+        location: { href: "https://example.test/?session=one", origin: "https://example.test", search: "?session=one" },
+        history: { state: null, pushState(_state, _title, url) { pushed.push(url); } },
+        CustomEvent: class {}, addEventListener() {}
+      };
+      globalThis.window = window;
+      const controller = new SidebarController(document, window, { isActive: () => false }, { apply() {} }, () => {});
+      controller.element = sidebar;
+      controller.replace = () => {};
+      controller.scheduleRefresh = () => {};
+
+      let rejectFirstSidebar;
+      const firstSidebar = new Promise((_resolve, reject) => { rejectFirstSidebar = reject; });
+      const response = (body) => ({ ok: true, text: async () => body });
+      let requests = 0;
+      globalThis.fetch = () => {
+        requests += 1;
+        if (requests === 1) return firstSidebar;
+        return Promise.resolve(response(requests === 3 ? "new sidebar" : "new modal"));
+      };
+
+      const input = { value: "first" };
+      let nativeSubmissions = 0;
+      const form = { querySelector: () => input, submit() { nativeSubmissions += 1; } };
+      const firstOperation = controller.changeSearchFilter(form).catch(() => form.submit());
+      const filterEpoch = controller.asyncEpoch;
+      controller.requestRefresh();
+      const backgroundRefreshPreservedFilter = controller.asyncEpoch === filterEpoch;
+      input.value = "second";
+      const secondOperation = controller.changeSearchFilter(form).catch(() => form.submit());
+      await secondOperation;
+      rejectFirstSidebar(new Error("obsolete failure"));
+      await firstOperation;
+
+      console.log(JSON.stringify({ nativeSubmissions, pushed, filterActive: controller.filterOperationActive, backgroundRefreshPreservedFilter }));
+    JS
+
+    assert_equal 0, results.fetch("nativeSubmissions")
+    assert_equal 1, results.fetch("pushed").length
+    assert_includes results.fetch("pushed").first, "session_search=second"
+    assert_equal false, results.fetch("filterActive")
+    assert_equal true, results.fetch("backgroundRefreshPreservedFilter")
+  end
+
   def test_sidebar_controller_retries_refresh_after_a_transient_failure
     results = run_javascript(<<~JS)
       const { SidebarController } = await import(#{module_url("sidebar_controller.js").to_json});

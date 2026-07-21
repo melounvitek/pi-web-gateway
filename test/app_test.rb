@@ -5948,11 +5948,11 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, "this.temporarySessionsLimit = targetUrl.searchParams.get(\"sidebar_sessions_limit\") || this.temporarySessionsLimit;"
       refute_includes APP_JAVASCRIPT, "history.replaceState(history.state"
       assert_includes APP_JAVASCRIPT, "controlsActive()"
-      assert_includes APP_JAVASCRIPT, "if (!force && (this.pinOperationActive || this.controlsActive() || this.recentlyInteracted()))"
+      assert_includes APP_JAVASCRIPT, "if (!force && (this.pinOperationActive || this.filterOperationActive || this.controlsActive() || this.recentlyInteracted()))"
       assert_includes APP_JAVASCRIPT, "changeProjectFilter(select)"
       assert_includes APP_JAVASCRIPT, "changeSearchFilter(form)"
       assert_includes APP_JAVASCRIPT, "async applyFilters(targetUrl)"
-      assert_includes APP_JAVASCRIPT, "this.replace(html, { scrollTop: 0, notify: false });"
+      assert_includes APP_JAVASCRIPT, "this.replace(html, { scrollTop: 0, notify: false, preserveSearch: false });"
     end
   end
 
@@ -7723,7 +7723,7 @@ class AppTest < Minitest::Test
       assert_includes APP_JAVASCRIPT, notification_reinsertion
       assert_operator APP_JAVASCRIPT.index(notification_capture), :<, APP_JAVASCRIPT.index(sidebar_replacement)
       assert_operator APP_JAVASCRIPT.index(sidebar_replacement), :<, APP_JAVASCRIPT.index(notification_reinsertion)
-      assert_includes APP_JAVASCRIPT, "if (!force && (this.pinOperationActive || this.controlsActive() || this.recentlyInteracted()))"
+      assert_includes APP_JAVASCRIPT, "if (!force && (this.pinOperationActive || this.filterOperationActive || this.controlsActive() || this.recentlyInteracted()))"
       assert_includes APP_JAVASCRIPT, "fetch(this.fragmentUrl())"
       assert_includes APP_JAVASCRIPT, "const refreshedScrollContainer = this.scrollContainer();"
       assert_includes APP_JAVASCRIPT, "this.bindInteractionTracking();"

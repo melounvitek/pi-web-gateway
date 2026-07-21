@@ -15,6 +15,7 @@ export class SidebarController {
     this.lastInteractionAt = 0;
     this.temporarySessionsLimit = null;
     this.pinOperationActive = false;
+    this.filterOperationActive = false;
     this.notifiedFinalReplyKeys = new Set();
     this.listenersBound = false;
   }
@@ -38,6 +39,7 @@ export class SidebarController {
 
   invalidate({ clearSessionsLimit = false } = {}) {
     this.asyncEpoch += 1;
+    this.filterOperationActive = false;
     clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
     if (clearSessionsLimit) this.temporarySessionsLimit = null;
@@ -129,14 +131,14 @@ export class SidebarController {
   }
 
   requestRefresh(delay = 0) {
-    if (!this.pinOperationActive) this.invalidate();
+    if (!this.pinOperationActive && !this.filterOperationActive) this.invalidate();
     this.refreshRequestVersion += 1;
     this.scheduleRefresh(delay);
   }
 
   async refresh({ force = false } = {}) {
     if (!this.element || (!force && this.modalIsOpen())) return;
-    if (!force && (this.pinOperationActive || this.controlsActive() || this.recentlyInteracted())) {
+    if (!force && (this.pinOperationActive || this.filterOperationActive || this.controlsActive() || this.recentlyInteracted())) {
       this.scheduleRefresh(1000);
       return;
     }
@@ -165,14 +167,14 @@ export class SidebarController {
     }
   }
 
-  replace(html, { scrollTop = this.scrollContainer()?.scrollTop || 0, notify = true } = {}) {
+  replace(html, { scrollTop = this.scrollContainer()?.scrollTop || 0, notify = true, preserveSearch = true } = {}) {
     if (!html || !this.element) return null;
 
     const oldElement = this.element;
     const previousAssistantCounts = this.assistantResponseCounts(oldElement);
     const notificationToggle = oldElement.querySelector("[data-notification-toggle]");
     const resourceUsage = oldElement.querySelector("[data-resource-usage]");
-    const previousSearchForm = oldElement.querySelector(".sidebar-session-search");
+    const previousSearchForm = preserveSearch ? oldElement.querySelector(".sidebar-session-search") : null;
     const previousSearchQuery = previousSearchForm?.querySelector('input[name="session_search"]')?.value;
     const previousSearchOpen = previousSearchForm?.classList.contains("is-open");
     const focusedPinPath = this.document.activeElement?.closest?.("[data-session-pin-toggle]")?.dataset.sessionPath;
@@ -247,25 +249,34 @@ export class SidebarController {
 
   async applyFilters(targetUrl) {
     this.setFiltering(true);
+    this.filterOperationActive = true;
     targetUrl.searchParams.delete("sidebar_sessions_limit");
     this.temporarySessionsLimit = null;
 
     const epoch = ++this.asyncEpoch;
     const boundElement = this.element;
-    const [sidebarResponse, modalResponse] = await Promise.all([
-      fetch(this.fragmentUrl(targetUrl.href)),
-      fetch(newSessionModalUrl(targetUrl.href))
-    ]);
-    if (!this.current(epoch, boundElement)) return null;
-    if (!sidebarResponse.ok || !modalResponse.ok) throw new Error("Sidebar filter refresh failed");
-    const [html, modalHtml] = await Promise.all([sidebarResponse.text(), modalResponse.text()]);
-    if (!this.current(epoch, boundElement)) return null;
+    try {
+      const [sidebarResponse, modalResponse] = await Promise.all([
+        fetch(this.fragmentUrl(targetUrl.href)),
+        fetch(newSessionModalUrl(targetUrl.href))
+      ]);
+      if (!this.current(epoch, boundElement)) return null;
+      if (!sidebarResponse.ok || !modalResponse.ok) throw new Error("Sidebar filter refresh failed");
+      const [html, modalHtml] = await Promise.all([sidebarResponse.text(), modalResponse.text()]);
+      if (!this.current(epoch, boundElement)) return null;
 
-    this.replace(html, { scrollTop: 0, notify: false });
-    this.document.dispatchEvent(new this.window.CustomEvent("gripi:sidebar-project-filtered", { detail: { modalHtml } }));
-    this.window.history.pushState(this.window.history.state, "", targetUrl.href);
-    this.scheduleRefresh();
-    return modalHtml;
+      this.filterOperationActive = false;
+      this.replace(html, { scrollTop: 0, notify: false, preserveSearch: false });
+      this.document.dispatchEvent(new this.window.CustomEvent("gripi:sidebar-filtered", { detail: { modalHtml } }));
+      this.window.history.pushState(this.window.history.state, "", targetUrl.href);
+      this.scheduleRefresh();
+      return modalHtml;
+    } catch (error) {
+      if (!this.current(epoch, boundElement)) return null;
+      this.filterOperationActive = false;
+      this.setFiltering(false);
+      throw error;
+    }
   }
 
   async loadMore(button) {
