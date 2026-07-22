@@ -7,9 +7,13 @@
     {
       id: "welcome", name: "Welcome to Gripi", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "just now", pinned: true,
       messages: [
-        { role: "user", text: "What is Gripi, and how can I get started?" },
-        { role: "thinking", text: "I’ll give you a quick tour and the shortest path to a local installation." },
-        { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nPi stays Pi: Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. This static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated." },
+        { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nPi stays Pi: Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. This static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated." }
+      ]
+    },
+    {
+      id: "install", name: "Install Gripi", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "1 minute ago", pinned: false,
+      messages: [
+        { role: "user", text: "How do I install Gripi and the desktop app?" },
         { role: "assistant", text: "Install and prepare the gateway with one command. It installs Mise if needed, checks out Gripi at `~/.local/share/gripi`, builds the Go gateway, and ensures an admin password exists. Pi CLI must already be installed and configured. Then start Gripi with `~/.local/share/gripi/bin/start` and open http://localhost:4567.", code: "bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/melounvitek/gripi/master/bin/install | bash -s -- gateway'", link: { href: "https://github.com/melounvitek/gripi", label: "View installation details →" } },
         { role: "assistant", text: "Install the desktop app independently with one command. It installs Mise and Gripi’s pinned Node.js version if needed, builds the app from a temporary checkout, and removes that checkout afterward. Connect the app to your running gateway.", code: "bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/melounvitek/gripi/master/bin/install | bash -s -- desktop'", link: { href: "https://github.com/melounvitek/gripi", label: "View desktop installation details →" } }
       ]
