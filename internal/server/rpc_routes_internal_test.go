@@ -424,6 +424,38 @@ func TestPreparePageExposesExternalFollowAndUsesPersistedLeaf(t *testing.T) {
 	if !view.SessionSyncBlocked || view.SessionSyncMode != sessions.SyncExternalFollow || view.Window.TreeLeafID != "external" {
 		t.Fatalf("external view: blocked=%v mode=%s leaf=%s", view.SessionSyncBlocked, view.SessionSyncMode, view.Window.TreeLeafID)
 	}
+	app.templates, err = template.New("").Funcs(templateFunctions(rendering.NewMarkdown())).ParseFS(templateFiles, "templates/*.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rendered strings.Builder
+	if err := app.templates.ExecuteTemplate(&rendered, "conversation", view); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.String(), `data-session-takeover>Take over in gateway</button>`) {
+		t.Errorf("external follow conversation does not offer takeover: %s", rendered.String())
+	}
+	if !strings.Contains(rendered.String(), `gateway.</strong> <span>Following external activity.`) {
+		t.Errorf("external follow message has incorrect spacing: %s", rendered.String())
+	}
+
+	if err := registry.Register(path, &remapClient{busy: true}); err != nil {
+		t.Fatal(err)
+	}
+	busyView, err := app.preparePage(request, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !busyView.SessionSyncGatewayBusy {
+		t.Fatal("external follow view does not report the busy gateway task")
+	}
+	rendered.Reset()
+	if err := app.templates.ExecuteTemplate(&rendered, "conversation", busyView); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.String(), `data-session-takeover disabled>Waiting for gateway task…</button>`) {
+		t.Errorf("busy external follow conversation offers immediate takeover: %s", rendered.String())
+	}
 }
 
 func TestAcceptedPromptImageSurvivesAttachmentMetadataFailure(t *testing.T) {

@@ -98,6 +98,7 @@ type pageView struct {
 	SessionSyncRevision       string
 	SessionSyncError          string
 	SessionSyncBlocked        bool
+	SessionSyncGatewayBusy    bool
 	SidebarMetadataDeferred   bool
 	SidebarActivity           map[string]sidebarActivity
 	LiveOutput                liveOutputData
@@ -227,6 +228,7 @@ func (app *application) preparePage(request *http.Request, includeConversation b
 				}
 			}
 		}
+		view.SessionSyncGatewayBusy = view.SessionSyncBlocked && app.rpcClients.Busy(selected.Path)
 		snapshot := app.rpcClients.LiveSnapshot(selected.Path)
 		window := sessions.Window{}
 		if statErr == nil {
