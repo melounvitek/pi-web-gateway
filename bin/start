@@ -6,6 +6,10 @@ root="$(cd -- "$script_dir/.." && pwd)"
 binary="$root/tmp/gripi"
 host="${1:-${GRIPI_HOST:-127.0.0.1}}"
 
+if ! command -v mise >/dev/null 2>&1 && [[ -n "${HOME:-}" && -x "$HOME/.local/bin/mise" ]]; then
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+
 pending="$root/tmp/.gripi-update-pending"
 pending_binary="$pending/gripi"
 pending_revision="$pending/revision"

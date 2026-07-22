@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository="https://github.com/melounvitek/gripi.git"
+mode="${1:-gateway}"
+workspace=""
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup() {
+  if [[ -n "$workspace" && -d "$workspace" ]]; then
+    rm -rf -- "$workspace"
+  fi
+}
+trap cleanup EXIT
+
+[[ -n "${HOME:-}" ]] || fail "HOME must be set"
+command -v git >/dev/null 2>&1 || fail "git is required"
+
+mise_path="$(command -v mise 2>/dev/null || true)"
+install_mise() {
+  if [[ -z "$mise_path" ]]; then
+    command -v curl >/dev/null 2>&1 || fail "curl is required to install Mise"
+    printf 'Installing Mise...\n'
+    curl -fsSL https://mise.run | MISE_INSTALL_PATH="$HOME/.local/bin/mise" sh
+    mise_path="$HOME/.local/bin/mise"
+    [[ -x "$mise_path" ]] || fail "Mise installation did not create $mise_path"
+  fi
+
+  export PATH="$(dirname -- "$mise_path"):$PATH"
+}
+
+case "$mode" in
+  gateway)
+    install_dir="$HOME/.local/share/gripi"
+    [[ ! -e "$install_dir" && ! -L "$install_dir" ]] || fail "$install_dir already exists"
+
+    install_mise
+    mkdir -p -- "$(dirname -- "$install_dir")"
+    workspace="$(mktemp -d "$(dirname -- "$install_dir")/.gripi-install.XXXXXX")"
+    checkout="$workspace/checkout"
+    git clone "$repository" "$checkout"
+    (
+      cd "$checkout"
+      "$mise_path" install
+      "$mise_path" run setup
+    )
+
+    [[ ! -e "$install_dir" && ! -L "$install_dir" ]] || fail "$install_dir already exists"
+    mv -- "$checkout" "$install_dir"
+    rmdir -- "$workspace"
+    workspace=""
+
+    printf '\nGripi is installed at %s.\n' "$install_dir"
+    printf 'Start it with:\n  %s/bin/start\n' "$install_dir"
+    ;;
+  desktop)
+    install_mise
+    temp_root="${TMPDIR:-/tmp}"
+    mkdir -p -- "$temp_root"
+    workspace="$(mktemp -d "$temp_root/gripi-desktop-install.XXXXXX")"
+    checkout="$workspace/checkout"
+    git clone "$repository" "$checkout"
+    (
+      cd "$checkout"
+      "$mise_path" install node
+      MISE_TASK_RUN_AUTO_INSTALL=false "$mise_path" run desktop-install
+    )
+    printf '\nGripi desktop is installed.\n'
+    ;;
+  *)
+    fail "usage: install [gateway|desktop]"
+    ;;
+esac

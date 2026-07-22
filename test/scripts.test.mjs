@@ -44,6 +44,108 @@ async function launcherFixture() {
   };
 }
 
+async function bootstrapFixture() {
+  const root = temporaryDirectory();
+  const home = path.join(root, "home");
+  const fakeBin = path.join(root, "fake-bin");
+  const calls = path.join(root, "calls");
+  const temp = path.join(root, "tmp");
+  const envPath = path.join(home, ".config", "gripi", "env");
+  await mkdir(fakeBin, { recursive: true });
+  await mkdir(temp, { recursive: true });
+  await executable(path.join(fakeBin, "git"), `#!/bin/sh
+printf 'git|%s|%s\n' "$PWD" "$*" >> "$CALLS_PATH"
+for argument in "$@"; do destination="$argument"; done
+mkdir -p "$destination"
+cp -R "$REPO_ROOT/bin" "$destination/bin"
+`);
+  await executable(path.join(fakeBin, "curl"), `#!/bin/sh
+printf 'curl|%s\n' "$*" >> "$CALLS_PATH"
+cat <<'INSTALL_MISE'
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/mise" <<'MISE'
+#!/bin/sh
+printf 'mise|%s|%s\\n' "$PWD" "$*" >> "$CALLS_PATH"
+case "$*" in
+  install|"install node") ;;
+  "run setup") exec "$PWD/bin/setup" ;;
+  "exec -- npm ci") ;;
+  "exec -- go build -o tmp/gripi ./cmd/gripi")
+    mkdir -p tmp
+    cat > tmp/gripi <<'GATEWAY'
+#!/bin/sh
+mkdir -p "$(dirname "$GRIPI_ENV_PATH")"
+printf 'GRIPI_ADMIN_PASSWORD=0123456789abcdef01234567\\n' > "$GRIPI_ENV_PATH"
+GATEWAY
+    chmod +x tmp/gripi
+    ;;
+  "run desktop-install")
+    [ "\${MISE_TASK_RUN_AUTO_INSTALL:-}" = false ] || exit 3
+    exec "$PWD/bin/install-desktop"
+    ;;
+  "run desktop-dist-mac")
+    [ "\${MISE_TASK_RUN_AUTO_INSTALL:-}" = false ] || exit 3
+    mkdir -p dist/Gripi.app
+    ;;
+  *) exit 2 ;;
+esac
+MISE
+chmod +x "$HOME/.local/bin/mise"
+INSTALL_MISE
+`);
+  await executable(path.join(fakeBin, "npm"), "#!/bin/sh\nprintf 'npm|%s|%s\\n' \"$PWD\" \"$*\" >> \"$CALLS_PATH\"\n");
+  await executable(path.join(fakeBin, "uname"), "#!/bin/sh\nprintf 'Darwin\\n'\n");
+  await executable(path.join(fakeBin, "ditto"), "#!/bin/sh\nmkdir -p \"$2\"\ntouch \"$2/installed\"\n");
+  return {
+    root, home, fakeBin, calls, temp, envPath,
+    env: { ...process.env, HOME: home, TMPDIR: temp, PATH: `${fakeBin}:/usr/bin:/bin`, CALLS_PATH: calls, GRIPI_ENV_PATH: envPath, REPO_ROOT: repoRoot },
+  };
+}
+
+test("bootstrap installer sets up the gateway at its fixed user location", async () => {
+  const fixture = await bootstrapFixture();
+  const installer = path.join(repoRoot, "bin", "install");
+  const result = run(installer, ["gateway"], { env: fixture.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const installation = path.join(fixture.home, ".local", "share", "gripi");
+  assert.equal((await stat(path.join(installation, "tmp", "gripi"))).isFile(), true);
+  assert.equal(await readFile(fixture.envPath, "utf8"), "GRIPI_ADMIN_PASSWORD=0123456789abcdef01234567\n");
+  const calls = (await readFile(fixture.calls, "utf8")).trim().split("\n");
+  assert.ok(calls.includes("curl|-fsSL https://mise.run"));
+  assert.ok(calls.some((call) => call.endsWith("|run setup")));
+  assert.ok(calls.some((call) => call.endsWith("|exec -- go build -o tmp/gripi ./cmd/gripi")));
+  assert.match(result.stdout, new RegExp(`${installation}/bin/start`));
+});
+
+test("bootstrap installer builds the desktop app without retaining a gateway checkout", async () => {
+  const fixture = await bootstrapFixture();
+  const installer = path.join(repoRoot, "bin", "install");
+  const result = run(installer, ["desktop"], { env: fixture.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal((await stat(path.join(fixture.home, "Applications", "Gripi.app", "installed"))).isFile(), true);
+  await assert.rejects(stat(path.join(fixture.home, ".local", "share", "gripi")));
+  const calls = (await readFile(fixture.calls, "utf8")).trim().split("\n");
+  assert.ok(calls.some((call) => call.endsWith("|install node")));
+  const desktopCall = calls.find((call) => call.endsWith("|run desktop-install"));
+  assert.ok(desktopCall);
+  const checkout = desktopCall.split("|")[1];
+  await assert.rejects(stat(checkout));
+});
+
+test("bootstrap installer refuses to overwrite an existing gateway installation", async () => {
+  const fixture = await bootstrapFixture();
+  await executable(path.join(fixture.fakeBin, "mise"), "#!/bin/sh\nexit 0\n");
+  const installation = path.join(fixture.home, ".local", "share", "gripi");
+  await mkdir(installation, { recursive: true });
+  const result = run(path.join(repoRoot, "bin", "install"), ["gateway"], { env: fixture.env });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /already exists/);
+  await assert.rejects(readFile(fixture.calls));
+});
+
 test("setup installs Node dependencies, builds Go, and delegates password creation", async () => {
   const root = temporaryDirectory();
   const project = path.join(root, "project");
@@ -104,6 +206,18 @@ test("launcher clears stale restart state, passes production defaults, and prese
   const hostResult = run(fixture.launcher, ["100.64.0.1"], { cwd: fixture.project, env: { ...fixture.env, CALLS_PATH: hostCalls } });
   assert.equal(hostResult.status, 23);
   assert.equal(await readFile(hostCalls, "utf8"), "|production|100.64.0.1\n");
+});
+
+test("launcher exposes Mise installed in the default user location", async () => {
+  const fixture = await launcherFixture();
+  const home = path.join(fixture.root, "home");
+  const mise = path.join(home, ".local", "bin", "mise");
+  await executable(mise, "#!/bin/sh\nexit 0\n");
+  await executable(fixture.gateway, "#!/bin/sh\ncommand -v mise > \"$CALLS_PATH\"\n");
+  const result = run(fixture.launcher, [], { cwd: fixture.project, env: { ...fixture.env, HOME: home, PATH: `${fixture.fakeBin}:/usr/bin:/bin` } });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal((await readFile(fixture.calls, "utf8")).trim(), mise);
 });
 
 test("launcher consumes restart requests and reloads exactly once", async () => {

@@ -20,37 +20,59 @@
 
 ## Install
 
-Requirements:
+### Gateway
 
-- [mise](https://mise.jdx.dev/)
-- [Pi CLI](https://pi.dev/) available on `PATH`, working, authenticated, and configured under the same OS user that runs Gripi
+The gateway installer requires `curl` and Git. Running Gripi also requires [Pi CLI](https://pi.dev/) available on `PATH`, working, authenticated, and configured under the same OS user as the gateway.
 
 ```sh
-git clone https://github.com/melounvitek/gripi.git
-cd gripi
-mise install
-mise run setup
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/melounvitek/gripi/master/bin/install | bash -s -- gateway'
 ```
 
-Setup installs Node dependencies, builds the Go gateway at `tmp/gripi`, stores an admin password in `~/.config/gripi/env`, and prints it. Gripi setup does not install or configure Pi; authenticate and configure Pi separately before starting the gateway.
+<details>
+<summary>What it does</summary>
+
+1. Downloads and runs Gripi’s current installer from the `master` branch.
+2. Checks that Git is available.
+3. Installs [Mise](https://mise.jdx.dev/) to `~/.local/bin/mise` from its official installer if `mise` is not already available.
+4. Clones Gripi into a temporary directory.
+5. Uses Mise to install Gripi’s pinned Go and Node.js versions.
+6. Installs Node dependencies, builds the Go gateway, and ensures an admin password exists in `~/.config/gripi/env`. A newly generated password is printed.
+7. Moves the completed checkout to `~/.local/share/gripi`. It refuses to overwrite an existing installation.
+
+It does not install or configure Pi, and it does not start the gateway.
+
+</details>
 
 Start the gateway:
 
 ```sh
-mise run start
+~/.local/share/gripi/bin/start
 ```
 
-By default, the gateway listens only on `127.0.0.1`. Open <http://localhost:4567> and use the admin password to approve your browser.
+By default, the gateway listens only on `127.0.0.1`. Open <http://localhost:4567> and use the admin password in `~/.config/gripi/env` to approve your browser.
 
 ### Desktop app
 
-The recommended desktop app is available on macOS and Linux. Installing it requires Node.js 22.12 or newer and, on Linux, FUSE 2 (`fuse2` on Arch Linux).
+The desktop app installer is independent of the gateway. It requires `curl` and Git and supports macOS and Linux. On Linux, FUSE 2 is also required (`fuse2` on Arch Linux).
 
 ```sh
-mise run desktop-install
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/melounvitek/gripi/master/bin/install | bash -s -- desktop'
 ```
 
-The desktop app connects to the running gateway and can store and switch between multiple gateways.
+<details>
+<summary>What it does</summary>
+
+1. Downloads and runs Gripi’s current installer from the `master` branch.
+2. Checks that Git is available.
+3. Installs [Mise](https://mise.jdx.dev/) to `~/.local/bin/mise` from its official installer if `mise` is not already available.
+4. Clones Gripi into a temporary directory.
+5. Uses Mise to install the pinned Node.js version and build the Electron desktop app.
+6. Installs or replaces `Gripi.app` under `~/Applications` on macOS, or installs and registers the AppImage under the user’s XDG data directories on Linux.
+7. Removes the temporary checkout. It does not install the gateway.
+
+</details>
+
+The desktop app connects to a running gateway and can store and switch between multiple gateways.
 
 <img width="1468" height="930" alt="Screenshot 2026-07-15 at 19 23 37" src="https://github.com/user-attachments/assets/194b8d2a-5e1d-43c5-aae7-a8092e73b6f4" />
 
