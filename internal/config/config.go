@@ -88,12 +88,38 @@ func Load(environ []string) (Config, error) {
 	if nodePath != "" {
 		piCommand = []string{nodePath, piPath}
 	}
-	autoApprove := booleanDefault(values, "GRIPI_AUTO_APPROVE_PROJECTS", true)
+	autoApprove, err := boolean(values, "GRIPI_AUTO_APPROVE_PROJECTS", true)
+	if err != nil {
+		return Config{}, err
+	}
+	browserAuthDisabled, err := boolean(values, "GRIPI_BROWSER_AUTH_DISABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	multiUserMode, err := boolean(values, "GRIPI_MULTI_USER_MODE", false)
+	if err != nil {
+		return Config{}, err
+	}
+	allowInsecureRemoteHTTP, err := boolean(values, "GRIPI_ALLOW_INSECURE_REMOTE_HTTP", false)
+	if err != nil {
+		return Config{}, err
+	}
+	trustProxyHeaders, err := boolean(values, "GRIPI_TRUST_PROXY_HEADERS", false)
+	if err != nil {
+		return Config{}, err
+	}
+	resourceMonitoringEnabled, err := boolean(values, "GRIPI_RESOURCE_MONITORING", false)
+	if err != nil {
+		return Config{}, err
+	}
+	rpcDiagnosticsEnabled, err := boolean(values, "GRIPI_RPC_DIAGNOSTICS", false)
+	if err != nil {
+		return Config{}, err
+	}
 	if autoApprove {
 		piCommand = append(piCommand, "--approve")
 	}
 
-	browserAuthDisabled := boolean(values["GRIPI_BROWSER_AUTH_DISABLED"])
 	adminPassword := values["GRIPI_ADMIN_PASSWORD"]
 	if adminPassword == "" && !browserAuthDisabled {
 		return Config{}, fmt.Errorf("GRIPI_ADMIN_PASSWORD is required; set it in %s or in the gateway process environment", envPath)
@@ -118,13 +144,13 @@ func Load(environ []string) (Config, error) {
 		RestartPath:               valueOr(process, "GRIPI_RESTART_PATH", filepath.Join(home, ".pi", "gripi", "restart-request")),
 		AdminPassword:             adminPassword,
 		BrowserAuthDisabled:       browserAuthDisabled,
-		MultiUserMode:             boolean(values["GRIPI_MULTI_USER_MODE"]),
+		MultiUserMode:             multiUserMode,
 		AutoApproveProjects:       autoApprove,
-		AllowInsecureRemoteHTTP:   boolean(values["GRIPI_ALLOW_INSECURE_REMOTE_HTTP"]),
-		TrustProxyHeaders:         boolean(values["GRIPI_TRUST_PROXY_HEADERS"]),
+		AllowInsecureRemoteHTTP:   allowInsecureRemoteHTTP,
+		TrustProxyHeaders:         trustProxyHeaders,
 		PermittedHosts:            splitCommaSeparated(values["GRIPI_PERMITTED_HOSTS"]),
-		ResourceMonitoringEnabled: boolean(values["GRIPI_RESOURCE_MONITORING"]),
-		RPCDiagnosticsEnabled:     boolean(values["GRIPI_RPC_DIAGNOSTICS"]),
+		ResourceMonitoringEnabled: resourceMonitoringEnabled,
+		RPCDiagnosticsEnabled:     rpcDiagnosticsEnabled,
 		RPCIdleTimeout:            time.Duration(idleTimeout) * time.Second,
 		RPCIdleSweep:              idleSweep,
 		PiCommand:                 piCommand,
@@ -176,21 +202,19 @@ func environmentMap(environ []string) map[string]string {
 	return values
 }
 
-func boolean(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func booleanDefault(values map[string]string, key string, fallback bool) bool {
+func boolean(values map[string]string, key string, fallback bool) (bool, error) {
 	value, found := values[key]
 	if !found {
-		return fallback
+		return fallback, nil
 	}
-	return boolean(value)
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "", "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean (1/0, true/false, yes/no, or on/off)", key)
+	}
 }
 
 func nonnegativeInteger(values map[string]string, key string, fallback int64) (int64, error) {

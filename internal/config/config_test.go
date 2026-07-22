@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,110 @@ func TestLoadAllowsMissingPasswordOnlyWhenBrowserAuthenticationIsDisabled(t *tes
 	}
 	if !cfg.BrowserAuthDisabled {
 		t.Fatal("BrowserAuthDisabled = false")
+	}
+}
+
+func TestLoadAcceptsDocumentedBooleanValues(t *testing.T) {
+	home := t.TempDir()
+	base := []string{
+		"HOME=" + home,
+		"GRIPI_ENV_PATH=" + filepath.Join(home, "missing"),
+		"GRIPI_ADMIN_PASSWORD=secret",
+	}
+	for _, test := range []struct {
+		value    string
+		expected bool
+	}{
+		{"1", true}, {"true", true}, {"yes", true}, {"on", true}, {" YeS ", true},
+		{"", false}, {"0", false}, {"false", false}, {"no", false}, {"off", false}, {" OFF ", false},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			cfg, err := config.Load(append(base, "GRIPI_MULTI_USER_MODE="+test.value))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.MultiUserMode != test.expected {
+				t.Fatalf("MultiUserMode = %v", cfg.MultiUserMode)
+			}
+		})
+	}
+	cfg, err := config.Load(append(base, "GRIPI_AUTO_APPROVE_PROJECTS="))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AutoApproveProjects || len(cfg.PiCommand) != 1 {
+		t.Fatalf("blank auto approve = %v, command = %#v", cfg.AutoApproveProjects, cfg.PiCommand)
+	}
+}
+
+func TestLoadAppliesEveryBooleanSettingAndDefault(t *testing.T) {
+	home := t.TempDir()
+	base := []string{
+		"HOME=" + home,
+		"GRIPI_ENV_PATH=" + filepath.Join(home, "missing"),
+		"GRIPI_ADMIN_PASSWORD=secret",
+	}
+	tests := []struct {
+		key      string
+		fallback bool
+		value    func(config.Config) bool
+	}{
+		{"GRIPI_AUTO_APPROVE_PROJECTS", true, func(cfg config.Config) bool { return cfg.AutoApproveProjects }},
+		{"GRIPI_BROWSER_AUTH_DISABLED", false, func(cfg config.Config) bool { return cfg.BrowserAuthDisabled }},
+		{"GRIPI_MULTI_USER_MODE", false, func(cfg config.Config) bool { return cfg.MultiUserMode }},
+		{"GRIPI_ALLOW_INSECURE_REMOTE_HTTP", false, func(cfg config.Config) bool { return cfg.AllowInsecureRemoteHTTP }},
+		{"GRIPI_TRUST_PROXY_HEADERS", false, func(cfg config.Config) bool { return cfg.TrustProxyHeaders }},
+		{"GRIPI_RESOURCE_MONITORING", false, func(cfg config.Config) bool { return cfg.ResourceMonitoringEnabled }},
+		{"GRIPI_RPC_DIAGNOSTICS", false, func(cfg config.Config) bool { return cfg.RPCDiagnosticsEnabled }},
+	}
+	for _, test := range tests {
+		t.Run(test.key, func(t *testing.T) {
+			defaults, err := config.Load(base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if actual := test.value(defaults); actual != test.fallback {
+				t.Fatalf("default = %v", actual)
+			}
+			enabled, err := config.Load(append(base, test.key+"=1"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !test.value(enabled) {
+				t.Fatal("true value was not applied")
+			}
+			disabled, err := config.Load(append(base, test.key+"=0"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.value(disabled) {
+				t.Fatal("false value was not applied")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsMalformedBooleanValues(t *testing.T) {
+	home := t.TempDir()
+	base := []string{
+		"HOME=" + home,
+		"GRIPI_ENV_PATH=" + filepath.Join(home, "missing"),
+		"GRIPI_ADMIN_PASSWORD=secret",
+	}
+	for _, key := range []string{
+		"GRIPI_AUTO_APPROVE_PROJECTS",
+		"GRIPI_BROWSER_AUTH_DISABLED",
+		"GRIPI_MULTI_USER_MODE",
+		"GRIPI_ALLOW_INSECURE_REMOTE_HTTP",
+		"GRIPI_TRUST_PROXY_HEADERS",
+		"GRIPI_RESOURCE_MONITORING",
+		"GRIPI_RPC_DIAGNOSTICS",
+	} {
+		t.Run(key, func(t *testing.T) {
+			if _, err := config.Load(append(base, key+"=sometimes")); err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("Load error = %v", err)
+			}
+		})
 	}
 }
 

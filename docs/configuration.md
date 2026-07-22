@@ -2,6 +2,8 @@
 
 Gripi reads most settings from `~/.config/gripi/env`. Values passed in the process environment take precedence.
 
+Boolean settings accept `1`, `true`, `yes`, or `on` for true and `0`, `false`, `no`, `off`, or a blank value for false, case-insensitively. Other explicit values are rejected at startup so configuration typos do not silently change gateway behavior.
+
 ## Server address
 
 By default, `mise run start` listens only on `127.0.0.1` for same-machine use:
