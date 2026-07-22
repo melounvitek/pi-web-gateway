@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/melounvitek/gripi/internal/rpc"
 	"github.com/melounvitek/gripi/internal/sessions"
 )
 
@@ -47,6 +48,23 @@ type relationData struct {
 	Session, Current *sessions.Session
 }
 
+type liveOutputData struct {
+	EventAfter               int64
+	ActiveToolEventsJSON     string
+	ActiveToolTimestampsJSON string
+	ActiveToolPromptsJSON    string
+	ActiveBashJSON           string
+	CompletedBashEventsJSON  string
+	PersistedBashJSON        string
+	QueuedMessagesJSON       string
+	ExtensionUIJSON          string
+	ComposerState            string
+	ComposerStateSince       string
+	ComposerBusySince        string
+	Compacting               bool
+	AgentRunning             bool
+}
+
 type pageView struct {
 	Request                   *http.Request
 	ServerOrigin              string
@@ -75,6 +93,11 @@ type pageView struct {
 	WorkspaceAccessEnabled    bool
 	ResourceMonitoringEnabled bool
 	SessionGeneration         string
+	SessionSyncMode           sessions.SyncMode
+	SessionSyncRevision       string
+	SessionSyncError          string
+	SessionSyncBlocked        bool
+	LiveOutput                liveOutputData
 }
 
 func (app *application) preparePage(request *http.Request, includeConversation bool) (*pageView, error) {
@@ -118,15 +141,167 @@ func (app *application) preparePage(request *http.Request, includeConversation b
 	view.KnownCWDs = knownCWDs(all)
 	view.NewSessionCWDs = app.newSessionCWDs(view)
 	if includeConversation && selected != nil {
-		window, err := store.Window(selected.Path, "", false, nil, nil)
+		leafID, leafSupplied := "", false
+		view.SessionSyncMode = sessions.SyncAvailable
+		if state := app.synchronizer.InspectIfAvailable(request.Context(), selected.Path, true); state != nil {
+			view.SessionSyncMode, view.SessionSyncRevision, view.SessionSyncError = state.Mode, state.Revision, state.Error
+			view.SessionSyncBlocked = state.Blocked()
+			if state.Mode == sessions.SyncManaged {
+				leafID, leafSupplied = state.RPCLeafID, true
+			} else if state.Blocked() {
+				leafID, leafSupplied = state.PersistedLeafID, true
+			}
+		}
+		snapshot := app.rpcClients.LiveSnapshot(selected.Path)
+		window, err := store.Window(selected.Path, leafID, leafSupplied, nil, nil)
 		if err != nil {
 			return nil, err
 		}
 		view.Window = window
 		view.Attachments = (sessions.AttachmentStore{Root: app.config.AttachmentsRoot}).Match(selected.Path, window.Messages)
 		view.SessionGeneration = store.Generation(selected.Path)
+		activeToolIDs := make([]string, 0, len(snapshot.ActiveToolEvents))
+		for _, event := range snapshot.ActiveToolEvents {
+			if id := stringFromAny(event["toolCallId"]); id != "" {
+				activeToolIDs = append(activeToolIDs, id)
+			}
+		}
+		view.LiveOutput = liveOutputFrom(snapshot, window.Messages, app.config.Home, store.SubagentToolCallContext(selected.Path, activeToolIDs))
 	}
 	return view, nil
+}
+
+func liveOutputFrom(snapshot rpc.LiveSnapshot, messages []*sessions.Message, home string, toolContext map[string]sessions.ToolCallContext) liveOutputData {
+	activeTools := snapshot.ActiveToolEvents
+	if activeTools == nil {
+		activeTools = []map[string]any{}
+	}
+	completedBash := snapshot.CompletedBashEvents
+	if completedBash == nil {
+		completedBash = []map[string]any{}
+	}
+	queued := snapshot.QueuedMessages
+	if queued == nil {
+		queued = map[string][]string{"steering": {}, "followUp": {}}
+	}
+	extensionUI := snapshot.ExtensionUI
+	if extensionUI == nil {
+		extensionUI = map[string]any{"pending_dialogs": []map[string]any{}, "statuses": []map[string]any{}, "widgets": []map[string]any{}, "title": nil}
+	}
+	toolTimestamps, toolPrompts := map[string]time.Time{}, map[string]string{}
+	for id, details := range toolContext {
+		if !details.Timestamp.IsZero() {
+			toolTimestamps[id] = details.Timestamp
+		}
+		if details.Prompt != "" {
+			toolPrompts[id] = details.Prompt
+		}
+	}
+	activeBash := any(nil)
+	persistedBash := []string{}
+	if snapshot.ActiveBash != nil {
+		if activeBashPersisted(snapshot.ActiveBash, messages, home) {
+			persistedBash = append(persistedBash, stringFromAny(snapshot.ActiveBash["bash_id"]))
+		} else {
+			activeBash = snapshot.ActiveBash
+		}
+	}
+	remainingCompleted := completedBash[:0]
+	for _, event := range completedBash {
+		if completedBashPersisted(event, messages, home) {
+			persistedBash = append(persistedBash, stringFromAny(event["bashId"]))
+		} else {
+			remainingCompleted = append(remainingCompleted, event)
+		}
+	}
+	completedBash = remainingCompleted
+	agentBusy := snapshot.AgentRunning || snapshot.Compacting
+	composerState := "idle"
+	if agentBusy {
+		composerState = "running"
+	} else if activeBash != nil {
+		composerState = "bash"
+	}
+	agentBusySince := snapshot.AgentBusySince
+	if agentBusySince == nil && activeBash == nil {
+		agentBusySince = snapshot.BusySince
+	}
+	stateSince := agentBusySince
+	if snapshot.CompactingSince != nil {
+		stateSince = snapshot.CompactingSince
+	}
+	return liveOutputData{
+		EventAfter:           snapshot.EventSequence,
+		ActiveToolEventsJSON: jsonData(activeTools), ActiveToolTimestampsJSON: jsonData(toolTimestamps), ActiveToolPromptsJSON: jsonData(toolPrompts),
+		ActiveBashJSON: jsonData(activeBash), CompletedBashEventsJSON: jsonData(completedBash), PersistedBashJSON: jsonData(persistedBash),
+		QueuedMessagesJSON: jsonData(queued), ExtensionUIJSON: jsonData(extensionUI), ComposerState: composerState,
+		ComposerStateSince: millisecondsString(stateSince), ComposerBusySince: millisecondsString(agentBusySince),
+		Compacting: snapshot.Compacting, AgentRunning: snapshot.AgentRunning,
+	}
+}
+
+func activeBashPersisted(active map[string]any, messages []*sessions.Message, home string) bool {
+	started, ok := timeFromAny(active["started_at"])
+	if !ok {
+		return false
+	}
+	summary := "$ " + sessions.DisplayHomePath(stringFromAny(active["command"]), home)
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Role == "bashExecution" && message.Summary == summary && !message.Timestamp.IsZero() && !message.Timestamp.Before(started) {
+			return true
+		}
+	}
+	return false
+}
+
+func completedBashPersisted(event map[string]any, messages []*sessions.Message, home string) bool {
+	if event["type"] != "bash_end" {
+		return false
+	}
+	result, ok := event["result"].(map[string]any)
+	if !ok {
+		return false
+	}
+	startedMilliseconds, ok := numericValue(event["startedAt"])
+	if !ok {
+		return false
+	}
+	summary := "$ " + sessions.DisplayHomePath(stringFromAny(event["command"]), home)
+	for _, message := range messages {
+		if message.Role != "bashExecution" || message.Summary != summary || message.Text != stringFromAny(result["output"]) || message.BashCancelled != (result["cancelled"] == true) || message.BashTruncated != (result["truncated"] == true) || message.BashExcludedFromContext != (event["excludeFromContext"] == true) || message.BashRecordedAt.IsZero() || message.BashRecordedAt.UnixMilli() < int64(startedMilliseconds) {
+			continue
+		}
+		resultExit, hasExit := numericValue(result["exitCode"])
+		if (message.BashExitCode == nil) != !hasExit {
+			continue
+		}
+		if hasExit && *message.BashExitCode != int(resultExit) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func timeFromAny(value any) (time.Time, bool) {
+	switch typed := value.(type) {
+	case time.Time:
+		return typed, true
+	case string:
+		parsed, err := time.Parse(time.RFC3339Nano, typed)
+		return parsed, err == nil
+	default:
+		return time.Time{}, false
+	}
+}
+
+func jsonData(value any) string { encoded, _ := json.Marshal(value); return string(encoded) }
+func millisecondsString(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatInt(value.UnixMilli(), 10)
 }
 
 func (app *application) rememberSessionHashes(all []*sessions.Session) {

@@ -4,5 +4,5 @@ import "embed"
 
 // WebFiles contains the frontend files needed by the standalone gateway binary.
 //
-//go:embed public
+//go:embed public pi_extensions/gripi-tree.ts
 var WebFiles embed.FS

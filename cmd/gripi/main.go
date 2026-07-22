@@ -40,10 +40,12 @@ func main() {
 		serveErrors <- server.Serve(listener)
 	}()
 
+	exitCode := 0
 	select {
 	case err := <-serveErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Printf("gateway server: %v", err)
+			exitCode = 1
 		}
 	case <-shutdownSignal.Done():
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
@@ -57,5 +59,16 @@ func main() {
 		if err := <-serveErrors; err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 			log.Printf("gateway server: %v", err)
 		}
+	}
+	if closer, ok := handler.(interface{ Close(context.Context) error }); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := closer.Close(ctx); err != nil {
+			log.Printf("close RPC clients: %v", err)
+			exitCode = 1
+		}
+	}
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
 }

@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/melounvitek/gripi/internal/access"
 	"github.com/melounvitek/gripi/internal/config"
 	"github.com/melounvitek/gripi/internal/rendering"
+	"github.com/melounvitek/gripi/internal/rpc"
 	"github.com/melounvitek/gripi/internal/sessions"
 )
 
@@ -21,6 +25,7 @@ var templateFiles embed.FS
 
 type application struct {
 	config             config.Config
+	files              fs.FS
 	templates          *template.Template
 	browserStore       *access.BrowserStore
 	accessLimiter      *access.RateLimiter
@@ -35,6 +40,58 @@ type application struct {
 	sessionHashesMu    sync.Mutex
 	knownSessionHashes map[string]bool
 	sessionHashesAt    time.Time
+	rpcClients         *rpc.Registry
+	rpcDiagnostics     *rpc.Diagnostics
+	pendingSessions    *rpc.PendingSessionRegistry
+	synchronizer       *sessions.Synchronizer
+	rpcMaintenance     *rpc.Maintenance
+	extensionMu        sync.Mutex
+	extensionPath      string
+	extensionRoot      string
+}
+
+type Handler struct {
+	next            http.Handler
+	app             *application
+	closeMu         sync.Mutex
+	closed          bool
+	maintenanceDone chan struct{}
+}
+
+func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	handler.next.ServeHTTP(response, request)
+}
+
+func (handler *Handler) Close(ctx context.Context) error {
+	handler.closeMu.Lock()
+	defer handler.closeMu.Unlock()
+	if handler.closed {
+		return nil
+	}
+	if handler.app.rpcMaintenance != nil && handler.maintenanceDone == nil {
+		handler.maintenanceDone = make(chan struct{})
+		go func() {
+			handler.app.rpcMaintenance.Stop()
+			close(handler.maintenanceDone)
+		}()
+	}
+	if err := handler.app.rpcClients.Shutdown(ctx); err != nil {
+		return err
+	}
+	if handler.maintenanceDone != nil {
+		select {
+		case <-handler.maintenanceDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if handler.app.extensionRoot != "" {
+		if err := os.RemoveAll(handler.app.extensionRoot); err != nil {
+			return err
+		}
+	}
+	handler.closed = true
+	return nil
 }
 
 func NewHandler(cfg config.Config, files fs.FS) (http.Handler, error) {
@@ -58,6 +115,7 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 
 	app := &application{
 		config:             cfg,
+		files:              files,
 		templates:          templates,
 		browserStore:       access.NewBrowserStore(cfg.BrowserAccessPath),
 		accessLimiter:      access.NewRateLimiter(30, time.Minute),
@@ -70,6 +128,22 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 		heavyRequests:      make(chan struct{}, 2),
 		fdRequests:         make(chan struct{}, 4),
 		knownSessionHashes: make(map[string]bool),
+		pendingSessions:    rpc.NewPendingSessionRegistry(nil),
+	}
+	diagnostics := &rpc.Diagnostics{Enabled: cfg.RPCDiagnosticsEnabled, Writer: os.Stderr}
+	app.rpcDiagnostics = diagnostics
+	app.rpcClients = rpc.NewRegistry(func(sessionPath string) (rpc.RPCClient, error) {
+		extensionPath, err := app.rpcExtensionPath()
+		if err != nil {
+			return nil, err
+		}
+		return rpc.Start(sessionPath, cfg.PiCommand, extensionPath, diagnostics)
+	}, nil)
+	app.rpcClients.SetDiagnostics(diagnostics)
+	app.synchronizer = sessions.NewSynchronizer(cfg.SessionsRoot, cfg.Home, app.sessionCache, app.rpcClients)
+	if cfg.RPCIdleTimeout > 0 && cfg.RPCIdleSweep > 0 {
+		app.rpcMaintenance, _ = rpc.NewMaintenance(cfg.RPCIdleSweep, app.cleanupIdleRPCClients, rpc.LogMaintenanceError(os.Stderr))
+		app.rpcMaintenance.Start(context.Background())
 	}
 	mux := http.NewServeMux()
 	assets := filesOnly(public, http.StripPrefix("/", http.FileServerFS(public)))
@@ -86,7 +160,30 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 	handler = app.securityHeaders(handler)
 	handler = app.authorizeHost(handler)
 	handler = app.limitRequestBody(handler)
-	return handler, nil
+	return &Handler{next: handler, app: app}, nil
+}
+
+func (app *application) rpcExtensionPath() (string, error) {
+	app.extensionMu.Lock()
+	defer app.extensionMu.Unlock()
+	if app.extensionPath != "" {
+		return app.extensionPath, nil
+	}
+	contents, err := fs.ReadFile(app.files, "pi_extensions/gripi-tree.ts")
+	if err != nil {
+		return "", fmt.Errorf("read embedded Pi extension: %w", err)
+	}
+	root, err := os.MkdirTemp("", "gripi-rpc-")
+	if err != nil {
+		return "", fmt.Errorf("create Pi extension directory: %w", err)
+	}
+	path := filepath.Join(root, "gripi-tree.ts")
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		_ = os.RemoveAll(root)
+		return "", fmt.Errorf("write Pi extension: %w", err)
+	}
+	app.extensionRoot, app.extensionPath = root, path
+	return path, nil
 }
 
 func filesOnly(root fs.FS, next http.Handler) http.Handler {

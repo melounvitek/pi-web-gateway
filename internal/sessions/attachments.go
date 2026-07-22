@@ -2,7 +2,9 @@ package sessions
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,6 +26,68 @@ type AttachmentMatch struct {
 }
 
 type AttachmentStore struct{ Root string }
+
+func (store AttachmentStore) Migrate(fromSessionPath, toSessionPath string) (func() error, error) {
+	if fromSessionPath == toSessionPath {
+		return nil, nil
+	}
+	fromPath := filepath.Join(store.Root, SessionHash(fromSessionPath)+".jsonl")
+	from, err := os.ReadFile(fromPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(store.Root, 0700); err != nil {
+		return nil, err
+	}
+	toPath := filepath.Join(store.Root, SessionHash(toSessionPath)+".jsonl")
+	existing, err := os.ReadFile(toPath)
+	existed := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if len(from) > 0 && bytes.HasSuffix(existing, from) {
+		return nil, nil
+	}
+	if err := replaceFile(toPath, append(existing, from...)); err != nil {
+		return nil, err
+	}
+	rollback := func() error {
+		if !existed {
+			err := os.Remove(toPath)
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		return replaceFile(toPath, existing)
+	}
+	return rollback, nil
+}
+
+func replaceFile(path string, contents []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".attachment-migration-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err = temporary.Chmod(0600); err == nil {
+		_, err = temporary.Write(contents)
+	}
+	if err == nil {
+		err = temporary.Sync()
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
+}
 
 func (store AttachmentStore) Match(sessionPath string, messages []*Message) map[*Message]AttachmentMatch {
 	attachments := store.read(sessionPath)

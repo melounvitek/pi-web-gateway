@@ -30,7 +30,9 @@ func (app *application) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /markdown", app.renderMarkdown)
 	mux.HandleFunc("POST /sessions/pin", app.pinSession)
 	mux.HandleFunc("POST /sessions/mark_read", app.markSessionRead)
-	mux.HandleFunc("GET /status", app.sessionStatus)
+	mux.HandleFunc("GET /events", app.events)
+	mux.HandleFunc("GET /status", app.liveSessionStatus)
+	mux.HandleFunc("GET /commands", app.commands)
 }
 
 func acquireRequestSlot(response http.ResponseWriter, request *http.Request, slots chan struct{}) bool {
@@ -362,28 +364,4 @@ func (app *application) renderMarkdown(response http.ResponseWriter, request *ht
 		return
 	}
 	writeJSON(response, map[string]string{"html": app.markdown.Render(request.FormValue("text"))})
-}
-
-func (app *application) sessionStatus(response http.ResponseWriter, request *http.Request) {
-	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
-	session, ok := store.Session(request.URL.Query().Get("session"))
-	if !ok {
-		http.NotFound(response, request)
-		return
-	}
-	status, err := store.Status(session.Path)
-	if err != nil {
-		http.NotFound(response, request)
-		return
-	}
-	items := statusItems(status)
-	context, model := "", ""
-	for _, item := range items {
-		if item[0] == "CTX" {
-			context = item[1]
-		} else if item[0] == "Model" {
-			model = strings.TrimSuffix(item[1], " ("+status.ThinkingLevel+")")
-		}
-	}
-	writeJSON(response, map[string]any{"context": context, "model": model, "thinking": status.ThinkingLevel})
 }

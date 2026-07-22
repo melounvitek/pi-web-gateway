@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	gripi "github.com/melounvitek/gripi"
 	"github.com/melounvitek/gripi/internal/config"
@@ -116,8 +118,9 @@ func TestReadOnlySessionRoutesUseNativeE2EFixtureAndPreservePiJSONL(t *testing.T
 		t.Fatalf("fragment did not retain pagination for an older session: %q", retainedFragment.Body.String())
 	}
 
-	if commands := serve(t, handler, http.MethodGet, "/commands?session="+url.QueryEscape(fixture.markerPath), ""); commands.Code != http.StatusNotFound {
-		t.Fatalf("commands unexpectedly started Round 4 behavior: %d", commands.Code)
+	commands := serve(t, handler, http.MethodGet, "/commands?session="+url.QueryEscape(fixture.markerPath), "")
+	if commands.Code != http.StatusOK || !strings.Contains(commands.Body.String(), "Slash commands (7)") || !strings.Contains(commands.Body.String(), "data-command-name=\"compact\"") {
+		t.Fatalf("commands = %d %q", commands.Code, commands.Body.String())
 	}
 
 	after := snapshotJSONL(t, fixture.sessionsRoot)
@@ -128,6 +131,103 @@ func TestReadOnlySessionRoutesUseNativeE2EFixtureAndPreservePiJSONL(t *testing.T
 		if string(after[path]) != string(contents) {
 			t.Fatalf("Pi JSONL changed at %s", path)
 		}
+	}
+}
+
+func TestRPCObservationRoutesUseFakePiAndPreserveJSONL(t *testing.T) {
+	fixture := seedNativeFixture(t)
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is required")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GRIPI_E2E_SESSIONS_ROOT", fixture.sessionsRoot)
+	t.Setenv("GRIPI_E2E_FAKE_PI_LOG", filepath.Join(fixture.root, "fake-pi.log"))
+	cfg := config.Config{
+		Address: "127.0.0.1:4567", Environment: "test", Home: fixture.home,
+		SessionsRoot: fixture.sessionsRoot, AttachmentsRoot: fixture.attachmentsRoot,
+		SessionCwdsPath: fixture.configuredCWDs, ReadStatePath: filepath.Join(fixture.root, "state", "read.json"),
+		PinnedSessionsPath: filepath.Join(fixture.root, "state", "pinned.json"), BrowserAccessPath: filepath.Join(fixture.root, "state", "browser.json"),
+		BrowserAuthDisabled: true, PiCommand: []string{node, filepath.Join(repoRoot, "e2e", "support", "fake_pi.mjs")},
+	}
+	handler, err := server.NewHandler(cfg, gripi.WebFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closer := handler.(interface{ Close(context.Context) error })
+	t.Cleanup(func() { _ = closer.Close(context.Background()) })
+	before, err := os.ReadFile(fixture.markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commands := serve(t, handler, http.MethodGet, "/commands?session="+url.QueryEscape(fixture.markerPath), "")
+	if commands.Code != http.StatusOK || !strings.Contains(commands.Body.String(), "Slash commands (7)") {
+		t.Fatalf("commands = %d %q", commands.Code, commands.Body.String())
+	}
+	status := serve(t, handler, http.MethodGet, "/status?session="+url.QueryEscape(fixture.markerPath), "")
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"model":"e2e/fixture-model"`) || !strings.Contains(status.Body.String(), `"context":"1.0%/128.0k"`) {
+		t.Fatalf("live status = %d %q", status.Code, status.Body.String())
+	}
+	events := serve(t, handler, http.MethodGet, "/events?session="+url.QueryEscape(fixture.markerPath)+"&after=0", "")
+	var eventPayload map[string]any
+	if events.Code != http.StatusOK || json.Unmarshal(events.Body.Bytes(), &eventPayload) != nil {
+		t.Fatalf("events = %d %q", events.Code, events.Body.String())
+	}
+	syncState, _ := eventPayload["session_sync"].(map[string]any)
+	if syncState["mode"] != "managed" || syncState["gateway_busy"] != false {
+		t.Fatalf("session sync = %#v", syncState)
+	}
+	after, err := os.ReadFile(fixture.markerPath)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("observation routes changed Pi JSONL: %v", err)
+	}
+	if err := closer.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRPCMaintenanceRetiresIdleFakePiClientAndShutdownIsIdempotent(t *testing.T) {
+	fixture := seedNativeFixture(t)
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is required")
+	}
+	repoRoot, _ := filepath.Abs(filepath.Join("..", ".."))
+	logPath := filepath.Join(fixture.root, "idle-fake-pi.log")
+	t.Setenv("GRIPI_E2E_SESSIONS_ROOT", fixture.sessionsRoot)
+	t.Setenv("GRIPI_E2E_FAKE_PI_LOG", logPath)
+	cfg := config.Config{Home: fixture.home, SessionsRoot: fixture.sessionsRoot, AttachmentsRoot: fixture.attachmentsRoot, ReadStatePath: filepath.Join(fixture.root, "state", "read.json"), PinnedSessionsPath: filepath.Join(fixture.root, "state", "pinned.json"), BrowserAccessPath: filepath.Join(fixture.root, "state", "browser.json"), BrowserAuthDisabled: true, PiCommand: []string{node, filepath.Join(repoRoot, "e2e", "support", "fake_pi.mjs")}, RPCIdleTimeout: 50 * time.Millisecond, RPCIdleSweep: 10 * time.Millisecond}
+	handler, err := server.NewHandler(cfg, gripi.WebFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closer := handler.(interface{ Close(context.Context) error })
+	t.Cleanup(func() { _ = closer.Close(context.Background()) })
+	commands := serve(t, handler, http.MethodGet, "/commands?session="+url.QueryEscape(fixture.markerPath), "")
+	if commands.Code != http.StatusOK {
+		t.Fatalf("commands = %d %q", commands.Code, commands.Body.String())
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		contents, _ := os.ReadFile(logPath)
+		if strings.Contains(string(contents), `"event":"stopped"`) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	contents, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(contents), `"event":"started"`) || !strings.Contains(string(contents), `"event":"stopped"`) {
+		t.Fatalf("fake Pi lifecycle log = %q", contents)
+	}
+	if err := closer.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := closer.Close(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -342,6 +442,9 @@ func fixtureHandler(t *testing.T, fixture nativeFixture) http.Handler {
 	handler, err := server.NewHandler(cfg, gripi.WebFiles)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if closer, ok := handler.(interface{ Close(context.Context) error }); ok {
+		t.Cleanup(func() { _ = closer.Close(context.Background()) })
 	}
 	return handler
 }
