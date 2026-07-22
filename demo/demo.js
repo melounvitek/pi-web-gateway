@@ -9,7 +9,7 @@
       messages: [
         { role: "user", text: "What is Gripi, and how can I get started?" },
         { role: "thinking", text: "I’ll give you a quick tour and the shortest path to a local installation." },
-        { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Here, Pi means the coding-agent harness that connects the model to files, shell commands, tools, edits, and session history — not Raspberry Pi hardware. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nPi stays Pi: Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. This static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated." },
+        { role: "assistant", text: "Gripi is a desktop and web portal for Pi, powered by a self-hosted gateway. Run the gateway on your development machine or home server, then use your existing Pi projects and sessions from the desktop app or a browser.\n\nPi stays Pi: Gripi does not alter Pi’s system prompt, patch Pi, install extensions, rewrite sessions, or change Pi-owned configuration. This static demo lets you explore session navigation, settings, streamed responses, and tool activity. Prompts stay in this browser, and all Pi or gateway behavior is simulated." },
         { role: "assistant", text: "Clone and start Gripi with these commands. Setup prints the admin password used to approve your browser, then Gripi is available at http://localhost:4567.", code: "git clone https://github.com/melounvitek/gripi.git\ncd gripi\nmise install\nmise run setup\nGRIPI_HOST=127.0.0.1 mise run start", link: { href: "https://github.com/melounvitek/gripi", label: "View Gripi on GitHub →" } }
       ]
     },
@@ -17,7 +17,7 @@
       id: "new-to-pi", name: "New to Pi? Start here", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "2 minutes ago", pinned: false,
       messages: [
         { role: "user", text: "I found Gripi before Pi. Is this a good place to start?" },
-        { role: "assistant", text: "Start with Pi itself. Pi is the coding-agent harness that reads files, runs tools, edits code, and owns the projects and sessions shown here — not Raspberry Pi hardware. Gripi runs that same Pi environment on a gateway machine and gives you desktop and browser access to it.\n\nTry Pi CLI first and become comfortable with its tools, sessions, models, extensions, and filesystem access. Gripi becomes useful when you want to reach an existing Pi setup from other devices.", link: { href: "https://pi.dev/", label: "Learn about Pi →" } }
+        { role: "assistant", text: "Start with Pi itself. Pi is the coding-agent harness that reads files, runs tools, edits code, and owns the projects and sessions shown here. Gripi runs that same Pi environment on a gateway machine and gives you desktop and browser access to it.\n\nTry Pi CLI first and become comfortable with its tools, sessions, models, extensions, and filesystem access. Gripi becomes useful when you want to reach an existing Pi setup from other devices.", link: { href: "https://pi.dev/", label: "Learn about Pi →" } }
       ]
     },
     {
@@ -39,8 +39,8 @@
       id: "always-on", name: "Run Gripi on an always-on computer", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "14 minutes ago", pinned: false,
       messages: [
         { role: "user", text: "I have an office PC or spare computer that stays on. Can it be my gateway?" },
-        { role: "thinking", text: "I’ll outline the reliable private-network setup and the machine-access implications." },
-        { role: "assistant", text: "Yes. Install Pi and Gripi there and connect it through Tailscale. On Linux, you can optionally run Gripi as a user systemd service and enable user lingering if it must start before login. Configure the computer not to sleep unexpectedly.\n\nCheck your employer’s policy before using an office machine. Anyone allowed into Gripi can ask Pi to access that computer’s projects and credentials.", code: "systemctl --user enable --now gripi.service\nsudo loginctl enable-linger \"$USER\"\nsystemctl --user status gripi.service --no-pager", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Read the always-on setup guide →" } }
+        { role: "thinking", text: "I’ll outline a reliable private-network setup." },
+        { role: "assistant", text: "Yes. Install Pi and Gripi there and connect it through Tailscale. On Linux, you can optionally run Gripi as a user systemd service and enable user lingering if it must start before login. Configure the computer not to sleep unexpectedly.", code: "systemctl --user enable --now gripi.service\nsudo loginctl enable-linger \"$USER\"\nsystemctl --user status gripi.service --no-pager", link: { href: "https://github.com/melounvitek/gripi/blob/master/docs/examples.md", label: "Read the always-on setup guide →" } }
       ]
     },
     {
@@ -85,11 +85,11 @@
     { id: "billing-spec", name: "Investigate flaky checkout spec", project: "storefront", monogram: "ST", color: "#b5e3b0", background: "#203c2b", age: "yesterday", pinned: false, messages: [
       { role: "user", text: "The checkout browser spec fails about one run in twenty. Can you investigate without weakening its assertions?", time: "Last week" },
       { role: "thinking", text: "I’ll reproduce it repeatedly and compare browser state on failed runs before changing the spec.", time: "Last week" },
-      { role: "tool", title: "bash bin/rails test test/system/checkout_test.rb TESTOPTS='--seed 18422'", text: "Run options: --seed 18422\n\n# Running:\n\nF\n\nFailure:\nCheckoutTest#test_customer_can_pay_for_cart:\nExpected to find text \"Order confirmed\" in \"Redirecting…\"", time: "Last week" },
-      { role: "tool", title: "read test/system/checkout_test.rb", text: "click_button \"Pay now\"\nassert_text \"Order confirmed\"\nassert_text order.number", time: "Last week" },
-      { role: "tool", title: "edit test/system/checkout_test.rb", text: "- assert_text \"Order confirmed\"\n+ assert_current_path order_path(order), wait: 5\n+ assert_text \"Order confirmed\"", time: "Last week" },
-      { role: "tool", title: "bash bin/rails test test/system/checkout_test.rb", text: "20 runs, 86 assertions, 0 failures, 0 errors, 0 skips", time: "Last week" },
-      { role: "assistant", text: "The assertion sometimes ran before the payment redirect completed. I kept the same user-visible assertions and added an explicit wait for the order page navigation.\n\nFiles changed\n\n• `test/system/checkout_test.rb`", time: "Last week" }
+      { role: "tool", title: "bash ./scripts/test-browser checkout --seed 18422", text: "Run seed: 18422\n\nFailure: checkout completes after payment\nExpected to find text \"Order confirmed\" in \"Redirecting…\"", time: "Last week" },
+      { role: "tool", title: "read tests/browser/checkout-flow.test", text: "click \"Pay now\"\nexpect text \"Order confirmed\"\nexpect order number", time: "Last week" },
+      { role: "tool", title: "edit tests/browser/checkout-flow.test", text: "- expect text \"Order confirmed\"\n+ wait for order page, timeout: 5s\n+ expect text \"Order confirmed\"", time: "Last week" },
+      { role: "tool", title: "bash ./scripts/test-browser checkout", text: "20 runs, 86 assertions, 0 failures, 0 errors, 0 skips", time: "Last week" },
+      { role: "assistant", text: "The assertion sometimes ran before the payment redirect completed. I kept the same user-visible assertions and added an explicit wait for the order page navigation.\n\nFiles changed\n\n• `tests/browser/checkout-flow.test`", time: "Last week" }
     ] },
     { id: "docs-navigation", name: "Simplify documentation navigation", project: "website", monogram: "WE", color: "#9fc5ff", background: "#1e334d", age: "2026-06-17", pinned: false, messages: [
       { role: "user", text: "Can you reorganize the setup and configuration guides?", time: "Last month" },
@@ -103,19 +103,19 @@
     { id: "checkout-copy", name: "Polish checkout confirmation copy", project: "storefront", monogram: "ST", color: "#b5e3b0", background: "#203c2b", age: "2026-06-17", pinned: false, messages: [
       { role: "user", text: "Make the confirmation screen clearer without adding more steps.", time: "Last month" },
       { role: "thinking", text: "I’ll keep the checkout flow unchanged and only adjust the confirmation page copy/layout.", time: "Last month" },
-      { role: "tool", title: "read app/views/checkouts/show.html.erb", text: "<h1>Thank you for completing checkout</h1>\n<p>Your order is being prepared.</p>\n<p>Order <%= @order.number %></p>", time: "Last month" },
-      { role: "tool", title: "edit app/views/checkouts/show.html.erb", text: "- <h1>Thank you for completing checkout</h1>\n+ <h1>Your order is confirmed</h1>\n  <p>Your order is being prepared.</p>\n- <p>Order <%= @order.number %></p>\n+ <p>Order <%= @order.number %> · Arrives <%= @order.delivery_window %></p>", time: "Last month" },
-      { role: "tool", title: "bash bin/rails test test/system/checkout_test.rb", text: "20 runs, 89 assertions, 0 failures, 0 errors, 0 skips", time: "Last month" },
-      { role: "assistant", text: "Shortened the heading and surfaced the delivery estimate next to the order number. No checkout steps changed.\n\nFiles changed\n\n• `app/views/checkouts/show.html.erb`", time: "Last month" }
+      { role: "tool", title: "read templates/checkout-confirmation.html", text: "<h1>Thank you for completing checkout</h1>\n<p>Your order is being prepared.</p>\n<p>Order {{ order_number }}</p>", time: "Last month" },
+      { role: "tool", title: "edit templates/checkout-confirmation.html", text: "- <h1>Thank you for completing checkout</h1>\n+ <h1>Your order is confirmed</h1>\n  <p>Your order is being prepared.</p>\n- <p>Order {{ order_number }}</p>\n+ <p>Order {{ order_number }} · Arrives {{ delivery_window }}</p>", time: "Last month" },
+      { role: "tool", title: "bash ./scripts/test-browser checkout", text: "20 runs, 89 assertions, 0 failures, 0 errors, 0 skips", time: "Last month" },
+      { role: "assistant", text: "Shortened the heading and surfaced the delivery estimate next to the order number. No checkout steps changed.\n\nFiles changed\n\n• `templates/checkout-confirmation.html`", time: "Last month" }
     ] },
     { id: "ci-cache", name: "Speed up CI dependency caching", project: "storefront", monogram: "ST", color: "#b5e3b0", background: "#203c2b", age: "2026-05-17", pinned: false, messages: [
       { role: "user", text: "The test workflow spends too long installing unchanged dependencies.", time: "2 months ago" },
       { role: "thinking", text: "I’ll check which dependency managers are used and keep the cache key tied to lockfiles, not unrelated source changes.", time: "2 months ago" },
-      { role: "tool", title: "read .github/workflows/test.yml", text: "- uses: actions/cache@v4\n  with:\n    path: vendor/bundle\n    key: bundle-${{ github.sha }}", time: "2 months ago" },
-      { role: "tool", title: "read Gemfile.lock", text: "BUNDLED WITH\n   2.5.6", time: "2 months ago" },
-      { role: "tool", title: "edit .github/workflows/test.yml", text: "- key: bundle-${{ github.sha }}\n+ key: bundle-${{ runner.os }}-ruby-${{ hashFiles('Gemfile.lock') }}\n+ restore-keys: |\n+   bundle-${{ runner.os }}-ruby-", time: "2 months ago" },
+      { role: "tool", title: "read .github/workflows/test.yml", text: "- uses: actions/cache@v4\n  with:\n    path: .cache/dependencies\n    key: dependencies-${{ github.sha }}", time: "2 months ago" },
+      { role: "tool", title: "read dependencies.lock", text: "lockfile-version: 3\nresolved-packages: 147", time: "2 months ago" },
+      { role: "tool", title: "edit .github/workflows/test.yml", text: "- key: dependencies-${{ github.sha }}\n+ key: dependencies-${{ runner.os }}-${{ hashFiles('dependencies.lock') }}\n+ restore-keys: |\n+   dependencies-${{ runner.os }}-", time: "2 months ago" },
       { role: "tool", title: "bash git diff --check", text: "No whitespace errors detected", time: "2 months ago" },
-      { role: "assistant", text: "Updated the cache key to include the OS and `Gemfile.lock`, with a restore prefix for older compatible bundles. This avoids reinstalling dependencies on source-only changes.", time: "2 months ago" }
+      { role: "assistant", text: "Updated the cache key to include the OS and `dependencies.lock`, with a restore prefix for older compatible caches. This avoids reinstalling dependencies on source-only changes.", time: "2 months ago" }
     ] }
   ];
 
