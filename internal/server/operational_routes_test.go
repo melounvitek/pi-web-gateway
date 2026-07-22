@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,13 +24,22 @@ func (fake *fakeResourceMonitor) Snapshot() (*resource.Snapshot, error) {
 }
 
 type fakeUpdateCoordinator struct {
-	snapshot                update.Snapshot
-	statusCalls, startCalls int
+	snapshot                            update.Snapshot
+	statusCalls, startCalls, closeCalls int
+	statusContext                       context.Context
 }
 
 func (fake *fakeUpdateCoordinator) CachedStatus() update.Snapshot { return fake.snapshot }
-func (fake *fakeUpdateCoordinator) Status() update.Snapshot       { fake.statusCalls++; return fake.snapshot }
-func (fake *fakeUpdateCoordinator) Start() update.Snapshot        { fake.startCalls++; return fake.snapshot }
+func (fake *fakeUpdateCoordinator) Status(ctx context.Context) update.Snapshot {
+	fake.statusCalls++
+	fake.statusContext = ctx
+	return fake.snapshot
+}
+func (fake *fakeUpdateCoordinator) Start() update.Snapshot { fake.startCalls++; return fake.snapshot }
+func (fake *fakeUpdateCoordinator) Close(context.Context) error {
+	fake.closeCalls++
+	return nil
+}
 
 func TestResourceUsagePreservesFrontendJSONContract(t *testing.T) {
 	monitor := &fakeResourceMonitor{snapshot: &resource.Snapshot{MemoryBytes: 10, WorkingSetBytes: 8, InactiveFileBytes: 2, CPUUsageUsec: 3, GatewayRSSBytes: 4, PiRSSBytes: 5, PiProcessCount: 2}}
@@ -71,11 +81,12 @@ func TestGatewayUpdateRoutesExposeInstanceAndCoordinatorState(t *testing.T) {
 	coordinator := &fakeUpdateCoordinator{snapshot: update.Snapshot{State: "available", Message: &message, TargetSHA: &target, BehindCount: &behind}}
 	app := &application{instanceID: "instance", updateCoordinator: coordinator}
 	response := httptest.NewRecorder()
-	app.gatewayUpdateCheck(response, httptest.NewRequest(http.MethodPost, "/gateway-update/check", nil))
+	request := httptest.NewRequest(http.MethodPost, "/gateway-update/check", nil)
+	app.gatewayUpdateCheck(response, request)
 	var payload map[string]any
 	json.Unmarshal(response.Body.Bytes(), &payload)
-	if payload["instanceId"] != "instance" || payload["state"] != "available" || coordinator.statusCalls != 1 {
-		t.Fatalf("payload = %v, calls = %d", payload, coordinator.statusCalls)
+	if payload["instanceId"] != "instance" || payload["state"] != "available" || coordinator.statusCalls != 1 || coordinator.statusContext != request.Context() {
+		t.Fatalf("payload = %v, calls = %d, context_matches = %v", payload, coordinator.statusCalls, coordinator.statusContext == request.Context())
 	}
 	response = httptest.NewRecorder()
 	app.gatewayUpdateStart(response, httptest.NewRequest(http.MethodPost, "/gateway-update", nil))

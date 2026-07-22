@@ -10,7 +10,13 @@ import (
 
 type shutdownRegistry interface{ Shutdown(context.Context) error }
 
-func RequestRestart(path string, registry shutdownRegistry, shutdown func() error) error {
+func RequestRestart(ctx context.Context, path string, registry shutdownRegistry, shutdown func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if path == "" {
 		return errors.New("GRIPI_RESTART_PATH must be set")
 	}
@@ -24,18 +30,30 @@ func RequestRestart(path string, registry shutdownRegistry, shutdown func() erro
 	temporaryPath := temporary.Name()
 	temporary.Close()
 	defer os.Remove(temporaryPath)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return err
 	}
+	keepMarker := false
+	defer func() {
+		if !keepMarker {
+			_ = os.Remove(path)
+		}
+	}()
 	var cleanupErr error
 	if registry != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		cleanupErr = registry.Shutdown(ctx)
+		shutdownContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+		cleanupErr = registry.Shutdown(shutdownContext)
 		cancel()
 	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, cleanupErr)
+	}
 	if err := shutdown(); err != nil {
-		_ = os.Remove(path)
 		return err
 	}
+	keepMarker = true
 	return cleanupErr
 }

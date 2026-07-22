@@ -29,12 +29,215 @@ func (fake *fakeUpdater) Update(context.Context) Result {
 	return fake.result
 }
 
+func TestCoordinatorStatusStopsWhenCallerIsCancelled(t *testing.T) {
+	updater := &cancellableUpdater{statusStarted: make(chan struct{}), statusCancelled: make(chan struct{})}
+	coordinator := NewCoordinator(updater, func(context.Context) error { return nil }, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan Snapshot, 1)
+	go func() { result <- coordinator.Status(ctx) }()
+	<-updater.statusStarted
+	cancel()
+
+	select {
+	case snapshot := <-result:
+		if snapshot.State != "error" || snapshot.Reason == nil || *snapshot.Reason != "cancelled" {
+			t.Fatalf("snapshot = %+v", snapshot)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("status did not stop after cancellation")
+	}
+	select {
+	case <-updater.statusCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("updater did not receive status cancellation")
+	}
+	if snapshot := coordinator.CachedStatus(); snapshot.State != "unknown" {
+		t.Fatalf("cancelled request changed cached status: %+v", snapshot)
+	}
+}
+
+func TestCoordinatorDoesNotStartStatusForCancelledRequest(t *testing.T) {
+	updater := &fakeUpdater{}
+	coordinator := NewCoordinator(updater, func(context.Context) error { return nil }, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	snapshot := coordinator.Status(ctx)
+	if snapshot.State != "error" || snapshot.Reason == nil || *snapshot.Reason != "cancelled" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+	updater.mu.Lock()
+	calls := updater.statusCalls
+	updater.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("status calls = %d", calls)
+	}
+}
+
+func TestCoordinatorStatusCancellationDoesNotWaitForOperationGate(t *testing.T) {
+	coordinator := NewCoordinator(&fakeUpdater{}, func(context.Context) error { return nil }, nil, nil)
+	<-coordinator.operationGate
+	defer func() { coordinator.operationGate <- struct{}{} }()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan Snapshot, 1)
+	go func() { result <- coordinator.Status(ctx) }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		coordinator.mu.Lock()
+		checking := coordinator.statusChecking
+		coordinator.mu.Unlock()
+		if checking {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("status check did not start")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	select {
+	case snapshot := <-result:
+		if snapshot.State != "error" || snapshot.Reason == nil || *snapshot.Reason != "cancelled" {
+			t.Fatalf("snapshot = %+v", snapshot)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("status waited for operation gate after cancellation")
+	}
+}
+
+func TestCoordinatorCloseCancelsUpdateAndPreventsRestart(t *testing.T) {
+	updater := &cancellableUpdater{updateStarted: make(chan struct{}), updateCancelled: make(chan struct{})}
+	restarted := atomic.Bool{}
+	coordinator := NewCoordinator(updater, func(context.Context) error { restarted.Store(true); return nil }, nil, nil)
+	coordinator.Start()
+	<-updater.updateStarted
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := coordinator.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if restarted.Load() {
+		t.Fatal("restart ran after coordinator close")
+	}
+	select {
+	case <-updater.updateCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("updater did not receive update cancellation")
+	}
+	if snapshot := coordinator.Start(); snapshot.State != "error" || snapshot.Reason == nil || *snapshot.Reason != "closed" {
+		t.Fatalf("start after close = %+v", snapshot)
+	}
+	expired, expire := context.WithCancel(context.Background())
+	expire()
+	if err := coordinator.Close(expired); err != nil {
+		t.Fatalf("completed close = %v", err)
+	}
+}
+
+func TestCoordinatorCloseWinsAtRestartBoundary(t *testing.T) {
+	updater := &fakeUpdater{result: Result{State: "updated"}}
+	admissionStarted, releaseAdmission := make(chan struct{}), make(chan struct{})
+	restarted := atomic.Bool{}
+	coordinator := NewCoordinator(updater, func(context.Context) error { restarted.Store(true); return nil }, nil, func() bool {
+		close(admissionStarted)
+		<-releaseAdmission
+		return true
+	})
+	coordinator.restartDelay = 0
+	coordinator.Start()
+	<-admissionStarted
+	closed := make(chan error, 1)
+	go func() { closed <- coordinator.Close(context.Background()) }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		snapshot := coordinator.CachedStatus()
+		if snapshot.Reason != nil && *snapshot.Reason == "closed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("coordinator did not begin closing")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(releaseAdmission)
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if restarted.Load() {
+		t.Fatal("restart ran after close won the boundary")
+	}
+}
+
+func TestCoordinatorCloseInterruptsIdleAndRestartAdmissionWaits(t *testing.T) {
+	t.Run("active sessions", func(t *testing.T) {
+		updater := &fakeUpdater{}
+		coordinator := NewCoordinator(updater, func(context.Context) error { t.Error("unexpected restart"); return nil }, func() int { return 1 }, nil)
+		coordinator.waitInterval = time.Hour
+		coordinator.Start()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := coordinator.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		updater.mu.Lock()
+		calls := updater.updateCalls
+		updater.mu.Unlock()
+		if calls != 0 {
+			t.Fatalf("update calls = %d", calls)
+		}
+	})
+
+	t.Run("restart admission", func(t *testing.T) {
+		updater := &fakeUpdater{result: Result{State: "updated"}}
+		admissionChecked := make(chan struct{}, 1)
+		coordinator := NewCoordinator(updater, func(context.Context) error { t.Error("unexpected restart"); return nil }, nil, func() bool {
+			select {
+			case admissionChecked <- struct{}{}:
+			default:
+			}
+			return false
+		})
+		coordinator.restartDelay = 0
+		coordinator.waitInterval = time.Hour
+		coordinator.Start()
+		select {
+		case <-admissionChecked:
+		case <-time.After(time.Second):
+			t.Fatal("restart admission was not checked")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := coordinator.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+type cancellableUpdater struct {
+	statusStarted, statusCancelled chan struct{}
+	updateStarted, updateCancelled chan struct{}
+}
+
+func (updater *cancellableUpdater) Status(ctx context.Context) Status {
+	close(updater.statusStarted)
+	<-ctx.Done()
+	close(updater.statusCancelled)
+	return Status{State: "error", Reason: "cancelled", Message: ctx.Err().Error()}
+}
+func (updater *cancellableUpdater) Update(ctx context.Context) Result {
+	close(updater.updateStarted)
+	<-ctx.Done()
+	close(updater.updateCancelled)
+	return Result{State: "updated"}
+}
+
 func TestCoordinatorWaitsForActiveSessionsAndRestartsOnce(t *testing.T) {
 	updater := &fakeUpdater{result: Result{State: "updated", Status: Status{CurrentSHA: "old", TargetSHA: "new"}, Message: "Updated to new"}}
 	var active atomic.Int32
 	active.Store(1)
 	restarted := make(chan struct{}, 1)
-	coordinator := NewCoordinator(updater, func() error { restarted <- struct{}{}; return nil }, func() int { return int(active.Load()) }, nil)
+	coordinator := NewCoordinator(updater, func(context.Context) error { restarted <- struct{}{}; return nil }, func() int { return int(active.Load()) }, nil)
 	coordinator.restartDelay = 0
 	coordinator.waitInterval = time.Millisecond
 	snapshot := coordinator.Start()
@@ -59,7 +262,7 @@ func TestCoordinatorWaitsForRestartAdmissionAfterTheIdleCheck(t *testing.T) {
 	updater := &fakeUpdater{result: Result{State: "updated"}}
 	admitted := atomic.Bool{}
 	restarted := make(chan struct{}, 1)
-	coordinator := NewCoordinator(updater, func() error { restarted <- struct{}{}; return nil }, nil, admitted.Load)
+	coordinator := NewCoordinator(updater, func(context.Context) error { restarted <- struct{}{}; return nil }, nil, admitted.Load)
 	coordinator.restartDelay = 0
 	coordinator.waitInterval = time.Millisecond
 	coordinator.Start()
@@ -78,7 +281,7 @@ func TestCoordinatorWaitsForRestartAdmissionAfterTheIdleCheck(t *testing.T) {
 
 func TestCoordinatorDoesNotWedgeWhenInitialActivityCountPanics(t *testing.T) {
 	calls := 0
-	coordinator := NewCoordinator(&fakeUpdater{}, func() error { return nil }, func() int {
+	coordinator := NewCoordinator(&fakeUpdater{}, func(context.Context) error { return nil }, func() int {
 		calls++
 		if calls == 1 {
 			panic("activity panic")
@@ -97,7 +300,7 @@ func TestCoordinatorDoesNotWedgeWhenInitialActivityCountPanics(t *testing.T) {
 func TestCoordinatorSerializesConcurrentStarts(t *testing.T) {
 	release := make(chan struct{})
 	updater := &fakeUpdater{}
-	coordinator := NewCoordinator(updater, func() error { return nil }, nil, nil)
+	coordinator := NewCoordinator(updater, func(context.Context) error { return nil }, nil, nil)
 	coordinator.updater = &blockingUpdater{fakeUpdater: updater, release: release}
 	var wait sync.WaitGroup
 	for range 20 {
@@ -154,11 +357,11 @@ func (updater *panicUpdater) Update(context.Context) Result {
 
 func TestCoordinatorReleasesOperationLockAfterUpdaterPanics(t *testing.T) {
 	updater := &panicUpdater{panicStatus: true, panicUpdate: true}
-	coordinator := NewCoordinator(updater, func() error { return nil }, nil, nil)
-	if snapshot := coordinator.Status(); snapshot.State != "error" || snapshot.Message == nil || !strings.Contains(*snapshot.Message, "status panic") {
+	coordinator := NewCoordinator(updater, func(context.Context) error { return nil }, nil, nil)
+	if snapshot := coordinator.Status(context.Background()); snapshot.State != "error" || snapshot.Message == nil || !strings.Contains(*snapshot.Message, "status panic") {
 		t.Fatalf("status panic snapshot = %+v", snapshot)
 	}
-	if snapshot := coordinator.Status(); snapshot.State != "up_to_date" {
+	if snapshot := coordinator.Status(context.Background()); snapshot.State != "up_to_date" {
 		t.Fatalf("status retry snapshot = %+v", snapshot)
 	}
 	coordinator.Start()
@@ -178,7 +381,7 @@ func TestCoordinatorReleasesOperationLockAfterUpdaterPanics(t *testing.T) {
 
 func TestCoordinatorLeavesUpdatingStateWithUsefulErrorWhenUpdateTimesOut(t *testing.T) {
 	updater := &fakeUpdater{}
-	coordinator := NewCoordinator(updater, func() error { return nil }, nil, nil)
+	coordinator := NewCoordinator(updater, func(context.Context) error { return nil }, nil, nil)
 	coordinator.updater = &blockingUpdater{fakeUpdater: updater, release: make(chan struct{})}
 	coordinator.updateTimeout = 20 * time.Millisecond
 	coordinator.Start()

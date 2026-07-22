@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/melounvitek/gripi/internal/resource"
@@ -13,8 +14,9 @@ type resourceMonitor interface {
 
 type updateCoordinator interface {
 	CachedStatus() update.Snapshot
-	Status() update.Snapshot
+	Status(context.Context) update.Snapshot
 	Start() update.Snapshot
+	Close(context.Context) error
 }
 
 func (app *application) registerOperationalRoutes(mux *http.ServeMux) {
@@ -51,8 +53,8 @@ func (app *application) gatewayUpdateStatus(response http.ResponseWriter, _ *htt
 	app.writeUpdateSnapshot(response, http.StatusOK, app.updateCoordinator.CachedStatus())
 }
 
-func (app *application) gatewayUpdateCheck(response http.ResponseWriter, _ *http.Request) {
-	app.writeUpdateSnapshot(response, http.StatusOK, app.updateCoordinator.Status())
+func (app *application) gatewayUpdateCheck(response http.ResponseWriter, request *http.Request) {
+	app.writeUpdateSnapshot(response, http.StatusOK, app.updateCoordinator.Status(request.Context()))
 }
 
 func (app *application) gatewayUpdateStart(response http.ResponseWriter, _ *http.Request) {

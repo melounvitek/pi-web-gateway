@@ -571,6 +571,57 @@ func TestLiveOutputRecognizesNativeIntegerCompletedBashAsPersisted(t *testing.T)
 	}
 }
 
+func TestCancelledGatewayRestartDoesNotResumeRPCAdmission(t *testing.T) {
+	registry := &cancelledRestartRegistry{started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	shutdownCalled := false
+	path := filepath.Join(t.TempDir(), "restart")
+	go func() {
+		result <- requestGatewayRestart(ctx, path, registry, func() error {
+			shutdownCalled = true
+			return nil
+		})
+	}()
+	<-registry.started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("restart error = %v", err)
+	}
+	if registry.resumed || shutdownCalled {
+		t.Fatalf("resumed=%v shutdown=%v", registry.resumed, shutdownCalled)
+	}
+}
+
+type cancelledRestartRegistry struct {
+	started chan struct{}
+	resumed bool
+}
+
+func (registry *cancelledRestartRegistry) Shutdown(ctx context.Context) error {
+	close(registry.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (registry *cancelledRestartRegistry) ResumeAfterFailedShutdown() bool {
+	registry.resumed = true
+	return true
+}
+
+func TestHandlerCloseStopsUpdateCoordinator(t *testing.T) {
+	coordinator := &fakeUpdateCoordinator{}
+	handler := &Handler{app: &application{
+		rpcClients:        rpc.NewRegistry(func(string) (rpc.RPCClient, error) { return nil, os.ErrNotExist }, nil),
+		updateCoordinator: coordinator,
+	}}
+	if err := handler.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if coordinator.closeCalls != 1 {
+		t.Fatalf("close calls = %d", coordinator.closeCalls)
+	}
+}
+
 func TestHandlerCloseHonorsContextWhileMaintenanceFinishes(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	maintenance, err := rpc.NewMaintenance(time.Millisecond, func(context.Context) error {

@@ -94,6 +94,11 @@ func (handler *Handler) Close(ctx context.Context) error {
 	if handler.closed {
 		return nil
 	}
+	if handler.app.updateCoordinator != nil {
+		if err := handler.app.updateCoordinator.Close(ctx); err != nil {
+			return err
+		}
+	}
 	if handler.app.rpcMaintenance != nil && handler.maintenanceDone == nil {
 		handler.maintenanceDone = make(chan struct{})
 		go func() {
@@ -213,24 +218,7 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 	updater := update.NewUpdater(checkout)
 	updater.AdmitCutover = app.rpcClients.DrainIfIdle
 	updater.ResumeCutover = func() { app.rpcClients.ResumeAfterFailedShutdown() }
-	app.updateCoordinator = update.NewCoordinator(updater, func() error {
-		shutdownSent := false
-		err := update.RequestRestart(cfg.RestartPath, app.rpcClients, func() error {
-			process, err := os.FindProcess(os.Getpid())
-			if err != nil {
-				return err
-			}
-			if err := process.Signal(os.Interrupt); err != nil {
-				return err
-			}
-			shutdownSent = true
-			return nil
-		})
-		if err != nil && !shutdownSent {
-			app.rpcClients.ResumeAfterFailedShutdown()
-		}
-		return err
-	}, app.rpcClients.BusySessionCount, app.rpcClients.DrainIfIdle)
+	app.updateCoordinator = update.NewCoordinator(updater, app.requestGatewayRestart, app.rpcClients.BusySessionCount, app.rpcClients.DrainIfIdle)
 	if cfg.RPCIdleTimeout > 0 && cfg.RPCIdleSweep > 0 {
 		app.rpcMaintenance, _ = rpc.NewMaintenance(cfg.RPCIdleSweep, app.cleanupIdleRPCClients, rpc.LogMaintenanceError(os.Stderr))
 		app.rpcMaintenance.Start(context.Background())
@@ -255,6 +243,36 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 	handler = app.authorizeHost(handler)
 	handler = app.limitRequestBody(handler)
 	return &Handler{next: handler, app: app}, nil
+}
+
+type restartRegistry interface {
+	Shutdown(context.Context) error
+	ResumeAfterFailedShutdown() bool
+}
+
+func (app *application) requestGatewayRestart(ctx context.Context) error {
+	return requestGatewayRestart(ctx, app.config.RestartPath, app.rpcClients, func() error {
+		process, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			return err
+		}
+		return process.Signal(os.Interrupt)
+	})
+}
+
+func requestGatewayRestart(ctx context.Context, path string, registry restartRegistry, shutdown func() error) error {
+	shutdownSent := false
+	err := update.RequestRestart(ctx, path, registry, func() error {
+		if err := shutdown(); err != nil {
+			return err
+		}
+		shutdownSent = true
+		return nil
+	})
+	if err != nil && !shutdownSent && ctx.Err() == nil {
+		registry.ResumeAfterFailedShutdown()
+	}
+	return err
 }
 
 func (app *application) rpcExtensionPath() (string, error) {
