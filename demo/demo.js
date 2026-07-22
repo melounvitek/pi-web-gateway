@@ -34,11 +34,10 @@
       ]
     },
     {
-      id: "unsupported", name: "What isn’t supported in Gripi?", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "9 minutes ago", pinned: false,
+      id: "unsupported", name: "Extension support in Gripi", project: "gripi", monogram: "GR", color: "#ff9b73", background: "#4a281f", age: "9 minutes ago", pinned: false,
       messages: [
-        { role: "user", text: "Does Gripi support everything an extension can do in Pi’s terminal UI?" },
-        { role: "assistant", text: "No. Standard tools, compatible custom tools, subagents, extension commands exposed through RPC, semantic extension dialogs, session data, images, compaction, and tree navigation work through Pi’s gateway runtime.\n\nGripi supports RPC-compatible extension UI such as select, confirm, input, editor, notify, status, title, and editor-prefill requests. It does not reproduce arbitrary terminal interfaces: Custom TUI components, overlays, widgets backed by terminal rendering, terminal-only editors, terminal keybindings, and custom TUI rendering are not currently supported." },
-        { role: "assistant", text: "Use Pi CLI directly for workflows that depend on custom terminal UI or explicitly require ctx.mode === “tui”. Gripi preserves the underlying Pi workflow, but it is not a browser implementation of every possible extension interface." }
+        { role: "user", text: "Which Pi extension features work in Gripi?" },
+        { role: "assistant", text: "Gripi supports standard tools, compatible custom tools, subagents, RPC extension commands, session data, images, compaction, tree navigation, and common extension prompts such as select, confirm, input, editor, notify, status, title, and editor prefill.\n\nGripi preserves the underlying Pi workflow, but it does not reproduce arbitrary terminal interfaces in the browser. Use Pi CLI for extensions that depend on custom TUI components, overlays, terminal-rendered widgets, terminal-only editors, terminal keybindings, custom TUI rendering, or `ctx.mode === \"tui\"`." }
       ]
     },
     {
@@ -536,8 +535,8 @@
     currentSession().messages.forEach((message) => element.history.append(messageArticle(message, false)));
     refreshFocusedActivity();
     requestAnimationFrame(() => {
-      element.scroll.scrollTop = element.scroll.scrollHeight;
-      lastScrollTop = element.scroll.scrollTop;
+      element.scroll.scrollTop = 0;
+      lastScrollTop = 0;
       autoScrollEnabled = true;
     });
   }
