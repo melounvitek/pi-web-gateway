@@ -110,7 +110,7 @@ func Load(environ []string) (Config, error) {
 		AttachmentsRoot:           valueOr(values, "GRIPI_ATTACHMENTS_ROOT", filepath.Join(home, ".pi", "gripi", "attachments")),
 		SessionCwdsPath:           valueOr(values, "GRIPI_SESSION_CWDS_PATH", filepath.Join(home, ".config", "gripi", "pinned-dirs")),
 		ReadStatePath:             valueOr(values, "GRIPI_READ_STATE_PATH", filepath.Join(home, ".pi", "gripi", "read-state.json")),
-		PinnedSessionsPath:        filepath.Join(home, ".pi", "gripi", "pinned-sessions.json"),
+		PinnedSessionsPath:        valueOr(values, "GRIPI_PINNED_SESSIONS_PATH", filepath.Join(home, ".pi", "gripi", "pinned-sessions.json")),
 		BrowserAccessPath:         valueOr(values, "GRIPI_BROWSER_ACCESS_PATH", filepath.Join(home, ".pi", "gripi", "browser-access.json")),
 		WorkspaceSecretPath:       valueOr(values, "GRIPI_WORKSPACE_SECRET_PATH", filepath.Join(home, ".pi", "gripi", "workspace-secret")),
 		WorkspaceAccessPath:       valueOr(values, "GRIPI_WORKSPACE_ACCESS_PATH", filepath.Join(home, ".pi", "gripi", "workspace-access.json")),

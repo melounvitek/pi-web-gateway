@@ -21,6 +21,7 @@ func TestLoadReadsGatewayEnvWithoutOverridingProcessEnvironment(t *testing.T) {
 		"GRIPI_ENV_PATH=" + envPath,
 		"GRIPI_ADMIN_PASSWORD=from-process",
 		"GRIPI_SESSIONS_ROOT=/from/process",
+		"GRIPI_PINNED_SESSIONS_PATH=/isolated/pinned.json",
 		"GRIPI_HOST=localhost",
 		"GRIPI_PORT=7654",
 	})
@@ -33,6 +34,9 @@ func TestLoadReadsGatewayEnvWithoutOverridingProcessEnvironment(t *testing.T) {
 	}
 	if cfg.SessionsRoot != "/from/process" {
 		t.Fatalf("SessionsRoot = %q", cfg.SessionsRoot)
+	}
+	if cfg.PinnedSessionsPath != "/isolated/pinned.json" {
+		t.Fatalf("PinnedSessionsPath = %q", cfg.PinnedSessionsPath)
 	}
 	if !cfg.MultiUserMode {
 		t.Fatal("MultiUserMode = false")
