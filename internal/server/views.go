@@ -34,6 +34,7 @@ var projectColors = [][2]string{
 }
 
 type projectIdentity struct{ Monogram, Background, Foreground string }
+type sidebarActivity struct{ Busy, Compacting bool }
 type sidebarSessionData struct {
 	View     *pageView
 	Session  *sessions.Session
@@ -98,8 +99,7 @@ type pageView struct {
 	SessionSyncError          string
 	SessionSyncBlocked        bool
 	SidebarMetadataDeferred   bool
-	BusySessions              map[string]bool
-	CompactingSessions        map[string]bool
+	SidebarActivity           map[string]sidebarActivity
 	LiveOutput                liveOutputData
 }
 
@@ -193,12 +193,20 @@ func (app *application) preparePage(request *http.Request, includeConversation b
 	}
 	markRead := request.URL.Path != "/sidebar" || params.Get("session") != ""
 	unread, pinned := app.gatewayState.ReadAndObserve(all, selected, markRead)
-	view := &pageView{Request: request, ServerOrigin: absoluteRedirectURL(request, "", app.config.TrustProxyHeaders), Params: params, Sessions: all, Selected: selected, SelectedProject: selectedProject, SearchQuery: strings.TrimSpace(params.Get("session_search")), Unread: unread, Pinned: pinned, SessionOnly: params.Get("session_only") == "1", GatewayInstanceID: app.instanceID, Home: app.config.Home, BrowserAccessEnabled: !app.config.BrowserAuthDisabled, WorkspaceAccessEnabled: app.config.MultiUserMode, ResourceMonitoringEnabled: app.config.ResourceMonitoringEnabled, SidebarMetadataDeferred: metadataDeferred, BusySessions: make(map[string]bool), CompactingSessions: make(map[string]bool)}
-	for _, session := range all {
-		view.BusySessions[session.Path] = app.rpcClients.Busy(session.Path)
-		view.CompactingSessions[session.Path] = app.rpcClients.Compacting(session.Path)
-	}
+	view := &pageView{Request: request, ServerOrigin: absoluteRedirectURL(request, "", app.config.TrustProxyHeaders), Params: params, Sessions: all, Selected: selected, SelectedProject: selectedProject, SearchQuery: strings.TrimSpace(params.Get("session_search")), Unread: unread, Pinned: pinned, SessionOnly: params.Get("session_only") == "1", GatewayInstanceID: app.instanceID, Home: app.config.Home, BrowserAccessEnabled: !app.config.BrowserAuthDisabled, WorkspaceAccessEnabled: app.config.MultiUserMode, ResourceMonitoringEnabled: app.config.ResourceMonitoringEnabled, SidebarMetadataDeferred: metadataDeferred, SidebarActivity: make(map[string]sidebarActivity)}
 	view.prepareSidebar()
+	renderedSessions := make([]*sessions.Session, 0, len(view.PinnedSessions)+len(view.SidebarSessions)+1)
+	renderedSessions = append(renderedSessions, view.PinnedSessions...)
+	renderedSessions = append(renderedSessions, view.SidebarSessions...)
+	if view.SeparateCurrent != nil {
+		renderedSessions = append(renderedSessions, view.SeparateCurrent)
+	}
+	for _, session := range renderedSessions {
+		activity := sidebarActivity{Busy: app.rpcClients.Busy(session.Path), Compacting: app.rpcClients.Compacting(session.Path)}
+		if activity.Busy || activity.Compacting {
+			view.SidebarActivity[session.Path] = activity
+		}
+	}
 	view.KnownCWDs = knownCWDs(all)
 	view.NewSessionCWDs = app.newSessionCWDs(view)
 	if includeConversation && selected != nil {
@@ -697,7 +705,7 @@ func sessionClasses(view *pageView, session *sessions.Session) string {
 	if view.Unread[session.Path] && (view.Selected == nil || view.Selected.Path != session.Path) {
 		values = append(values, "unread")
 	}
-	if view.CompactingSessions[session.Path] {
+	if view.SidebarActivity[session.Path].Compacting {
 		values = append(values, "compacting")
 	}
 	return strings.Join(values, " ")

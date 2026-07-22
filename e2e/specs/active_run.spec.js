@@ -66,7 +66,7 @@ test("mark a final reply read without a sidebar refresh", async ({ page }) => {
   await expect(sessionLink).not.toHaveClass(/unread/);
 });
 
-test("abort an active run", async ({ page }) => {
+test("show an active run in the sidebar and abort it", async ({ page }) => {
   await page.goto("/");
   await selectSession(page, sessions.controlsAbort);
   await sendPrompt(page, prompts.abortStart);

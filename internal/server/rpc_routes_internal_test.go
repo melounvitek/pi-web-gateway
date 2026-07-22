@@ -306,27 +306,27 @@ func TestSidebarRendersRPCActivityIndicators(t *testing.T) {
 				gatewayState:    sessions.NewGatewayState(filepath.Join(root, "read.json"), filepath.Join(root, "pinned.json")),
 				rpcClients:      registry,
 				pendingSessions: rpc.NewPendingSessionRegistry(nil),
+				heavyRequests:   make(chan struct{}, 1),
 			}
-			view, err := app.preparePage(httptest.NewRequest(http.MethodGet, "http://app.test/sidebar?session="+url.QueryEscape(path), nil), false)
-			if err != nil {
-				t.Fatal(err)
-			}
+			var err error
 			app.templates, err = template.New("").Funcs(templateFunctions(rendering.NewMarkdown())).ParseFS(templateFiles, "templates/*.html")
 			if err != nil {
 				t.Fatal(err)
 			}
-			var rendered strings.Builder
-			if err := app.templates.ExecuteTemplate(&rendered, "sidebar", view); err != nil {
-				t.Fatal(err)
+			response := httptest.NewRecorder()
+			app.sidebar(response, httptest.NewRequest(http.MethodGet, "http://app.test/sidebar?session="+url.QueryEscape(path), nil))
+			if response.Code != http.StatusOK {
+				t.Fatalf("sidebar status = %d: %s", response.Code, response.Body.String())
 			}
-			if test.expected != "" && !strings.Contains(rendered.String(), test.expected) {
-				t.Errorf("sidebar does not contain %q: %s", test.expected, rendered.String())
+			rendered := response.Body.String()
+			if test.expected != "" && !strings.Contains(rendered, test.expected) {
+				t.Errorf("sidebar does not contain %q: %s", test.expected, rendered)
 			}
-			if test.unexpected != "" && strings.Contains(rendered.String(), test.unexpected) {
-				t.Errorf("sidebar contains %q: %s", test.unexpected, rendered.String())
+			if test.unexpected != "" && strings.Contains(rendered, test.unexpected) {
+				t.Errorf("sidebar contains %q: %s", test.unexpected, rendered)
 			}
-			if test.expected == "" && (strings.Contains(rendered.String(), "session-running-indicator") || strings.Contains(rendered.String(), "session-compacting-indicator")) {
-				t.Errorf("idle sidebar contains an activity indicator: %s", rendered.String())
+			if test.expected == "" && (strings.Contains(rendered, "session-running-indicator") || strings.Contains(rendered, "session-compacting-indicator")) {
+				t.Errorf("idle sidebar contains an activity indicator: %s", rendered)
 			}
 		})
 	}
