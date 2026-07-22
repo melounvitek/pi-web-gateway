@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -76,14 +75,6 @@ func (app *application) prompt(response http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	if len(imageFiles) > 0 {
-		lock := app.imagePromptLock(path)
-		lock.Lock()
-		defer lock.Unlock()
-		if remapped, ok := app.pendingSessions.Resolve(path); ok {
-			path = remapped
-		}
-	}
 	if strings.TrimSpace(message) == "" && len(imageFiles) == 0 {
 		writeText(response, http.StatusBadRequest, "Message cannot be empty")
 		return
@@ -126,6 +117,16 @@ func (app *application) prompt(response http.ResponseWriter, request *http.Reque
 	if command.Type == "clone" {
 		app.branchFromAction(response, request, path, true, "")
 		return
+	}
+	if len(imageFiles) > 0 && command.Type == "" {
+		var unlock func()
+		var err error
+		path, unlock, err = app.lockResolvedImagePromptPath(request, path)
+		if err != nil {
+			http.Error(response, "Unable to remap pending session", http.StatusInternalServerError)
+			return
+		}
+		defer unlock()
 	}
 
 	submittedAt := time.Now()
@@ -216,8 +217,9 @@ func (app *application) prompt(response http.ResponseWriter, request *http.Reque
 			err = &sessions.SyncBlockedError{Mode: blocked.Mode, Message: app.synchronizer.Message(*blocked)}
 		} else {
 			queued := false
-			if remapped, exists := app.pendingSessions.Resolve(path); exists {
-				path = remapped
+			path, ok = app.resolveActionPendingPath(response, request, path)
+			if !ok {
+				return
 			}
 			err = app.rpcClients.WithActiveClient(request.Context(), path, true, func(client rpc.RPCClient) error {
 				actions, actionErr := checkedActionClient(client)
@@ -234,11 +236,11 @@ func (app *application) prompt(response http.ResponseWriter, request *http.Reque
 				return actionErr
 			})
 			if err == nil && !queued {
-				err = app.withSynchronizedClient(request.Context(), path, call)
+				err = app.withSynchronizedClient(request, path, call)
 			}
 		}
 	} else {
-		err = app.withSynchronizedClient(request.Context(), path, call)
+		err = app.withSynchronizedClient(request, path, call)
 	}
 	if errors.Is(err, errSteeringDuringCompaction) {
 		writeJSONStatus(response, http.StatusConflict, map[string]any{"error": "Steering is unavailable during compaction"})
@@ -309,7 +311,7 @@ func checkedActionClient(client rpc.RPCClient) (rpc.ActionClient, error) {
 
 func (app *application) runBash(response http.ResponseWriter, request *http.Request, path, command string, excluded bool) {
 	var result map[string]any
-	err := app.withSynchronizedBashClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedBashClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -349,7 +351,7 @@ func (app *application) abortSession(response http.ResponseWriter, request *http
 	if !ok {
 		return
 	}
-	if !app.knownOrPendingSession(requested) {
+	if !app.knownOrPendingSession(request, requested) {
 		http.NotFound(response, request)
 		return
 	}
@@ -375,14 +377,14 @@ func (app *application) abortSession(response http.ResponseWriter, request *http
 	}
 	err = nil
 	if app.rpcClients.Active(requested) {
-		err = app.withSynchronizedInterruptClient(request.Context(), requested, abortClient)
+		err = app.withSynchronizedInterruptClient(request, requested, abortClient)
 	} else {
 		var matched string
-		matched, err = app.abortMatchingPending(request.Context(), requested, abortClient)
+		matched, err = app.abortMatchingPending(request, requested, abortClient)
 		if matched != "" {
 			path = matched
 		} else if err == nil {
-			err = app.withSynchronizedInterruptClient(request.Context(), requested, abortClient)
+			err = app.withSynchronizedInterruptClient(request, requested, abortClient)
 		}
 	}
 	result, err = rpc.StopResultFor(err)
@@ -416,7 +418,7 @@ func (app *application) compactSession(response http.ResponseWriter, request *ht
 		return
 	}
 	var result map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -438,7 +440,7 @@ func (app *application) modelSettings(response http.ResponseWriter, request *htt
 		return
 	}
 	var stateResponse, modelsResponse map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -492,7 +494,7 @@ func (app *application) setModelSettings(response http.ResponseWriter, request *
 		return
 	}
 	var stateResponse map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -539,7 +541,7 @@ func (app *application) cycleThinking(response http.ResponseWriter, request *htt
 		return
 	}
 	var result map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -581,7 +583,7 @@ func (app *application) newSession(response http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	if !app.knownOrPendingSession(path) {
+	if !app.knownOrPendingSession(request, path) {
 		http.NotFound(response, request)
 		return
 	}
@@ -677,7 +679,7 @@ func (app *application) forkMessages(response http.ResponseWriter, request *http
 		return
 	}
 	var result map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -707,7 +709,7 @@ func (app *application) treeEntries(response http.ResponseWriter, request *http.
 		return
 	}
 	var result map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -773,7 +775,7 @@ func (app *application) navigateTree(response http.ResponseWriter, request *http
 		return
 	}
 	var result map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -828,7 +830,7 @@ func (app *application) setTreeLabel(response http.ResponseWriter, request *http
 		return
 	}
 	var result map[string]any
-	err := app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err := app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
 		if err != nil {
 			return err
@@ -918,8 +920,9 @@ func (app *application) extensionUIResponse(response http.ResponseWriter, reques
 	}
 	var result map[string]any
 	called := false
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
+	path, ok = app.resolveActionPendingPath(response, request, path)
+	if !ok {
+		return
 	}
 	err := app.rpcClients.WithExistingClient(request.Context(), path, true, func(client rpc.RPCClient) error {
 		actions, err := checkedActionClient(client)
@@ -953,8 +956,9 @@ func (app *application) takeOverSession(response http.ResponseWriter, request *h
 	if !ok {
 		return
 	}
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
+	path, ok = app.resolveActionPendingPath(response, request, path)
+	if !ok {
+		return
 	}
 	state, err := app.synchronizer.TakeOver(request.Context(), path)
 	if err != nil {
@@ -972,12 +976,13 @@ func (app *application) takeOverSession(response http.ResponseWriter, request *h
 }
 
 func (app *application) branchFromAction(response http.ResponseWriter, request *http.Request, previous string, clone bool, entryID string) {
-	lock := app.imagePromptLock(previous)
-	lock.Lock()
-	defer lock.Unlock()
-	if remapped, ok := app.pendingSessions.Resolve(previous); ok {
-		previous = remapped
+	resolved, unlock, err := app.lockResolvedImagePromptPath(request, previous)
+	if err != nil {
+		http.Error(response, "Unable to remap pending session", http.StatusInternalServerError)
+		return
 	}
+	defer unlock()
+	previous = resolved
 	cwd := app.currentSessionCWD(previous)
 	_, wasPending := app.pendingSessions.CWD(previous)
 	var mover rpc.SessionClientMover = app.rpcClients
@@ -999,10 +1004,11 @@ func (app *application) branchFromAction(response http.ResponseWriter, request *
 		}
 		claimed := false
 		if app.claimSession != nil {
-			if err := app.claimSession(request, to); err != nil {
+			var err error
+			claimed, err = app.claimSession(request, to)
+			if err != nil {
 				return nil, err
 			}
-			claimed = true
 		}
 		var attachmentRollback func() error
 		if wasPending {
@@ -1067,10 +1073,14 @@ func (app *application) startNewSession(request *http.Request, cwd string) (stri
 		if app.claimSession == nil {
 			return nil, nil
 		}
-		if err := app.claimSession(request, path); err != nil {
+		claimed, err := app.claimSession(request, path)
+		if err != nil {
 			return nil, err
 		}
 		return func() error {
+			if !claimed {
+				return nil
+			}
 			if app.releaseSession == nil {
 				return nil
 			}
@@ -1102,9 +1112,6 @@ func (app *application) actionSessionPath(response http.ResponseWriter, request 
 		http.Error(response, "Unable to remap pending session", http.StatusInternalServerError)
 		return "", false
 	}
-	if remapped, ok := app.pendingSessions.Resolve(canonical); ok {
-		canonical = remapped
-	}
 	available := !requireAvailable || app.commandSessionAvailable(canonical)
 	if !available {
 		http.NotFound(response, request)
@@ -1125,13 +1132,24 @@ func (app *application) requireOwnedSession(response http.ResponseWriter, reques
 	return path, true
 }
 
-func (app *application) knownOrPendingSession(path string) bool {
+func (app *application) resolveActionPendingPath(response http.ResponseWriter, request *http.Request, path string) (string, bool) {
+	resolved, _, err := app.resolveOwnedPendingPath(request, path)
+	if err != nil {
+		http.Error(response, "Unable to remap pending session", http.StatusInternalServerError)
+		return "", false
+	}
+	return resolved, true
+}
+
+func (app *application) knownOrPendingSession(request *http.Request, path string) bool {
 	if _, ok := app.pendingSessions.CWD(path); ok {
 		return true
 	}
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
+	resolved, _, err := app.resolveOwnedPendingPath(request, path)
+	if err != nil {
+		return false
 	}
+	path = resolved
 	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
 	_, ok := store.Session(path)
 	return ok
@@ -1148,27 +1166,34 @@ func (app *application) currentSessionCWD(path string) string {
 	return filepath.Dir(path)
 }
 
-func (app *application) withSynchronizedBashClient(ctx context.Context, path string, call func(rpc.RPCClient) error) error {
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
+func (app *application) withSynchronizedBashClient(request *http.Request, path string, call func(rpc.RPCClient) error) error {
+	resolved, _, err := app.resolveOwnedPendingPath(request, path)
+	if err != nil {
+		return err
 	}
+	path = resolved
+	ctx := request.Context()
 	if _, err := os.Stat(path); err == nil {
 		return app.synchronizer.WithBashClient(ctx, path, call)
 	}
 	return app.rpcClients.WithBashClient(ctx, path, call)
 }
 
-func (app *application) withSynchronizedInterruptClient(ctx context.Context, path string, call func(rpc.RPCClient) error) error {
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
+func (app *application) withSynchronizedInterruptClient(request *http.Request, path string, call func(rpc.RPCClient) error) error {
+	resolved, _, err := app.resolveOwnedPendingPath(request, path)
+	if err != nil {
+		return err
 	}
+	path = resolved
+	ctx := request.Context()
 	if _, err := os.Stat(path); err == nil {
 		return app.synchronizer.WithInterruptClient(ctx, path, call)
 	}
 	return app.rpcClients.WithInterruptClient(ctx, path, call)
 }
 
-func (app *application) abortMatchingPending(ctx context.Context, requested string, abort func(rpc.RPCClient) error) (string, error) {
+func (app *application) abortMatchingPending(request *http.Request, requested string, abort func(rpc.RPCClient) error) (string, error) {
+	ctx := request.Context()
 	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
 	session, known := store.Session(requested)
 	if !known {
@@ -1176,6 +1201,9 @@ func (app *application) abortMatchingPending(ctx context.Context, requested stri
 	}
 	unavailable := false
 	for _, pending := range app.pendingSessions.Entries() {
+		if app.ownsSession != nil && !app.ownsSession(request, pending.Path) {
+			continue
+		}
 		if pending.CWD != session.CWD {
 			continue
 		}

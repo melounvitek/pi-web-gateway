@@ -28,18 +28,19 @@ type clientEntry struct {
 }
 
 type Registry struct {
-	factory      func(string) (RPCClient, error)
-	clock        func() time.Time
-	diagnostics  *Diagnostics
-	mu           sync.Mutex
-	clients      map[string]*clientEntry
-	creating     map[string]uint64
-	nextCreation uint64
-	closed       bool
-	factoryWG    sync.WaitGroup
-	moveWG       sync.WaitGroup
-	shutdownDone chan struct{}
-	shutdownErr  error
+	factory          func(string) (RPCClient, error)
+	clock            func() time.Time
+	diagnostics      *Diagnostics
+	mu               sync.Mutex
+	clients          map[string]*clientEntry
+	creating         map[string]uint64
+	nextCreation     uint64
+	closed           bool
+	factoryWG        sync.WaitGroup
+	moveWG           sync.WaitGroup
+	shutdownDone     chan struct{}
+	shutdownErr      error
+	resumeOnShutdown bool
 }
 
 func NewRegistry(factory func(string) (RPCClient, error), clock func() time.Time) *Registry {
@@ -609,6 +610,63 @@ func (registry *Registry) CloseAll() error {
 		}
 	}
 	return first
+}
+
+func (registry *Registry) DrainIfIdle() bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	registry.resumeOnShutdown = false
+	if registry.closed {
+		return true
+	}
+	if len(registry.creating) > 0 {
+		return false
+	}
+	for _, entry := range registry.clients {
+		if entry.activeRequests > 0 || entry.client.Busy() {
+			return false
+		}
+	}
+	registry.closed = true
+	return true
+}
+
+func (registry *Registry) ResumeAfterFailedShutdown() bool {
+	registry.mu.Lock()
+	if !registry.closed {
+		registry.mu.Unlock()
+		return true
+	}
+	done := registry.shutdownDone
+	if done != nil {
+		select {
+		case <-done:
+		default:
+			registry.resumeOnShutdown = true
+			registry.mu.Unlock()
+			go registry.resumeWhenShutdownFinishes(done)
+			return false
+		}
+	}
+	registry.resumeLocked()
+	registry.mu.Unlock()
+	return true
+}
+
+func (registry *Registry) resumeWhenShutdownFinishes(done chan struct{}) {
+	<-done
+	registry.mu.Lock()
+	if registry.shutdownDone == done && registry.resumeOnShutdown {
+		registry.resumeLocked()
+	}
+	registry.mu.Unlock()
+}
+
+func (registry *Registry) resumeLocked() {
+	registry.closed = false
+	registry.shutdownDone = nil
+	registry.shutdownErr = nil
+	registry.resumeOnShutdown = false
 }
 
 func (registry *Registry) Shutdown(ctx context.Context) error {

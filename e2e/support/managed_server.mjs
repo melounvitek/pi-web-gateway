@@ -34,7 +34,7 @@ let serverLogClosed = false;
 const serverEnv = {
   ...process.env,
   HOME: fixture.home,
-  RACK_ENV: "development",
+  APP_ENV: "development",
   GRIPI_E2E_REAL_PI: realPi ? "1" : "",
   GRIPI_ADMIN_PASSWORD: ADMIN_PASSWORD,
   GRIPI_BROWSER_AUTH_DISABLED: realPi ? "1" : "",
@@ -43,6 +43,7 @@ const serverEnv = {
   GRIPI_RESOURCE_MONITORING: "1",
   GRIPI_ENV_PATH: path.join(runtimeRoot, "missing-env"),
   GRIPI_BIND_HOST: "127.0.0.1",
+  GRIPI_PORT: String(port),
   GRIPI_SESSIONS_ROOT: fixture.sessionsRoot,
   GRIPI_ATTACHMENTS_ROOT: fixture.attachmentsRoot,
   GRIPI_SESSION_CWDS_PATH: fixture.configuredCwdsPath,
@@ -63,7 +64,14 @@ const serverEnv = {
   } : {})
 };
 
-const server = spawn("bundle", ["exec", "rackup", "-o", "127.0.0.1", "-p", String(port)], {
+const serverBinary = path.join(runtimeRoot, process.platform === "win32" ? "gripi-e2e.exe" : "gripi-e2e");
+const build = spawn("mise", ["exec", "--", "go", "build", "-o", serverBinary, "./cmd/gripi"], {
+  cwd: repoRoot,
+  env: process.env,
+  stdio: ["ignore", serverLog, serverLog]
+});
+if (await childExitCode(build) !== 0) throw new Error(`Could not build managed Go gateway; see ${serverLogPath}`);
+const server = spawn(serverBinary, [], {
   cwd: repoRoot,
   env: serverEnv,
   detached: process.platform !== "win32",

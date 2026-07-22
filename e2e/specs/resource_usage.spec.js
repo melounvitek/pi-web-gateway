@@ -19,6 +19,6 @@ test("shows systemctl cgroup memory with inactive file cache context", async ({ 
   const usage = page.locator("[data-resource-usage]");
   await expect(usage).toBeVisible();
   await expect(usage.locator("[data-resource-usage-total]")).toContainText("RAM 2 GB");
-  await expect(usage.locator("[data-resource-usage-breakdown]")).toHaveText("Puma 1.25 GB · Pi 358 MB (2) · inactive file cache 512 MB");
+  await expect(usage.locator("[data-resource-usage-breakdown]")).toHaveText("Gateway 1.25 GB · Pi 358 MB (2) · inactive file cache 512 MB");
   await expect(usage).toHaveAttribute("title", /Raw cgroup memory matching systemctl/);
 });

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -98,6 +99,35 @@ func TestCanonicalRPCSessionPathFinalizesPendingSessionAtSamePath(t *testing.T) 
 	}
 }
 
+func TestCanonicalRPCSessionPathDoesNotInspectAnotherWorkspacePendingClient(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	if err := os.Mkdir(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "target.jsonl")
+	writeSessionRecords(t, target, []map[string]any{{"type": "session", "version": 3, "id": "target", "cwd": project}})
+	pendingPath := filepath.Join(root, "other-pending.jsonl")
+	client := &remapClient{state: map[string]any{"success": true, "data": map[string]any{"sessionFile": target}}}
+	registry := rpc.NewRegistry(func(string) (rpc.RPCClient, error) { return nil, os.ErrNotExist }, nil)
+	if err := registry.Register(pendingPath, client); err != nil {
+		t.Fatal(err)
+	}
+	pending := rpc.NewPendingSessionRegistry(nil)
+	pending.Remember(pendingPath, project)
+	app := &application{config: config.Config{SessionsRoot: root}, sessionCache: sessions.NewCache(), rpcClients: registry, pendingSessions: pending,
+		ownsSession: func(_ *http.Request, path string) bool { return path == target },
+	}
+
+	result, err := app.canonicalRPCSessionPath(httptest.NewRequest(http.MethodGet, "http://app.test/", nil), target)
+	if err != nil || result != target {
+		t.Fatalf("result = %q, %v", result, err)
+	}
+	if calls := client.getStateCalls.Load(); calls != 0 {
+		t.Fatalf("unowned client GetState calls = %d", calls)
+	}
+}
+
 func TestPreparePageCanonicalizesSelectedPendingSessionBeforeBuildingView(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
@@ -128,6 +158,38 @@ func TestPreparePageCanonicalizesSelectedPendingSessionBeforeBuildingView(t *tes
 	}
 }
 
+func TestImagePromptLockFollowsRemapChainAndBlocksTheFinalPath(t *testing.T) {
+	registry := rpc.NewRegistry(func(string) (rpc.RPCClient, error) { return nil, os.ErrNotExist }, nil)
+	if err := registry.Register("/intermediate", &remapClient{}); err != nil {
+		t.Fatal(err)
+	}
+	pending := rpc.NewPendingSessionRegistry(nil)
+	pending.Remap("/pending", "/intermediate")
+	pending.Remember("/intermediate", "/project")
+	app := &application{config: config.Config{AttachmentsRoot: t.TempDir()}, rpcClients: registry, pendingSessions: pending}
+	request := httptest.NewRequest(http.MethodGet, "http://app.test/", nil)
+	path, unlock, err := app.lockResolvedImagePromptPath(request, "/pending")
+	if err != nil || path != "/intermediate" {
+		t.Fatalf("locked path = %q, %v", path, err)
+	}
+	moved := make(chan error, 1)
+	go func() { moved <- app.movePendingRPCClient(request, "/intermediate", "/real") }()
+	select {
+	case err := <-moved:
+		t.Fatalf("final remap bypassed image lock: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-moved:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("remap did not continue after image lock released")
+	}
+}
+
 func TestPendingRemapVerifiesSourceOwnershipAndClaimsDestination(t *testing.T) {
 	client := &remapClient{}
 	registry := rpc.NewRegistry(func(string) (rpc.RPCClient, error) { return nil, os.ErrNotExist }, nil)
@@ -140,7 +202,7 @@ func TestPendingRemapVerifiesSourceOwnershipAndClaimsDestination(t *testing.T) {
 	claimed := ""
 	app := &application{config: config.Config{AttachmentsRoot: t.TempDir()}, rpcClients: registry, pendingSessions: pending,
 		ownsSession:  func(_ *http.Request, path string) bool { return path == "/pending" },
-		claimSession: func(_ *http.Request, path string) error { claimed = path; return nil },
+		claimSession: func(_ *http.Request, path string) (bool, error) { claimed = path; return true, nil },
 	}
 	if err := app.movePendingRPCClient(request, "/pending", "/real"); err != nil {
 		t.Fatal(err)
@@ -162,6 +224,29 @@ func TestPendingRemapVerifiesSourceOwnershipAndClaimsDestination(t *testing.T) {
 	}
 	if !other.Active("/other-pending") || other.Active("/other-real") {
 		t.Fatal("rejected ownership changed clients")
+	}
+}
+
+func TestCompletedPendingRemapRequiresEveryDestinationOwnership(t *testing.T) {
+	pending := rpc.NewPendingSessionRegistry(nil)
+	pending.Remap("/pending", "/intermediate")
+	pending.Remap("/intermediate", "/real")
+	app := &application{pendingSessions: pending, ownsSession: func(_ *http.Request, path string) bool { return path == "/pending" || path == "/intermediate" }}
+	request := httptest.NewRequest(http.MethodGet, "http://app.test/", nil)
+
+	if _, err := app.canonicalRPCSessionPath(request, "/pending"); err == nil {
+		t.Fatal("remap to another workspace was authorized")
+	}
+	response := httptest.NewRecorder()
+	app.events(response, httptest.NewRequest(http.MethodGet, "http://app.test/events?session=/pending", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("chained event remap = %d %s", response.Code, response.Body.String())
+	}
+	app.ownsSession = func(_ *http.Request, path string) bool {
+		return path == "/pending" || path == "/intermediate" || path == "/real"
+	}
+	if path, err := app.canonicalRPCSessionPath(request, "/pending"); err != nil || path != "/real" {
+		t.Fatalf("owned remap = %q, %v", path, err)
 	}
 }
 
@@ -535,7 +620,7 @@ func TestPendingClientMoveRollsBackWhenAttachmentMigrationFails(t *testing.T) {
 	}
 	released := ""
 	app := &application{config: config.Config{AttachmentsRoot: root}, rpcClients: registry, pendingSessions: pending,
-		claimSession:   func(*http.Request, string) error { return nil },
+		claimSession:   func(*http.Request, string) (bool, error) { return true, nil },
 		releaseSession: func(_ *http.Request, path string) error { released = path; return nil },
 	}
 	if err := app.movePendingRPCClient(httptest.NewRequest(http.MethodGet, "http://app.test/", nil), from, to); err == nil {
@@ -549,6 +634,15 @@ func TestPendingClientMoveRollsBackWhenAttachmentMigrationFails(t *testing.T) {
 	}
 	if released != to {
 		t.Fatalf("released ownership = %q", released)
+	}
+
+	released = ""
+	app.claimSession = func(*http.Request, string) (bool, error) { return false, nil }
+	if err := app.movePendingRPCClient(httptest.NewRequest(http.MethodGet, "http://app.test/", nil), from, to); err == nil {
+		t.Fatal("attachment migration unexpectedly succeeded for an existing claim")
+	}
+	if released != "" {
+		t.Fatalf("pre-existing ownership was released: %q", released)
 	}
 }
 
@@ -600,9 +694,10 @@ func (client *followUpRaceClient) Abort(context.Context) (map[string]any, error)
 }
 
 type remapClient struct {
-	state    map[string]any
-	position rpc.SessionEntries
-	live     rpc.LiveSnapshot
+	state         map[string]any
+	position      rpc.SessionEntries
+	live          rpc.LiveSnapshot
+	getStateCalls atomic.Int32
 }
 
 func (client *remapClient) Close() error             { return nil }
@@ -623,6 +718,7 @@ func (client *remapClient) LiveSnapshot() rpc.LiveSnapshot {
 	return client.live
 }
 func (client *remapClient) GetState(context.Context) (map[string]any, error) {
+	client.getStateCalls.Add(1)
 	return client.state, nil
 }
 func (client *remapClient) GetSessionStats(context.Context) (map[string]any, error) { return nil, nil }

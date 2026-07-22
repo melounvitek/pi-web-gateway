@@ -10,7 +10,11 @@ On Linux, run the seeded gateway workload with:
 mise run benchmark-ruby
 ```
 
-The equivalent Go command will be exposed once `/` and `/sidebar` have been ported; accepting placeholder 404 responses would produce a misleading comparison.
+Run the equivalent Go workload with:
+
+```sh
+mise run benchmark-go
+```
 
 The benchmark creates an isolated E2E home and session fixture, starts the gateway in production mode on a free loopback port, warms `/` and `/sidebar`, measures 100 requests, samples the complete gateway process tree through `/proc`, and removes the fixture. It does not use or restart `gripi.service` and does not start real Pi.
 

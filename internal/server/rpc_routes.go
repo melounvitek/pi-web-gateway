@@ -29,9 +29,6 @@ func (app *application) events(response http.ResponseWriter, request *http.Reque
 		http.NotFound(response, request)
 		return
 	}
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
-	}
 	after, _ := strconv.ParseInt(request.URL.Query().Get("after"), 10, 64)
 	batch := app.rpcClients.EventsAfter(path, after)
 	payload := map[string]any{"events": batch.Events, "last_seq": batch.LastSeq, "missed": batch.Missed}
@@ -59,9 +56,6 @@ func (app *application) liveSessionStatus(response http.ResponseWriter, request 
 	if path == "" {
 		http.NotFound(response, request)
 		return
-	}
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
 	}
 	live := app.readLiveStatus(request.Context(), path)
 	var status sessions.Status
@@ -107,7 +101,7 @@ func (app *application) commands(response http.ResponseWriter, request *http.Req
 	}
 	app.rpcDiagnostics.Log("request_operation", map[string]any{"path": request.URL.Path, "session": path, "lane": "operation"})
 	var rpcResponse map[string]any
-	err = app.withSynchronizedClient(request.Context(), path, func(client rpc.RPCClient) error {
+	err = app.withSynchronizedClient(request, path, func(client rpc.RPCClient) error {
 		var requestErr error
 		rpcResponse, requestErr = client.GetCommands(request.Context())
 		return requestErr
@@ -219,10 +213,13 @@ func applyLiveStatus(status *sessions.Status, live *liveStatus) {
 	}
 }
 
-func (app *application) withSynchronizedClient(ctx context.Context, path string, call func(rpc.RPCClient) error) error {
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		path = remapped
+func (app *application) withSynchronizedClient(request *http.Request, path string, call func(rpc.RPCClient) error) error {
+	resolved, _, err := app.resolveOwnedPendingPath(request, path)
+	if err != nil {
+		return err
 	}
+	path = resolved
+	ctx := request.Context()
 	if _, err := os.Stat(path); err == nil {
 		return app.synchronizer.WithMutableClient(ctx, path, call)
 	}
@@ -261,9 +258,6 @@ func (app *application) canonicalCommandSessionPath(request *http.Request, path 
 	if err != nil {
 		return "", err
 	}
-	if remapped, ok := app.pendingSessions.Resolve(canonical); ok {
-		canonical = remapped
-	}
 	available := app.commandSessionAvailable(canonical)
 	if !available {
 		return "", nil
@@ -285,11 +279,10 @@ func (app *application) commandSessionAvailable(path string) bool {
 
 func (app *application) canonicalRPCSessionPath(request *http.Request, path string) (string, error) {
 	ctx := request.Context()
-	if remapped, ok := app.pendingSessions.Resolve(path); ok {
-		if app.ownsSession != nil && !app.ownsSession(request, path) {
-			return path, errors.New("pending session is not owned by the requester")
-		}
-		return remapped, nil
+	if resolved, remapped, err := app.resolveOwnedPendingPath(request, path); err != nil {
+		return path, err
+	} else if remapped {
+		return resolved, nil
 	}
 	if cwd, ok := app.pendingSessions.CWD(path); ok && app.rpcClients.Active(path) {
 		var state map[string]any
@@ -301,7 +294,8 @@ func (app *application) canonicalRPCSessionPath(request *http.Request, path stri
 					if err := app.movePendingRPCClient(request, path, real); err != nil {
 						return path, err
 					}
-					return real, nil
+					resolved, _, err := app.resolveOwnedPendingPath(request, path)
+					return resolved, err
 				}
 			}
 		}
@@ -316,6 +310,9 @@ func (app *application) canonicalRPCSessionPath(request *http.Request, path stri
 		return path, nil
 	}
 	for _, pending := range app.pendingSessions.Entries() {
+		if app.ownsSession != nil && !app.ownsSession(request, pending.Path) {
+			continue
+		}
 		if pending.CWD != session.CWD || !app.rpcClients.Active(pending.Path) {
 			continue
 		}
@@ -332,7 +329,50 @@ func (app *application) canonicalRPCSessionPath(request *http.Request, path stri
 			break
 		}
 	}
-	return path, nil
+	resolved, _, err := app.resolveOwnedPendingPath(request, path)
+	return resolved, err
+}
+
+func (app *application) resolveOwnedPendingPath(request *http.Request, path string) (string, bool, error) {
+	current := path
+	seen := make(map[string]bool)
+	for range 256 {
+		next, remapped := app.pendingSessions.Resolve(current)
+		if !remapped {
+			return current, current != path, nil
+		}
+		if seen[current] || seen[next] {
+			return path, false, errors.New("pending session remap cycle")
+		}
+		if app.ownsSession != nil && (!app.ownsSession(request, current) || !app.ownsSession(request, next)) {
+			return path, false, errors.New("pending session remap is not owned by the requester")
+		}
+		seen[current] = true
+		current = next
+	}
+	return path, false, errors.New("pending session remap chain is too long")
+}
+
+func (app *application) lockResolvedImagePromptPath(request *http.Request, path string) (string, func(), error) {
+	for range 256 {
+		resolved, _, err := app.resolveOwnedPendingPath(request, path)
+		if err != nil {
+			return "", nil, err
+		}
+		lock := app.imagePromptLock(resolved)
+		lock.Lock()
+		latest, _, err := app.resolveOwnedPendingPath(request, resolved)
+		if err != nil {
+			lock.Unlock()
+			return "", nil, err
+		}
+		if latest == resolved {
+			return resolved, lock.Unlock, nil
+		}
+		lock.Unlock()
+		path = latest
+	}
+	return "", nil, errors.New("pending session changed too many times")
 }
 
 func (app *application) movePendingRPCClient(request *http.Request, from, to string) error {
@@ -346,7 +386,7 @@ func (app *application) movePendingRPCClient(request *http.Request, from, to str
 	}
 	if from == to {
 		if app.claimSession != nil {
-			if err := app.claimSession(request, to); err != nil {
+			if _, err := app.claimSession(request, to); err != nil {
 				return err
 			}
 		}
@@ -356,10 +396,11 @@ func (app *application) movePendingRPCClient(request *http.Request, from, to str
 	return app.rpcClients.MoveWithCommit(from, to, func() (func() error, error) {
 		claimed := false
 		if app.claimSession != nil {
-			if err := app.claimSession(request, to); err != nil {
+			var err error
+			claimed, err = app.claimSession(request, to)
+			if err != nil {
 				return nil, err
 			}
-			claimed = true
 		}
 		attachmentRollback, err := (sessions.AttachmentStore{Root: app.config.AttachmentsRoot}).Migrate(from, to)
 		if err != nil {

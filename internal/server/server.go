@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"embed"
+	"flag"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -16,8 +17,10 @@ import (
 	"github.com/melounvitek/gripi/internal/access"
 	"github.com/melounvitek/gripi/internal/config"
 	"github.com/melounvitek/gripi/internal/rendering"
+	"github.com/melounvitek/gripi/internal/resource"
 	"github.com/melounvitek/gripi/internal/rpc"
 	"github.com/melounvitek/gripi/internal/sessions"
+	"github.com/melounvitek/gripi/internal/update"
 )
 
 //go:embed templates/*.html
@@ -28,6 +31,9 @@ type application struct {
 	files              fs.FS
 	templates          *template.Template
 	browserStore       *access.BrowserStore
+	workspaceStore     *access.WorkspaceStore
+	ownershipStore     *access.WorkspaceOwnershipStore
+	workspaceSecret    string
 	accessLimiter      *access.RateLimiter
 	adminLimiter       *access.RateLimiter
 	newBrowserToken    func() (string, error)
@@ -48,11 +54,13 @@ type application struct {
 	imagePromptLocks   sync.Map
 	synchronizer       *sessions.Synchronizer
 	rpcMaintenance     *rpc.Maintenance
+	resourceMonitor    resourceMonitor
+	updateCoordinator  updateCoordinator
 	extensionMu        sync.Mutex
 	extensionPath      string
 	extensionRoot      string
 	ownsSession        func(*http.Request, string) bool
-	claimSession       func(*http.Request, string) error
+	claimSession       func(*http.Request, string) (bool, error)
 	releaseSession     func(*http.Request, string) error
 }
 
@@ -118,12 +126,22 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 	if err != nil {
 		return nil, fmt.Errorf("generate gateway instance ID: %w", err)
 	}
+	workspaceSecret := ""
+	if cfg.MultiUserMode {
+		workspaceSecret, err = access.NewWorkspaceSecretStore(cfg.WorkspaceSecretPath).Secret()
+		if err != nil {
+			return nil, fmt.Errorf("load workspace secret: %w", err)
+		}
+	}
 
 	app := &application{
 		config:             cfg,
 		files:              files,
 		templates:          templates,
 		browserStore:       access.NewBrowserStore(cfg.BrowserAccessPath),
+		workspaceStore:     access.NewWorkspaceStore(cfg.WorkspaceAccessPath),
+		ownershipStore:     access.NewWorkspaceOwnershipStore(cfg.WorkspaceOwnershipPath),
+		workspaceSecret:    workspaceSecret,
 		accessLimiter:      access.NewRateLimiter(30, time.Minute),
 		adminLimiter:       access.NewRateLimiter(10, 5*time.Minute),
 		newBrowserToken:    newBrowserToken,
@@ -154,6 +172,52 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 		return rpc.StartInCWD(cwd, cfg.PiCommand, extensionPath, diagnostics)
 	}
 	app.synchronizer = sessions.NewSynchronizer(cfg.SessionsRoot, cfg.Home, app.sessionCache, app.rpcClients)
+	if cfg.MultiUserMode {
+		app.ownsSession = func(request *http.Request, path string) bool {
+			owned, err := app.ownershipStore.OwnedBy(path, currentWorkspaceID(request))
+			return err == nil && owned
+		}
+		app.claimSession = func(request *http.Request, path string) (bool, error) {
+			return app.ownershipStore.Claim(path, currentWorkspaceID(request))
+		}
+		app.releaseSession = func(request *http.Request, path string) error {
+			return app.ownershipStore.Release(path, currentWorkspaceID(request))
+		}
+	}
+	app.resourceMonitor = resource.NewMonitor()
+	directory, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("find gateway working directory: %w", err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("find gateway executable: %w", err)
+	}
+	checkout, err := update.DiscoverCheckout(executable, directory, !cfg.Production || flag.Lookup("test.v") != nil)
+	if err != nil {
+		return nil, fmt.Errorf("find gateway checkout: %w", err)
+	}
+	updater := update.NewUpdater(checkout)
+	updater.AdmitCutover = app.rpcClients.DrainIfIdle
+	updater.ResumeCutover = func() { app.rpcClients.ResumeAfterFailedShutdown() }
+	app.updateCoordinator = update.NewCoordinator(updater, func() error {
+		shutdownSent := false
+		err := update.RequestRestart(cfg.RestartPath, app.rpcClients, func() error {
+			process, err := os.FindProcess(os.Getpid())
+			if err != nil {
+				return err
+			}
+			if err := process.Signal(os.Interrupt); err != nil {
+				return err
+			}
+			shutdownSent = true
+			return nil
+		})
+		if err != nil && !shutdownSent {
+			app.rpcClients.ResumeAfterFailedShutdown()
+		}
+		return err
+	}, app.rpcClients.BusySessionCount, app.rpcClients.DrainIfIdle)
 	if cfg.RPCIdleTimeout > 0 && cfg.RPCIdleSweep > 0 {
 		app.rpcMaintenance, _ = rpc.NewMaintenance(cfg.RPCIdleSweep, app.cleanupIdleRPCClients, rpc.LogMaintenanceError(os.Stderr))
 		app.rpcMaintenance.Start(context.Background())
@@ -163,14 +227,14 @@ func newHandler(cfg config.Config, files fs.FS, newBrowserToken func() (string, 
 	mux.Handle("GET /assets/", noCache(assets))
 	mux.Handle("GET /apple-touch-icon.png", noCache(assets))
 	app.registerBrowserAccessRoutes(mux)
+	app.registerWorkspaceRoutes(mux)
 	app.registerPWARoutes(mux)
+	app.registerOperationalRoutes(mux)
 	app.registerSessionRoutes(mux)
 	app.registerActionRoutes(mux)
 
 	var handler http.Handler = mux
-	if cfg.MultiUserMode {
-		handler = failClosedMultiUserRoutes(handler)
-	}
+	handler = app.enforceWorkspaceAccess(handler)
 	handler = app.enforceBrowserAccess(handler)
 	handler = app.protectUnsafeRequestOrigin(handler)
 	handler = app.enforceSecureRemoteTransport(handler)
@@ -216,23 +280,6 @@ func filesOnly(root fs.FS, next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(response, request)
-	})
-}
-
-func failClosedMultiUserRoutes(next http.Handler) http.Handler {
-	staticPaths := map[string]bool{
-		"/apple-touch-icon.png":  true,
-		"/manifest.webmanifest":  true,
-		"/app-icon.svg":          true,
-		"/app-icon-maskable.svg": true,
-		"/service-worker.js":     true,
-	}
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if strings.HasPrefix(request.URL.Path, "/assets/") || staticPaths[request.URL.Path] {
-			next.ServeHTTP(response, request)
-			return
-		}
-		writeText(response, http.StatusServiceUnavailable, "Multi-user access is unavailable until ownership support is enabled")
 	})
 }
 

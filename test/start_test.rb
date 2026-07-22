@@ -6,11 +6,13 @@ require "tmpdir"
 class StartTest < Minitest::Test
   def setup
     @tmpdir = Dir.mktmpdir
-    @bin_dir = File.join(@tmpdir, "bin")
-    @launcher = File.join(@tmpdir, "start")
-    @calls_path = File.join(@tmpdir, "bundle-calls")
+    @bin_dir = File.join(@tmpdir, "fake-bin")
+    @project = File.join(@tmpdir, "project")
+    @launcher = File.join(@project, "bin", "start")
+    @gateway = File.join(@project, "tmp", "gripi")
+    @calls_path = File.join(@tmpdir, "gateway-calls")
     @restart_path = File.join(@tmpdir, "state", "restart-request")
-    FileUtils.mkdir_p(@bin_dir)
+    FileUtils.mkdir_p([@bin_dir, File.dirname(@launcher), File.dirname(@gateway)])
     FileUtils.cp(File.expand_path("../bin/start", __dir__), @launcher)
     FileUtils.chmod(0o755, @launcher)
   end
@@ -20,46 +22,46 @@ class StartTest < Minitest::Test
   end
 
   def test_ordinary_exit_preserves_status_without_restarting
-    write_fake_bundle(<<~SH)
-      printf '%s\n' "$*|$RACK_ENV|$GRIPI_BIND_HOST" >> "$CALLS_PATH"
+    write_fake_gateway(<<~SH)
+      printf '%s\n' "$*|$APP_ENV|$GRIPI_BIND_HOST" >> "$CALLS_PATH"
       exit 23
     SH
 
     _stdout, _stderr, status = run_launcher("127.0.0.1", "GRIPI_PORT" => "5678")
 
     assert_equal 23, status.exitstatus
-    assert_equal ["exec rackup -o 127.0.0.1 -p 5678|production|127.0.0.1"], File.readlines(@calls_path, chomp: true)
+    assert_equal ["|production|127.0.0.1"], File.readlines(@calls_path, chomp: true)
     refute File.exist?(@restart_path)
   end
 
   def test_default_host_is_localhost
-    write_fake_bundle(<<~SH)
-      printf '%s\n' "$*|$RACK_ENV|$GRIPI_BIND_HOST" >> "$CALLS_PATH"
+    write_fake_gateway(<<~SH)
+      printf '%s\n' "$*|$APP_ENV|$GRIPI_BIND_HOST" >> "$CALLS_PATH"
       exit 0
     SH
 
     _stdout, _stderr, status = run_launcher
 
     assert status.success?
-    assert_equal ["exec rackup -o 127.0.0.1 -p 4567|production|127.0.0.1"], File.readlines(@calls_path, chomp: true)
+    assert_equal ["|production|127.0.0.1"], File.readlines(@calls_path, chomp: true)
   end
 
   def test_gripi_host_overrides_default_host
-    write_fake_bundle(<<~SH)
-      printf '%s\n' "$*|$RACK_ENV|$GRIPI_BIND_HOST" >> "$CALLS_PATH"
+    write_fake_gateway(<<~SH)
+      printf '%s\n' "$*|$APP_ENV|$GRIPI_BIND_HOST" >> "$CALLS_PATH"
       exit 0
     SH
 
     _stdout, _stderr, status = run_launcher(nil, "GRIPI_HOST" => "100.64.0.1")
 
     assert status.success?
-    assert_equal ["exec rackup -o 100.64.0.1 -p 4567|production|100.64.0.1"], File.readlines(@calls_path, chomp: true)
+    assert_equal ["|production|100.64.0.1"], File.readlines(@calls_path, chomp: true)
   end
 
   def test_stale_restart_marker_is_cleared_before_launch
     FileUtils.mkdir_p(File.dirname(@restart_path))
     FileUtils.touch(@restart_path)
-    write_fake_bundle(<<~SH)
+    write_fake_gateway(<<~SH)
       printf 'run\n' >> "$CALLS_PATH"
       exit 31
     SH
@@ -72,7 +74,7 @@ class StartTest < Minitest::Test
   end
 
   def test_restart_marker_is_consumed_and_causes_exactly_one_relaunch
-    write_fake_bundle(<<~SH)
+    write_fake_gateway(<<~SH)
       count=$(wc -l < "$CALLS_PATH" 2>/dev/null || printf 0)
       printf 'run\n' >> "$CALLS_PATH"
       if [ "$count" -eq 0 ]; then
@@ -104,7 +106,7 @@ class StartTest < Minitest::Test
       printf 'called\n' >> "$SYSTEMCTL_LOG"
       exit 99
     SH
-    write_fake_bundle(<<~SH)
+    write_fake_gateway(<<~SH)
       count=$(wc -l < "$CALLS_PATH" 2>/dev/null || printf 0)
       printf 'run\n' >> "$CALLS_PATH"
       if [ "$count" -eq 0 ]; then
@@ -127,8 +129,90 @@ class StartTest < Minitest::Test
     refute File.exist?(systemctl_log)
   end
 
+  def test_bootstraps_missing_gateway_atomically_and_does_not_rebuild_on_restart
+    FileUtils.rm_f(@gateway)
+    build_calls = File.join(@tmpdir, "build-calls")
+    write_executable("mise", <<~'SH')
+      printf '%s\n' "$*" >> "$BUILD_CALLS"
+      output=''
+      previous=''
+      for argument in "$@"; do
+        if [ "$previous" = "-o" ]; then output="$argument"; break; fi
+        previous="$argument"
+      done
+      [ -n "$output" ] || exit 2
+      mkdir -p "$(dirname "$output")"
+      cat > "$output" <<'GATEWAY'
+    #!/bin/sh
+    count=$(wc -l < "$CALLS_PATH" 2>/dev/null || printf 0)
+    printf 'run\n' >> "$CALLS_PATH"
+    if [ "$count" -eq 0 ]; then
+      mkdir -p "$(dirname "$RESTART_PATH")"
+      touch "$RESTART_PATH"
+    fi
+    exit 0
+    GATEWAY
+      chmod +x "$output"
+    SH
+
+    _stdout, stderr, status = run_launcher(nil, "BUILD_CALLS" => build_calls)
+
+    assert status.success?, stderr
+    assert_equal 1, File.readlines(build_calls).length
+    assert_match(/exec -- go build -o .*gripi\.new\./, File.read(build_calls))
+    assert_equal ["run", "run"], File.readlines(@calls_path, chomp: true)
+    assert File.executable?(@gateway)
+    refute Dir.glob("#{@gateway}.new.*").any?
+  end
+
+  def test_completes_an_interrupted_update_cutover_before_launch
+    write_fake_gateway("printf 'old\\n' >> \"$CALLS_PATH\"\n")
+    pending = File.join(@project, "tmp", ".gripi-update-pending")
+    FileUtils.mkdir_p(pending, mode: 0o700)
+    File.write(File.join(pending, "revision"), "#{"a" * 40}\n")
+    File.write(File.join(pending, "gripi"), "#!/bin/sh\nprintf 'new\\n' >> \"$CALLS_PATH\"\n")
+    FileUtils.chmod(0o700, File.join(pending, "gripi"))
+    write_executable("git", "printf '#{"a" * 40}\\n'\n")
+
+    _stdout, stderr, status = run_launcher
+
+    assert status.success?, stderr
+    assert_equal ["new"], File.readlines(@calls_path, chomp: true)
+    refute File.exist?(pending)
+  end
+
+  def test_discards_an_interrupted_cutover_for_a_different_checkout
+    write_fake_gateway("printf 'old\\n' >> \"$CALLS_PATH\"\n")
+    pending = File.join(@project, "tmp", ".gripi-update-pending")
+    FileUtils.mkdir_p(pending, mode: 0o700)
+    File.write(File.join(pending, "revision"), "#{"b" * 40}\n")
+    File.write(File.join(pending, "gripi"), "#!/bin/sh\nprintf 'new\\n' >> \"$CALLS_PATH\"\n")
+    FileUtils.chmod(0o700, File.join(pending, "gripi"))
+    write_executable("git", "printf '#{"a" * 40}\\n'\n")
+
+    _stdout, stderr, status = run_launcher
+
+    assert status.success?, stderr
+    assert_equal ["old"], File.readlines(@calls_path, chomp: true)
+    refute File.exist?(pending)
+  end
+
+  def test_discards_an_incomplete_pending_cutover_journal
+    write_fake_gateway("printf 'old\\n' >> \"$CALLS_PATH\"\n")
+    pending = File.join(@project, "tmp", ".gripi-update-pending")
+    FileUtils.mkdir_p(pending, mode: 0o700)
+    File.write(File.join(pending, "revision"), "")
+    write_executable("git", "printf '#{"a" * 40}\\n'\n")
+
+    _stdout, stderr, status = run_launcher
+
+    assert status.success?, stderr
+    assert_equal ["old"], File.readlines(@calls_path, chomp: true)
+    refute File.exist?(pending)
+  end
+
   def test_default_restart_path_requires_home
-    write_fake_bundle("exit 0\n")
+    write_fake_gateway("exit 0\n")
     env = base_env.reject { |key, _value| key == "GRIPI_RESTART_PATH" }
     env["HOME"] = ""
 
@@ -158,8 +242,9 @@ class StartTest < Minitest::Test
     }
   end
 
-  def write_fake_bundle(body)
-    write_executable("bundle", body)
+  def write_fake_gateway(body)
+    File.write(@gateway, "#!/bin/sh\n#{body}")
+    FileUtils.chmod(0o755, @gateway)
   end
 
   def write_executable(name, body)

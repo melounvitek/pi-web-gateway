@@ -93,7 +93,7 @@ func TestBrowserEnforcementIsDisabledForAuthDisabledAndMultiUserModes(t *testing
 
 			expected := http.StatusNotFound
 			if test.multiUser {
-				expected = http.StatusServiceUnavailable
+				expected = http.StatusForbidden
 			}
 			if response.Code != expected {
 				t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())

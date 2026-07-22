@@ -32,7 +32,7 @@ mise install
 mise run setup
 ```
 
-Setup stores an admin password in `~/.config/gripi/env` and prints it. Gripi setup does not install or configure Pi; authenticate and configure Pi separately before starting the gateway.
+Setup installs Node dependencies, builds the Go gateway at `tmp/gripi`, stores an admin password in `~/.config/gripi/env`, and prints it. Gripi setup does not install or configure Pi; authenticate and configure Pi separately before starting the gateway.
 
 Start the gateway:
 
@@ -96,14 +96,15 @@ If you do not already have a session-naming workflow, consider installing [`@fur
 pi install npm:@furbyhaxx/pi-session-naming
 ```
 
-## Note
+## Gateway implementations
 
-This project is written in Ruby, because I am a Ruby developer trying full vibe-coding for the first time, and I expected I might need to jump in. It turned out that was not needed, so I have mostly stayed out of the generated code -- so please, do not treat it as a sample of my usual Ruby style. It very likely is not :-).
+The operational gateway is built in Go. The previous Ruby/Sinatra/Puma gateway remains available during the migration: prepare it with `mise run setup-ruby`, then use `mise run dev-ruby` or `mise run start-ruby`. It is not used by `mise run start`.
 
 ## Development
 
 ```sh
 mise run dev
+mise run setup-ruby # once, while the compatibility suite remains
 mise run test
 mise run e2e
 ```

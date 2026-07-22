@@ -124,6 +124,12 @@ func TestGoGatewayMutationRoutesUseNativeFakePiContracts(t *testing.T) {
 	if forkPoints.Code != http.StatusOK || !strings.Contains(forkPoints.Body.String(), `"entryId"`) {
 		t.Fatalf("fork messages = %d %s", forkPoints.Code, forkPoints.Body.String())
 	}
+	imageCloneRequest := multipartRequest(t, "/prompt", map[string]string{"session": sessionPath, "message": "/clone"}, "images[]", "ignored.png", "image/png", []byte("ignored-image"))
+	imageCloneRequest.Header.Set("Accept", "application/json")
+	imageClone := serveAction(handler, imageCloneRequest)
+	if imageClone.Code != http.StatusOK {
+		t.Fatalf("image clone = %d %s", imageClone.Code, imageClone.Body.String())
+	}
 	clone := serveAction(handler, formActionRequest("/sessions/clone", map[string]string{"session": sessionPath}, true))
 	if clone.Code != http.StatusOK {
 		t.Fatalf("clone = %d %s", clone.Code, clone.Body.String())

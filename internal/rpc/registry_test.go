@@ -8,6 +8,79 @@ import (
 	"time"
 )
 
+func TestDrainIfIdleAtomicallyStopsNewWork(t *testing.T) {
+	registry := NewRegistry(func(string) (RPCClient, error) { return nil, errors.New("unexpected factory") }, nil)
+	if err := registry.Register("/session", newRegistryClient()); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- registry.WithClient(context.Background(), "/session", func(RPCClient) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	if registry.DrainIfIdle() {
+		t.Fatal("registry drained while an operation was admitted")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !registry.DrainIfIdle() {
+		t.Fatal("idle registry did not start draining")
+	}
+	if err := registry.WithClient(context.Background(), "/session", func(RPCClient) error { return nil }); !errors.Is(err, ErrClientRetiring) {
+		t.Fatalf("new work after drain = %v", err)
+	}
+	if !registry.ResumeAfterFailedShutdown() {
+		t.Fatal("failed restart did not reopen admission")
+	}
+	if err := registry.WithClient(context.Background(), "/session", func(RPCClient) error { return nil }); err != nil {
+		t.Fatalf("work after failed restart = %v", err)
+	}
+}
+
+func TestFailedShutdownResumesAdmissionAfterTimedOutCleanupFinishes(t *testing.T) {
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
+	client := newRegistryClient()
+	client.closeStarted = closeStarted
+	client.releaseClose = releaseClose
+	registry := NewRegistry(func(string) (RPCClient, error) { return newRegistryClient(), nil }, nil)
+	if err := registry.Register("/session", client); err != nil {
+		t.Fatal(err)
+	}
+	if !registry.DrainIfIdle() {
+		t.Fatal("idle registry did not start draining")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	if err := registry.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("shutdown = %v", err)
+	}
+	<-closeStarted
+	if registry.ResumeAfterFailedShutdown() {
+		t.Fatal("cleanup was still running")
+	}
+	close(releaseClose)
+	deadline := time.Now().Add(time.Second)
+	for {
+		err := registry.WithClient(context.Background(), "/new-session", func(RPCClient) error { return nil })
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrClientRetiring) || time.Now().After(deadline) {
+			t.Fatalf("admission did not resume: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestRegistryCreationLanesAndRetirementAreRaceSafe(t *testing.T) {
 	creationStarted := make(chan struct{})
 	releaseCreation := make(chan struct{})

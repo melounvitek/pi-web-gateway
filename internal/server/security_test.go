@@ -536,11 +536,16 @@ func (reader repeatingReader) Read(buffer []byte) (int, error) {
 
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
+	root := t.TempDir()
 	return config.Config{
-		Address:             "127.0.0.1:4567",
-		BrowserAuthDisabled: true,
-		BrowserAccessPath:   t.TempDir() + "/browser-access.json",
-		PermittedHosts:      []string{"example.com", "gateway.example"},
+		Address:                "127.0.0.1:4567",
+		BrowserAuthDisabled:    true,
+		BrowserAccessPath:      root + "/browser-access.json",
+		WorkspaceSecretPath:    root + "/workspace-secret",
+		WorkspaceAccessPath:    root + "/workspace-access.json",
+		WorkspaceOwnershipPath: root + "/session-owners.json",
+		RestartPath:            root + "/restart-request",
+		PermittedHosts:         []string{"example.com", "gateway.example"},
 	}
 }
 

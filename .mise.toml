@@ -12,8 +12,20 @@ description = "Run the web gateway in production mode"
 run = "bin/start"
 
 [tasks.dev]
-description = "Run the web gateway in development mode on port 4567"
+description = "Run the Go web gateway in development mode on port 4567"
+run = "APP_ENV=development GRIPI_BIND_HOST=127.0.0.1 go run ./cmd/gripi"
+
+[tasks.setup-ruby]
+description = "Install dependencies for the legacy Ruby gateway"
+run = "bundle install"
+
+[tasks.dev-ruby]
+description = "Run the legacy Ruby gateway in development mode"
 run = "RACK_ENV=development bundle exec rackup -o 127.0.0.1 -p 4567"
+
+[tasks.start-ruby]
+description = "Run the retained Ruby gateway in production mode"
+run = "RACK_ENV=production bundle exec rackup -o ${GRIPI_HOST:-127.0.0.1} -p ${GRIPI_PORT:-4567}"
 
 [tasks.test]
 description = "Run the Ruby and Go test suites"
@@ -25,11 +37,15 @@ run = "go test ./..."
 
 [tasks.build-go]
 description = "Build the Go gateway"
-run = "go build -o tmp/gripi ./cmd/gripi"
+run = "mkdir -p tmp && go build -o tmp/gripi ./cmd/gripi"
 
 [tasks.benchmark-ruby]
 description = "Measure the Ruby gateway under the seeded memory workload"
 run = "node scripts/benchmark_gateway_memory.mjs ruby"
+
+[tasks.benchmark-go]
+description = "Measure the Go gateway under the seeded memory workload"
+run = "node scripts/benchmark_gateway_memory.mjs go"
 
 [tasks.e2e]
 description = "Run the managed browser E2E contract suite"

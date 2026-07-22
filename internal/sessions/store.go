@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -451,8 +450,8 @@ func (store Store) Generation(path string) string {
 	if err != nil {
 		return ""
 	}
-	if system, ok := stat.Sys().(*syscall.Stat_t); ok {
-		return fmt.Sprintf("%d:%d:%s", system.Dev, system.Ino, indexed.session.ID)
+	if device, inode, ok := nativeFileIdentity(stat); ok {
+		return fmt.Sprintf("%d:%d:%s", device, inode, indexed.session.ID)
 	}
 	return fmt.Sprintf("%d:%d:%s", stat.Size(), stat.ModTime().UnixNano(), indexed.session.ID)
 }
@@ -1786,10 +1785,8 @@ func MessageHash(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 func fileIdentity(stat os.FileInfo) (uint64, uint64) {
-	if system, ok := stat.Sys().(*syscall.Stat_t); ok {
-		return uint64(system.Dev), uint64(system.Ino)
-	}
-	return 0, 0
+	device, inode, _ := nativeFileIdentity(stat)
+	return device, inode
 }
 func withinRoot(path, root string) bool {
 	relative, err := filepath.Rel(root, path)

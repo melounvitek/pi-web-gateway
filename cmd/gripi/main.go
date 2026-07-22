@@ -2,12 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +23,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "password" {
+		if err := ensurePassword(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	cfg, err := config.Load(os.Environ())
 	if err != nil {
 		log.Fatal(err)
@@ -71,4 +83,91 @@ func main() {
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func ensurePassword() error {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return errors.New("HOME is required")
+	}
+	configDirectory := os.Getenv("GRIPI_CONFIG_DIR")
+	if configDirectory == "" {
+		configDirectory = filepath.Join(home, ".config", "gripi")
+	}
+	path := os.Getenv("GRIPI_ENV_PATH")
+	if path == "" {
+		path = filepath.Join(configDirectory, "env")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	unlock, err := lockPasswordFile(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	contents, err := os.ReadFile(path)
+	missing := errors.Is(err, fs.ErrNotExist)
+	if err != nil && !missing {
+		return err
+	}
+	if !missing {
+		if err := os.Chmod(path, 0600); err != nil {
+			return err
+		}
+	}
+	for _, line := range strings.Split(string(contents), "\n") {
+		if strings.HasPrefix(line, "GRIPI_ADMIN_PASSWORD=") {
+			return nil
+		}
+	}
+
+	value := make([]byte, 12)
+	if _, err := rand.Read(value); err != nil {
+		return err
+	}
+	password := hex.EncodeToString(value)
+	addition := ""
+	if len(contents) > 0 && contents[len(contents)-1] != '\n' {
+		addition = "\n"
+	}
+	addition += "GRIPI_ADMIN_PASSWORD=" + password + "\n"
+	if err := writePasswordFile(path, contents, addition); err != nil {
+		return err
+	}
+	if err := os.Chmod(path, 0600); err != nil {
+		return err
+	}
+	fmt.Printf("Generated GRIPI_ADMIN_PASSWORD in %s\nAdmin password: %s\nYou should change it by editing %s\n", path, password, path)
+	return nil
+}
+
+func writePasswordFile(path string, contents []byte, addition string) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".gripi-env-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.WriteString(addition); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return replacePasswordFile(temporaryPath, path)
 }

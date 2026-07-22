@@ -2,7 +2,10 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd -- "$script_dir/.." && pwd)"
 
-bundle install
-
+cd "$root"
+mise exec -- npm ci
+mkdir -p tmp
+mise exec -- go build -o tmp/gripi ./cmd/gripi
 "$script_dir/gripi-password"

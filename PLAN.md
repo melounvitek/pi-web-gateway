@@ -1,6 +1,6 @@
 # Go gateway rewrite
 
-The Ruby gateway remains the production implementation until the final cutover. Each completed round is committed independently.
+The Ruby gateway remains available as the compatibility implementation until the final cutover. Round 6 switches setup and launcher operations to Go; Round 7 removes Ruby/Puma after final contract and performance gates. Each completed round is committed independently.
 
 ## Goal
 
@@ -15,7 +15,7 @@ The browser JavaScript, Electron shell, CSS, and Pi TypeScript extension remain 
 - [x] 3. Port session discovery/indexing, history rendering, attachments, Markdown, sidebar, search, and pagination.
 - [x] 4. Port Pi RPC subprocess management, event buffering, registry concurrency, idle retirement, and session synchronization.
 - [x] 5. Port prompts, bash, streaming controls, model settings, trees, branches, extension UI, and remaining session actions.
-- [ ] 6. Port multi-user ownership, resource monitoring, updates/restarts, setup tooling, and operational documentation.
+- [x] 6. Port multi-user ownership, resource monitoring, updates/restarts, setup tooling, and operational documentation.
 - [ ] 7. Pass all contract suites, benchmark the warmed implementation, run a real-Pi smoke test, remove Ruby/Puma, and complete independent review.
 
 Delete this file when the final round is complete.

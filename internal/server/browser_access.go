@@ -359,5 +359,13 @@ func writeJSON(response http.ResponseWriter, value any) {
 }
 
 func staticAssetPath(path string) bool {
-	return strings.HasPrefix(path, "/assets/") || path == "/apple-touch-icon.png"
+	if strings.HasPrefix(path, "/assets/") {
+		return true
+	}
+	switch path {
+	case "/apple-touch-icon.png", "/manifest.webmanifest", "/app-icon.svg", "/app-icon-maskable.svg", "/service-worker.js":
+		return true
+	default:
+		return false
+	}
 }

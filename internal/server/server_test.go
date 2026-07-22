@@ -48,7 +48,8 @@ func TestHandlerDoesNotListAssetDirectories(t *testing.T) {
 }
 
 func TestMultiUserModeFailsClosedForApplicationRoutesButServesStaticAssets(t *testing.T) {
-	handler, err := server.NewHandler(config.Config{MultiUserMode: true}, gripi.WebFiles)
+	root := t.TempDir()
+	handler, err := server.NewHandler(config.Config{MultiUserMode: true, BrowserAuthDisabled: true, WorkspaceSecretPath: root + "/secret", WorkspaceAccessPath: root + "/access.json", WorkspaceOwnershipPath: root + "/owners.json"}, gripi.WebFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,14 +60,16 @@ func TestMultiUserModeFailsClosedForApplicationRoutesButServesStaticAssets(t *te
 		}
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(method, "http://app.test"+target, nil))
-		if response.Code != http.StatusServiceUnavailable {
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "User token") {
 			t.Fatalf("%s = %d %s", target, response.Code, response.Body.String())
 		}
 	}
-	asset := httptest.NewRecorder()
-	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "http://app.test/assets/app.css", nil))
-	if asset.Code != http.StatusOK {
-		t.Fatalf("asset = %d %s", asset.Code, asset.Body.String())
+	for _, target := range []string{"/assets/app.css", "/manifest.webmanifest", "/app-icon.svg", "/app-icon-maskable.svg", "/service-worker.js"} {
+		asset := httptest.NewRecorder()
+		handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "http://app.test"+target, nil))
+		if asset.Code != http.StatusOK || strings.Contains(asset.Body.String(), "User token") {
+			t.Fatalf("%s = %d %s", target, asset.Code, asset.Body.String())
+		}
 	}
 }
 

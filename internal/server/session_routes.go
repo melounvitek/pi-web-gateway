@@ -154,8 +154,12 @@ func (app *application) conversationOlder(response http.ResponseWriter, request 
 	}
 	defer releaseRequestSlot(app.heavyRequests)
 	empty := map[string]any{"html": "", "next_cursor": 0, "has_older_messages": false, "older_message_count": 0}
+	path, owned := app.requireOwnedSession(response, request, request.URL.Query().Get("session"))
+	if !owned {
+		return
+	}
 	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
-	session, ok := store.Session(request.URL.Query().Get("session"))
+	session, ok := store.Session(path)
 	if !ok {
 		writeJSON(response, empty)
 		return
@@ -214,7 +218,13 @@ func (app *application) attachment(response http.ResponseWriter, request *http.R
 		http.NotFound(response, request)
 		return
 	}
-	if !app.knownSessionHash(sessionHash) {
+	if app.ownershipStore != nil && app.config.MultiUserMode {
+		owned, err := app.ownershipStore.OwnsHash(sessionHash, currentWorkspaceID(request))
+		if err != nil || !owned {
+			http.NotFound(response, request)
+			return
+		}
+	} else if !app.knownSessionHash(sessionHash) {
 		http.NotFound(response, request)
 		return
 	}
@@ -270,9 +280,8 @@ func (app *application) composerPathSuggestions(response http.ResponseWriter, re
 		writeText(response, http.StatusBadRequest, "Invalid query")
 		return
 	}
-	raw := request.FormValue("session")
-	if len(raw) > 16<<10 || !filepath.IsAbs(raw) || filepath.Clean(raw) != raw || strings.ContainsRune(raw, 0) {
-		http.NotFound(response, request)
+	raw, owned := app.requireOwnedSession(response, request, request.FormValue("session"))
+	if !owned {
 		return
 	}
 	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}

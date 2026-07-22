@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -105,27 +104,24 @@ type pageView struct {
 func (app *application) preparePage(request *http.Request, includeConversation bool) (*pageView, error) {
 	params := request.URL.Query()
 	selectedPath := params.Get("session")
-	if _, pending := app.pendingSessions.CWD(selectedPath); pending {
-		canonical, err := app.canonicalRPCSessionPath(request, selectedPath)
+	selectedOwned := app.ownsSession == nil || app.ownsSession(request, selectedPath)
+	if selectedOwned && selectedPath != "" {
+		resolved, remapped, err := app.resolveOwnedPendingPath(request, selectedPath)
 		if err != nil {
 			return nil, err
 		}
-		params.Set("session", canonical)
-		request.URL.RawQuery = params.Encode()
-	} else if _, remapped := app.pendingSessions.Resolve(selectedPath); remapped {
-		canonical, err := app.canonicalRPCSessionPath(request, selectedPath)
-		if err != nil {
-			return nil, err
+		if !remapped {
+			if _, pending := app.pendingSessions.CWD(selectedPath); pending {
+				resolved, err = app.canonicalRPCSessionPath(request, selectedPath)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
-		params.Set("session", canonical)
-		request.URL.RawQuery = params.Encode()
-	}
-	if remapped, ok := app.pendingSessions.Resolve(params.Get("session")); ok {
-		if app.ownsSession != nil && !app.ownsSession(request, params.Get("session")) {
-			return nil, errors.New("pending session is not owned by the requester")
+		if resolved != selectedPath {
+			params.Set("session", resolved)
+			request.URL.RawQuery = params.Encode()
 		}
-		params.Set("session", remapped)
-		request.URL.RawQuery = params.Encode()
 	}
 	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
 	all, metadataDeferred, err := store.SessionsDeferringMetadata(func(path string) bool {
@@ -134,7 +130,6 @@ func (app *application) preparePage(request *http.Request, includeConversation b
 	if err != nil {
 		return nil, err
 	}
-	app.rememberSessionHashes(all)
 	knownPaths := make(map[string]bool, len(all))
 	for _, session := range all {
 		knownPaths[session.Path] = true
@@ -145,6 +140,28 @@ func (app *application) preparePage(request *http.Request, includeConversation b
 		}
 		all = append(all, &sessions.Session{Path: pending.Path, CWD: pending.CWD, DisplayName: "New session (pending first assistant response)", CreatedAt: pending.CreatedAt, ModifiedAt: pending.CreatedAt, ConversationActivityAt: pending.CreatedAt})
 	}
+	if app.ownsSession != nil {
+		ownedPaths := make(map[string]bool)
+		if app.ownershipStore != nil {
+			var err error
+			ownedPaths, err = app.ownershipStore.OwnedPaths(currentWorkspaceID(request))
+			if err != nil {
+				return nil, err
+			}
+		}
+		owned := all[:0]
+		for _, session := range all {
+			isOwned := ownedPaths[session.Path]
+			if app.ownershipStore == nil {
+				isOwned = app.ownsSession(request, session.Path)
+			}
+			if isOwned {
+				owned = append(owned, session)
+			}
+		}
+		all = owned
+	}
+	app.rememberSessionHashes(all)
 	params = request.URL.Query()
 	selectedProject := params.Get("project")
 	knownProjects := make(map[string]bool)
