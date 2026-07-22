@@ -21,6 +21,33 @@ test("keep native Tab order for coarse pointers", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Send" })).toBeFocused();
 });
 
+test("keep the mobile session drawer open while searching", async ({ page }) => {
+  await page.goto("/");
+
+  const drawerToggle = page.locator("#mobile-session-toggle");
+  await page.locator('label[aria-label="Open sessions"]').tap();
+  await page.getByRole("button", { name: "Search sessions" }).tap();
+  const search = page.getByRole("searchbox", { name: "Search sessions" });
+  await expect(search).toBeVisible();
+  let releaseSidebar;
+  await page.route("**/sidebar?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("session_search") !== "History Desktop") return route.continue();
+    await new Promise((resolve) => { releaseSidebar = resolve; });
+    await route.continue();
+  });
+  await search.fill("History Desktop");
+  const submitted = page.waitForURL((url) => url.searchParams.get("session_search") === "History Desktop");
+  await search.press("Enter");
+  await expect.poll(() => !!releaseSidebar).toBe(true);
+  await search.fill("different draft");
+  releaseSidebar();
+  await submitted;
+
+  await expect(drawerToggle).toBeChecked();
+  await expect(page.getByRole("searchbox", { name: "Search sessions" })).toHaveValue("History Desktop");
+  await expect(page.getByRole("link", { name: new RegExp(sessions.history) })).toBeVisible();
+});
+
 test("navigate and complete a conversation from the mobile session drawer", async ({ page }) => {
   await page.goto("/");
 

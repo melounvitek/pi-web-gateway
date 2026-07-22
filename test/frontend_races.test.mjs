@@ -67,6 +67,65 @@ test("sidebar ignores stale refreshes and admits only one pin mutation", async (
   }
 });
 
+test("obsolete sidebar filter failure does not cancel a newer filter", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const sidebar = {
+    classList: { toggle() {} },
+    querySelector: () => null,
+  };
+  const document = {
+    body: { classList: { contains: () => false } },
+    activeElement: null,
+    dispatchEvent() {},
+    querySelector: () => null,
+  };
+  const pushed = [];
+  const window = {
+    location: { href: "https://example.test/?session=one", origin: "https://example.test", search: "?session=one" },
+    history: { state: null, pushState(_state, _title, url) { pushed.push(url); } },
+    CustomEvent: class {},
+  };
+  const controller = new SidebarController(document, window, {}, {}, () => {});
+  controller.element = sidebar;
+  controller.replace = () => {};
+  controller.scheduleRefresh = () => {};
+
+  const firstSidebar = deferred();
+  const response = (body) => ({ ok: true, text: async () => body });
+  let requests = 0;
+  globalThis.window = window;
+  globalThis.fetch = () => {
+    requests += 1;
+    if (requests === 1) return firstSidebar.promise;
+    return Promise.resolve(response(requests === 3 ? "new sidebar" : "new modal"));
+  };
+
+  try {
+    const input = { value: "first" };
+    let nativeSubmissions = 0;
+    const form = { querySelector: () => input, submit() { nativeSubmissions += 1; } };
+    const firstOperation = controller.changeSearchFilter(form).catch(() => form.submit());
+    const filterEpoch = controller.asyncEpoch;
+    controller.requestRefresh();
+    assert.equal(controller.asyncEpoch, filterEpoch);
+
+    input.value = "second";
+    await controller.changeSearchFilter(form).catch(() => form.submit());
+    firstSidebar.reject(new Error("obsolete failure"));
+    await firstOperation;
+
+    assert.equal(nativeSubmissions, 0);
+    assert.equal(pushed.length, 1);
+    assert.match(String(pushed[0]), /session_search=second/);
+    assert.equal(controller.filterOperationActive, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test("history pagination and find callers share in-flight work and use the latest query", async () => {
   const originalFetch = globalThis.fetch;
   const historyResponse = deferred();
