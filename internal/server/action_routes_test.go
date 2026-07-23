@@ -86,6 +86,16 @@ func TestGoGatewayMutationRoutesUseNativeFakePiContracts(t *testing.T) {
 		t.Fatalf("bash = %d %s", bashResponse.Code, bashResponse.Body.String())
 	}
 
+	for _, command := range []struct{ name, input, behavior, message string }{
+		{"login", "/login anthropic", "steer", "`/login` isn’t available in Gripi. Run `/login` in the Pi CLI, then restart the Gripi gateway to load the new credentials."},
+		{"logout", "/logout", "follow_up", "`/logout` isn’t available in Gripi. Run `/logout` in the Pi CLI, then restart the Gripi gateway to reload credentials."},
+	} {
+		result := serveAction(handler, formActionRequest("/prompt", map[string]string{"session": sessionPath, "message": command.input, "streaming_behavior": command.behavior}, true))
+		if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), `"command":"`+command.name+`"`) || !strings.Contains(result.Body.String(), command.message) {
+			t.Fatalf("%s = %d %s", command.name, result.Code, result.Body.String())
+		}
+	}
+
 	settingsResponse := serveAction(handler, getActionRequest("/sessions/model_settings?session="+url.QueryEscape(sessionPath)))
 	if settingsResponse.Code != http.StatusOK || !strings.Contains(settingsResponse.Body.String(), `"fixture-model"`) {
 		t.Fatalf("model settings = %d %s", settingsResponse.Code, settingsResponse.Body.String())
@@ -175,6 +185,11 @@ func TestGoGatewayMutationRoutesUseNativeFakePiContracts(t *testing.T) {
 	for _, expected := range []string{`"type":"prompt"`, `"mimeType":"image/png"`, `"type":"bash"`, `"excludeFromContext":true`, `"type":"set_model"`, `"modelId":"contract-model"`, `/gripi_tree_snapshot`, `"type":"compact"`, `"type":"clone"`, `"type":"fork"`} {
 		if !strings.Contains(string(log), expected) {
 			t.Errorf("fake Pi log does not contain %s", expected)
+		}
+	}
+	for _, localCommand := range []string{"/login anthropic", "/logout"} {
+		if strings.Contains(string(log), localCommand) {
+			t.Errorf("fake Pi received local command %q", localCommand)
 		}
 	}
 }

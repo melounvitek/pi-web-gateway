@@ -15,6 +15,7 @@ import {
   messageRoleKey,
   messageRoleLabel,
   notificationReplyPreview,
+  sessionAuthGuidanceSlashCommand,
   sessionNameFromEvent,
   sessionNameSlashCommand,
 } from "../public/assets/formatting.js";
@@ -35,6 +36,11 @@ test("formatting and message helpers preserve browser-facing semantics", () => {
   assert.deepEqual([messageRoleKey("bashExecution"), messageRoleLabel("bashExecution")], ["tool", "shell"]);
   assert.equal(sessionNameSlashCommand("/name Useful name"), true);
   assert.equal(sessionNameSlashCommand("/rename Useful name"), false);
+  assert.equal(sessionAuthGuidanceSlashCommand("/login"), "login");
+  assert.equal(sessionAuthGuidanceSlashCommand("/login anthropic"), "login");
+  assert.equal(sessionAuthGuidanceSlashCommand("/login\tanthropic"), null);
+  assert.equal(sessionAuthGuidanceSlashCommand("/logout"), "logout");
+  assert.equal(sessionAuthGuidanceSlashCommand("/logout anthropic"), null);
   assert.equal(sessionNameFromEvent({ type: "session_info_changed", name: "Changed" }), "Changed");
   assert.equal(sessionNameFromEvent({ type: "custom_message", content: "Changed" }), null);
   assert.equal(eventTimestamp({ gatewayTimestamp: 1234, timestamp: "native" }), 1234);
