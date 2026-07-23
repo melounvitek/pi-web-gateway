@@ -12,13 +12,18 @@ import (
 )
 
 type GatewayState struct {
-	readPath   string
-	pinnedPath string
-	mu         sync.Mutex
+	readPath     string
+	pinnedPath   string
+	sessionsRoot string
+	mu           sync.Mutex
 }
 
-func NewGatewayState(readPath, pinnedPath string) *GatewayState {
-	return &GatewayState{readPath: readPath, pinnedPath: pinnedPath}
+func NewGatewayState(readPath, pinnedPath string, sessionsRoots ...string) *GatewayState {
+	sessionsRoot := ""
+	if len(sessionsRoots) > 0 {
+		sessionsRoot = sessionsRoots[0]
+	}
+	return &GatewayState{readPath: readPath, pinnedPath: pinnedPath, sessionsRoot: sessionsRoot}
 }
 
 func (state *GatewayState) ReadAndObserve(all []*Session, selected *Session, markSelected bool) (map[string]bool, map[string]bool, error) {
@@ -31,11 +36,11 @@ func (state *GatewayState) ReadAndObserve(all []*Session, selected *Session, mar
 	if counts == nil {
 		counts = map[string]int{}
 	}
+	counts, changed := state.normalizedCounts(counts)
 	var paths []string
 	if err := readJSONIfExists(state.pinnedPath, &paths); err != nil {
 		return nil, nil, fmt.Errorf("read pinned sessions state: %w", err)
 	}
-	changed := false
 	for _, session := range all {
 		value, known := counts[session.Path]
 		if !known || value > session.AssistantResponseCount {
@@ -58,7 +63,7 @@ func (state *GatewayState) ReadAndObserve(all []*Session, selected *Session, mar
 	}
 	pinned := make(map[string]bool)
 	for _, path := range paths {
-		pinned[path] = true
+		pinned[state.configuredPath(path)] = true
 	}
 	return unread, pinned, nil
 }
@@ -70,10 +75,12 @@ func (state *GatewayState) SetPinned(path string, pinned bool) error {
 	if err := readJSONIfExists(state.pinnedPath, &paths); err != nil {
 		return fmt.Errorf("read pinned sessions state: %w", err)
 	}
+	path = state.configuredPath(path)
 	result := make([]string, 0, len(paths)+1)
 	found := false
 	seen := make(map[string]bool)
 	for _, candidate := range paths {
+		candidate = state.configuredPath(candidate)
 		if seen[candidate] {
 			continue
 		}
@@ -105,6 +112,8 @@ func (state *GatewayState) MarkRead(path string, count int) error {
 	if values == nil {
 		values = map[string]int{}
 	}
+	values, _ = state.normalizedCounts(values)
+	path = state.configuredPath(path)
 	if values[path] < count {
 		values[path] = count
 	}
@@ -112,6 +121,32 @@ func (state *GatewayState) MarkRead(path string, count int) error {
 		return fmt.Errorf("write session read state: %w", err)
 	}
 	return nil
+}
+
+func (state *GatewayState) configuredPath(path string) string {
+	if state.sessionsRoot != "" {
+		if configured, ok := ConfiguredSessionPath(state.sessionsRoot, path); ok {
+			return configured
+		}
+	}
+	return path
+}
+
+func (state *GatewayState) normalizedCounts(values map[string]int) (map[string]int, bool) {
+	result := make(map[string]int, len(values))
+	changed := false
+	for path, count := range values {
+		configured := state.configuredPath(path)
+		if configured != path {
+			changed = true
+		}
+		if existing, found := result[configured]; !found || count > existing {
+			result[configured] = count
+		} else {
+			changed = true
+		}
+	}
+	return result, changed
 }
 
 func readJSONIfExists(path string, target any) error {

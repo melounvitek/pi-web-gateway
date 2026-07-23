@@ -7,6 +7,43 @@ import (
 	"testing"
 )
 
+func TestAttachmentMatchReadsMetadataStoredForThePhysicalSessionPath(t *testing.T) {
+	root := t.TempDir()
+	physicalRoot := filepath.Join(root, "physical-sessions")
+	configuredRoot := filepath.Join(root, "configured-sessions")
+	attachmentsRoot := filepath.Join(root, "attachments")
+	for _, path := range []string{physicalRoot, attachmentsRoot} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(physicalRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalPath := filepath.Join(physicalRoot, "session.jsonl")
+	configuredPath := filepath.Join(configuredRoot, "session.jsonl")
+	physicalHash := SessionHash(physicalPath)
+	imageDirectory := filepath.Join(attachmentsRoot, physicalHash)
+	if err := os.Mkdir(imageDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	image := filepath.Join(imageDirectory, "image.png")
+	if err := os.WriteFile(image, []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	record, _ := json.Marshal(Attachment{MessageHash: MessageHash("prompt"), Count: 1, Paths: []string{image}, MIMETypes: []string{"image/png"}})
+	if err := os.WriteFile(filepath.Join(attachmentsRoot, physicalHash+".jsonl"), append(record, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	message := &Message{Role: "user", Text: "prompt"}
+
+	matches := (AttachmentStore{Root: attachmentsRoot, SessionsRoot: configuredRoot}).Match(configuredPath, []*Message{message})
+	match, ok := matches[message]
+	if !ok || len(match.Images) != 1 || match.Images[0].Src != "/attachments/"+physicalHash+"/image.png" {
+		t.Fatalf("match = %#v, %v", match, ok)
+	}
+}
+
 func TestAttachmentMigrationMovesImagePathsAndCanRollback(t *testing.T) {
 	root := t.TempDir()
 	store := AttachmentStore{Root: root}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,7 +77,7 @@ func TestWorkspaceStoresPreserveExistingStateFormats(t *testing.T) {
 	if err := os.WriteFile(ownersPath, []byte(ownersJSON), 0600); err != nil {
 		t.Fatal(err)
 	}
-	owners := NewWorkspaceOwnershipStore(ownersPath)
+	owners := NewWorkspaceOwnershipStore(ownersPath, "")
 	owned, err := owners.OwnedBy(session, "workspace-a")
 	if err != nil || !owned {
 		t.Fatalf("owned = %v, %v", owned, err)
@@ -110,8 +111,57 @@ func TestWorkspaceRequestsStayBoundToEachBrowser(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOwnershipNormalizesPersistedPhysicalSessionPaths(t *testing.T) {
+	root := t.TempDir()
+	physicalRoot := filepath.Join(root, "physical-sessions")
+	configuredRoot := filepath.Join(root, "configured-sessions")
+	if err := os.Mkdir(physicalRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(physicalRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalPath := filepath.Join(physicalRoot, "session.jsonl")
+	configuredPath := filepath.Join(configuredRoot, "session.jsonl")
+	ownersPath := filepath.Join(root, "owners.json")
+	contents := `{"sessions":{` + quoted(physicalPath) + `:"workspace-a"}}`
+	if err := os.WriteFile(ownersPath, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewWorkspaceOwnershipStore(ownersPath, configuredRoot)
+
+	owned, err := store.OwnedBy(configuredPath, "workspace-a")
+	if err != nil || !owned {
+		t.Fatalf("owned = %v, %v", owned, err)
+	}
+	paths, err := store.OwnedPaths("workspace-a")
+	if err != nil || !paths[configuredPath] || paths[physicalPath] {
+		t.Fatalf("paths = %#v, %v", paths, err)
+	}
+	for _, path := range []string{configuredPath, physicalPath} {
+		owned, err := store.OwnsHash(sha256Hex(path), "workspace-a")
+		if err != nil || !owned {
+			t.Fatalf("hash for %q = %v, %v", path, owned, err)
+		}
+	}
+	if created, err := store.Claim(configuredPath, "workspace-a"); err != nil || created {
+		t.Fatalf("claim = %v, %v", created, err)
+	}
+	persisted, err := os.ReadFile(ownersPath)
+	if err != nil || !strings.Contains(string(persisted), configuredPath) || strings.Contains(string(persisted), physicalPath) {
+		t.Fatalf("persisted = %q, %v", persisted, err)
+	}
+	conflicting := `{"sessions":{` + quoted(configuredPath) + `:"workspace-a",` + quoted(physicalPath) + `:"workspace-b"}}`
+	if err := os.WriteFile(ownersPath, []byte(conflicting), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := store.OwnedBy(configuredPath, "workspace-a"); owned || !errors.Is(err, ErrSessionOwnedByAnotherWorkspace) {
+		t.Fatalf("conflicting ownership = %v, %v", owned, err)
+	}
+}
+
 func TestWorkspaceOwnershipCannotBeClaimedByAnotherWorkspace(t *testing.T) {
-	store := NewWorkspaceOwnershipStore(filepath.Join(t.TempDir(), "owners.json"))
+	store := NewWorkspaceOwnershipStore(filepath.Join(t.TempDir(), "owners.json"), "")
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	created, err := store.Claim(path, "workspace-a")
 	if err != nil || !created {
@@ -136,7 +186,7 @@ func TestWorkspaceOwnershipFailsClosedWhenStateIsMalformed(t *testing.T) {
 	if err := os.WriteFile(path, contents, 0600); err != nil {
 		t.Fatal(err)
 	}
-	store := NewWorkspaceOwnershipStore(path)
+	store := NewWorkspaceOwnershipStore(path, "")
 
 	if _, err := store.Claim("/tmp/session.jsonl", "workspace"); err == nil {
 		t.Fatal("claim succeeded with malformed ownership state")
@@ -177,7 +227,7 @@ func TestWorkspaceSecretAndOwnershipAreRaceSafe(t *testing.T) {
 			t.Fatalf("secret mismatch %q != %q", value, first)
 		}
 	}
-	owners := NewWorkspaceOwnershipStore(filepath.Join(root, "owners.json"))
+	owners := NewWorkspaceOwnershipStore(filepath.Join(root, "owners.json"), "")
 	done := make(chan error, 20)
 	for index := range 20 {
 		go func() {

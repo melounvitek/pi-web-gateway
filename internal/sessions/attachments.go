@@ -28,7 +28,10 @@ type AttachmentMatch struct {
 	Images []Image
 }
 
-type AttachmentStore struct{ Root string }
+type AttachmentStore struct {
+	Root         string
+	SessionsRoot string
+}
 
 func (store AttachmentStore) RecordPrompt(sessionPath, message string, imageCount int, timestamp time.Time, paths, mimeTypes []string) error {
 	if imageCount == 0 {
@@ -263,19 +266,33 @@ func (store AttachmentStore) Match(sessionPath string, messages []*Message) map[
 }
 
 func (store AttachmentStore) read(sessionPath string) []Attachment {
-	file, err := os.Open(filepath.Join(store.Root, SessionHash(sessionPath)+".jsonl"))
-	if err != nil {
-		return nil
-	}
-	defer file.Close()
-	var result []Attachment
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 1<<20)
-	for scanner.Scan() {
-		var attachment Attachment
-		if json.Unmarshal(scanner.Bytes(), &attachment) == nil {
-			result = append(result, attachment)
+	paths := []string{sessionPath}
+	if store.SessionsRoot != "" {
+		if aliases := SessionPathAliases(store.SessionsRoot, sessionPath); len(aliases) > 0 {
+			paths = aliases
 		}
+	}
+	var result []Attachment
+	seen := make(map[string]bool)
+	for _, path := range paths {
+		file, err := os.Open(filepath.Join(store.Root, SessionHash(path)+".jsonl"))
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 4096), 1<<20)
+		for scanner.Scan() {
+			encoded := scanner.Text()
+			if seen[encoded] {
+				continue
+			}
+			var attachment Attachment
+			if json.Unmarshal([]byte(encoded), &attachment) == nil {
+				result = append(result, attachment)
+				seen[encoded] = true
+			}
+		}
+		_ = file.Close()
 	}
 	return result
 }

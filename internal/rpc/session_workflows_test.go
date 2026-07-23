@@ -56,8 +56,8 @@ func TestStartNewSessionClosesClientWhenOwnershipClaimFails(t *testing.T) {
 	client := &workflowClient{registryClient: newRegistryClient(), state: map[string]any{"data": map[string]any{"sessionFile": "/new"}}}
 	registry := NewRegistry(func(string) (RPCClient, error) { return nil, os.ErrNotExist }, nil)
 	claimErr := errors.New("claim failed")
-	_, err := StartNewSession(context.Background(), t.TempDir(), t.TempDir(), func(string) (RPCClient, error) { return client, nil }, registry, NewPendingSessionRegistry(nil), func(string) (func() error, error) {
-		return nil, claimErr
+	_, err := StartNewSession(context.Background(), t.TempDir(), t.TempDir(), func(string) (RPCClient, error) { return client, nil }, registry, NewPendingSessionRegistry(nil), func(path string) (string, func() error, error) {
+		return path, nil, claimErr
 	})
 	if !errors.Is(err, claimErr) || !client.closed() || registry.Active("/new") {
 		t.Fatalf("err=%v closed=%v active=%v", err, client.closed(), registry.Active("/new"))

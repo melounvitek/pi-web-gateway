@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/melounvitek/gripi/internal/sessions"
 	"github.com/melounvitek/gripi/internal/state"
 )
 
@@ -412,19 +413,20 @@ type workspaceOwnershipState struct {
 }
 
 type WorkspaceOwnershipStore struct {
-	file *state.File
-	mu   sync.Mutex
+	file         *state.File
+	sessionsRoot string
+	mu           sync.Mutex
 }
 
-func NewWorkspaceOwnershipStore(path string) *WorkspaceOwnershipStore {
-	return &WorkspaceOwnershipStore{file: state.NewFile(path)}
+func NewWorkspaceOwnershipStore(path, sessionsRoot string) *WorkspaceOwnershipStore {
+	return &WorkspaceOwnershipStore{file: state.NewFile(path), sessionsRoot: sessionsRoot}
 }
 
 func (store *WorkspaceOwnershipStore) Claim(sessionPath, workspaceID string) (bool, error) {
 	if sessionPath == "" || workspaceID == "" {
 		return false, nil
 	}
-	canonical, err := filepath.Abs(sessionPath)
+	canonical, err := store.canonicalPath(sessionPath)
 	if err != nil {
 		return false, err
 	}
@@ -444,7 +446,7 @@ func (store *WorkspaceOwnershipStore) Claim(sessionPath, workspaceID string) (bo
 }
 
 func (store *WorkspaceOwnershipStore) Release(sessionPath, workspaceID string) error {
-	canonical, err := filepath.Abs(sessionPath)
+	canonical, err := store.canonicalPath(sessionPath)
 	if err != nil {
 		return err
 	}
@@ -460,7 +462,7 @@ func (store *WorkspaceOwnershipStore) OwnedBy(sessionPath, workspaceID string) (
 	if sessionPath == "" || workspaceID == "" {
 		return false, nil
 	}
-	canonical, err := filepath.Abs(sessionPath)
+	canonical, err := store.canonicalPath(sessionPath)
 	if err != nil {
 		return false, err
 	}
@@ -491,12 +493,39 @@ func (store *WorkspaceOwnershipStore) OwnsHash(hash, workspaceID string) (bool, 
 		return false, err
 	}
 	for path, owner := range value.Sessions {
-		digest := sha256.Sum256([]byte(path))
-		if owner == workspaceID && hex.EncodeToString(digest[:]) == hash {
-			return true, nil
+		if owner != workspaceID {
+			continue
+		}
+		for _, alias := range store.pathAliases(path) {
+			digest := sha256.Sum256([]byte(alias))
+			if hex.EncodeToString(digest[:]) == hash {
+				return true, nil
+			}
 		}
 	}
 	return false, nil
+}
+
+func (store *WorkspaceOwnershipStore) canonicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if store.sessionsRoot != "" {
+		if configured, ok := sessions.ConfiguredSessionPath(store.sessionsRoot, absolute); ok {
+			return configured, nil
+		}
+	}
+	return absolute, nil
+}
+
+func (store *WorkspaceOwnershipStore) pathAliases(path string) []string {
+	if store.sessionsRoot != "" {
+		if aliases := sessions.SessionPathAliases(store.sessionsRoot, path); len(aliases) > 0 {
+			return aliases
+		}
+	}
+	return []string{path}
 }
 
 func (store *WorkspaceOwnershipStore) data() (workspaceOwnershipState, error) {
@@ -534,5 +563,17 @@ func (store *WorkspaceOwnershipStore) read() (workspaceOwnershipState, error) {
 	if value.Sessions == nil {
 		return workspaceOwnershipState{}, errors.New("workspace ownership state is missing sessions")
 	}
+	normalized := make(map[string]string, len(value.Sessions))
+	for path, owner := range value.Sessions {
+		canonical, err := store.canonicalPath(path)
+		if err != nil {
+			return workspaceOwnershipState{}, err
+		}
+		if existing := normalized[canonical]; existing != "" && existing != owner {
+			return workspaceOwnershipState{}, ErrSessionOwnedByAnotherWorkspace
+		}
+		normalized[canonical] = owner
+	}
+	value.Sessions = normalized
 	return value, nil
 }

@@ -485,12 +485,15 @@ func TestSymlinkedSessionsRootPreservesConfiguredPathIdentity(t *testing.T) {
 	}
 	physicalPath := filepath.Join(physicalRoot, "project", "session.jsonl")
 	configuredPath := filepath.Join(configuredRoot, "project", "session.jsonl")
-	writeSessionLines(t, physicalPath, []string{sessionLine(project)})
+	physicalParent := filepath.Join(physicalRoot, "project", "parent.jsonl")
+	configuredParent := filepath.Join(configuredRoot, "project", "parent.jsonl")
+	header := `{"type":"session","version":3,"id":"session","timestamp":"2026-01-01T00:00:00Z","cwd":"` + project + `","parentSession":"` + physicalParent + `"}`
+	writeSessionLines(t, physicalPath, []string{header})
 	store := Store{Root: configuredRoot, Home: root, Cache: NewCache()}
 
 	deferredPath := ""
 	all, _, err := store.SessionsDeferringMetadata(func(path string) bool { deferredPath = path; return false })
-	if err != nil || len(all) != 1 || all[0].Path != configuredPath || deferredPath != configuredPath {
+	if err != nil || len(all) != 1 || all[0].Path != configuredPath || all[0].ParentSessionPath != configuredParent || deferredPath != configuredPath {
 		t.Fatalf("sessions = %#v, deferred path = %q, err = %v", all, deferredPath, err)
 	}
 	for _, path := range []string{configuredPath, physicalPath} {

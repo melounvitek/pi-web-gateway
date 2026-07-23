@@ -184,7 +184,7 @@ func (app *application) conversationOlder(response http.ResponseWriter, request 
 		http.Error(response, "Session changed while it was read", http.StatusServiceUnavailable)
 		return
 	}
-	matches := (sessions.AttachmentStore{Root: app.config.AttachmentsRoot}).Match(session.Path, window.Messages)
+	matches := (sessions.AttachmentStore{Root: app.config.AttachmentsRoot, SessionsRoot: app.config.SessionsRoot}).Match(session.Path, window.Messages)
 	view := &pageView{Home: app.config.Home, Attachments: matches}
 	var html bytes.Buffer
 	for _, message := range window.Messages {

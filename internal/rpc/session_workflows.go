@@ -17,7 +17,7 @@ type SessionClientMover interface {
 	WithClientMove(context.Context, string, bool, func(RPCClient) (string, error), func(string, string) (func() error, error), func(string, string)) (string, error)
 }
 
-func StartNewSession(ctx context.Context, cwd, sessionsRoot string, factory ClientFactory, clients *Registry, pending *PendingSessionRegistry, prepare func(string) (func() error, error)) (string, error) {
+func StartNewSession(ctx context.Context, cwd, sessionsRoot string, factory ClientFactory, clients *Registry, pending *PendingSessionRegistry, prepare func(string) (string, func() error, error)) (string, error) {
 	client, err := factory(cwd)
 	if err != nil {
 		return "", err
@@ -38,7 +38,7 @@ func StartNewSession(ctx context.Context, cwd, sessionsRoot string, factory Clie
 	}
 	var rollback func() error
 	if prepare != nil {
-		rollback, err = prepare(path)
+		path, rollback, err = prepare(path)
 		if err != nil {
 			return "", err
 		}

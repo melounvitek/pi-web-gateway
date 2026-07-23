@@ -110,7 +110,7 @@ func TestMultiUserFiltersListingsReadsActionsAndAttachments(t *testing.T) {
 		t.Fatalf("session paths = %v", paths)
 	}
 	own, other := paths[0], paths[1]
-	owners := access.NewWorkspaceOwnershipStore(cfg.WorkspaceOwnershipPath)
+	owners := access.NewWorkspaceOwnershipStore(cfg.WorkspaceOwnershipPath, cfg.SessionsRoot)
 	if _, err := owners.Claim(own, workspace); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestMultiUserListsSessionsThroughASymlinkedSessionsRoot(t *testing.T) {
 	if !strings.HasPrefix(path, configuredRoot+string(filepath.Separator)) {
 		t.Fatalf("session path = %q", path)
 	}
-	if _, err := access.NewWorkspaceOwnershipStore(cfg.WorkspaceOwnershipPath).Claim(path, workspace); err != nil {
+	if _, err := access.NewWorkspaceOwnershipStore(cfg.WorkspaceOwnershipPath, cfg.SessionsRoot).Claim(path, workspace); err != nil {
 		t.Fatal(err)
 	}
 	cookie := "gripi_workspace=" + workspace
@@ -204,6 +204,22 @@ func TestMultiUserListsSessionsThroughASymlinkedSessionsRoot(t *testing.T) {
 	older := getWorkspace(handler, "/conversation_older?session="+url.QueryEscape(path), cookie)
 	if older.Code != http.StatusOK {
 		t.Fatalf("history = %d %s", older.Code, older.Body.String())
+	}
+	physicalPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalHash := sessions.SessionHash(physicalPath)
+	fileName := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+	if err := os.MkdirAll(filepath.Join(cfg.AttachmentsRoot, physicalHash), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.AttachmentsRoot, physicalHash, fileName), []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	attachment := getWorkspace(handler, "/attachments/"+physicalHash+"/"+fileName, cookie)
+	if attachment.Code != http.StatusOK || attachment.Body.String() != "image" {
+		t.Fatalf("attachment = %d %q", attachment.Code, attachment.Body.String())
 	}
 }
 

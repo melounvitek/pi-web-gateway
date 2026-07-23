@@ -130,7 +130,7 @@ func (app *application) prompt(response http.ResponseWriter, request *http.Reque
 	}
 
 	submittedAt := time.Now()
-	attachmentStore := sessions.AttachmentStore{Root: app.config.AttachmentsRoot}
+	attachmentStore := sessions.AttachmentStore{Root: app.config.AttachmentsRoot, SessionsRoot: app.config.SessionsRoot}
 	var rpcResponse map[string]any
 	var rpcMessage = message
 	var rpcImages []rpc.PromptImage
@@ -1013,7 +1013,7 @@ func (app *application) branchFromAction(response http.ResponseWriter, request *
 		var attachmentRollback func() error
 		if wasPending {
 			var err error
-			attachmentRollback, err = (sessions.AttachmentStore{Root: app.config.AttachmentsRoot}).Migrate(from, to)
+			attachmentRollback, err = (sessions.AttachmentStore{Root: app.config.AttachmentsRoot, SessionsRoot: app.config.SessionsRoot}).Migrate(from, to)
 			if err != nil {
 				if claimed && app.releaseSession != nil {
 					err = errors.Join(err, app.releaseSession(request, to))
@@ -1069,15 +1069,19 @@ func (app *application) startNewSession(request *http.Request, cwd string) (stri
 	if app.newRPCClient == nil {
 		return "", errors.New("new Pi RPC client factory is unavailable")
 	}
-	return rpc.StartNewSession(request.Context(), cwd, app.config.SessionsRoot, app.newRPCClient, app.rpcClients, app.pendingSessions, func(path string) (func() error, error) {
+	return rpc.StartNewSession(request.Context(), cwd, app.config.SessionsRoot, app.newRPCClient, app.rpcClients, app.pendingSessions, func(path string) (string, func() error, error) {
+		path, ok := sessions.ConfiguredSessionPath(app.config.SessionsRoot, path)
+		if !ok {
+			return "", nil, errors.New("Pi reported a session path outside the configured sessions root")
+		}
 		if app.claimSession == nil {
-			return nil, nil
+			return path, nil, nil
 		}
 		claimed, err := app.claimSession(request, path)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
-		return func() error {
+		return path, func() error {
 			if !claimed {
 				return nil
 			}

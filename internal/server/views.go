@@ -241,7 +241,7 @@ func (app *application) preparePage(request *http.Request, includeConversation b
 		view.Window = window
 		view.Attachments = make(map[*sessions.Message]sessions.AttachmentMatch)
 		if statErr == nil {
-			view.Attachments = (sessions.AttachmentStore{Root: app.config.AttachmentsRoot}).Match(selected.Path, window.Messages)
+			view.Attachments = (sessions.AttachmentStore{Root: app.config.AttachmentsRoot, SessionsRoot: app.config.SessionsRoot}).Match(selected.Path, window.Messages)
 			view.SessionGeneration = store.Generation(selected.Path)
 		}
 		activeToolIDs := make([]string, 0, len(snapshot.ActiveToolEvents))
@@ -395,7 +395,13 @@ func millisecondsString(value *time.Time) string {
 func (app *application) rememberSessionHashes(all []*sessions.Session) {
 	values := make(map[string]bool, len(all))
 	for _, session := range all {
-		values[sessions.SessionHash(session.Path)] = true
+		aliases := sessions.SessionPathAliases(app.config.SessionsRoot, session.Path)
+		if len(aliases) == 0 {
+			aliases = []string{session.Path}
+		}
+		for _, path := range aliases {
+			values[sessions.SessionHash(path)] = true
+		}
 	}
 	app.sessionHashesMu.Lock()
 	app.knownSessionHashes = values

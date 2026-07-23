@@ -124,6 +124,44 @@ func TestCanonicalRPCSessionPathNormalizesNativePhysicalPathToConfiguredRoot(t *
 	}
 }
 
+func TestStartNewSessionNormalizesANotYetExistingNativePath(t *testing.T) {
+	root := t.TempDir()
+	physicalRoot := filepath.Join(root, "physical-sessions")
+	configuredRoot := filepath.Join(root, "configured-sessions")
+	project := filepath.Join(root, "project")
+	for _, path := range []string{physicalRoot, project} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(physicalRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalPath := filepath.Join(physicalRoot, "pending.jsonl")
+	configuredPath := filepath.Join(configuredRoot, "pending.jsonl")
+	client := &remapClient{state: map[string]any{"success": true, "data": map[string]any{"sessionFile": physicalPath}}}
+	registry := rpc.NewRegistry(func(string) (rpc.RPCClient, error) { return nil, os.ErrNotExist }, nil)
+	claimed := ""
+	app := &application{
+		config:          config.Config{SessionsRoot: configuredRoot},
+		newRPCClient:    func(string) (rpc.RPCClient, error) { return client, nil },
+		rpcClients:      registry,
+		pendingSessions: rpc.NewPendingSessionRegistry(nil),
+		claimSession:    func(_ *http.Request, path string) (bool, error) { claimed = path; return true, nil },
+	}
+
+	result, err := app.startNewSession(httptest.NewRequest(http.MethodPost, "http://app.test/sessions/new", nil), project)
+	if err != nil || result != configuredPath || claimed != configuredPath {
+		t.Fatalf("result = %q, claimed = %q, err = %v", result, claimed, err)
+	}
+	if registry.Active(physicalPath) || !registry.Active(configuredPath) {
+		t.Fatalf("active physical=%v configured=%v", registry.Active(physicalPath), registry.Active(configuredPath))
+	}
+	if cwd, ok := app.pendingSessions.CWD(configuredPath); !ok || cwd != project {
+		t.Fatalf("pending cwd = %q, %v", cwd, ok)
+	}
+}
+
 func TestCanonicalRPCSessionPathFinalizesPendingSessionAtSamePath(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")

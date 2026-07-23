@@ -422,6 +422,11 @@ func (store Store) SessionsDeferringMetadata(deferFor func(string) bool) ([]*Ses
 		}
 		copy := *session
 		copy.Path = configuredPath
+		if copy.ParentSessionPath != "" {
+			if parent, ok := ConfiguredSessionPath(configuredRoot, copy.ParentSessionPath); ok {
+				copy.ParentSessionPath = parent
+			}
+		}
 		result = append(result, &copy)
 		return nil
 	})
@@ -454,6 +459,11 @@ func (store Store) Session(path string) (*Session, bool) {
 	}
 	copy := *indexed.session
 	copy.Path = configuredPath
+	if copy.ParentSessionPath != "" {
+		if parent, ok := ConfiguredSessionPath(configuredRoot, copy.ParentSessionPath); ok {
+			copy.ParentSessionPath = parent
+		}
+	}
 	return &copy, true
 }
 
@@ -571,12 +581,69 @@ func (store Store) canonicalSessionPath(path string) (string, bool) {
 }
 
 func (store Store) sessionRoots() (string, string, error) {
-	configured, err := filepath.Abs(store.Root)
+	return sessionRoots(store.Root)
+}
+
+func sessionRoots(root string) (string, string, error) {
+	configured, err := filepath.Abs(root)
 	if err != nil {
 		return "", "", err
 	}
 	real, err := filepath.EvalSymlinks(configured)
 	return configured, real, err
+}
+
+func ConfiguredSessionPath(root, path string) (string, bool) {
+	aliases := SessionPathAliases(root, path)
+	if len(aliases) == 0 {
+		return "", false
+	}
+	return aliases[0], true
+}
+
+func SessionPathAliases(root, path string) []string {
+	configuredRoot, realRoot, err := sessionRoots(root)
+	if err != nil {
+		return nil
+	}
+	realPath, ok := resolvedPathIncludingMissing(path)
+	if !ok {
+		return nil
+	}
+	configuredPath, ok := configuredSessionPath(realPath, configuredRoot, realRoot)
+	if !ok {
+		return nil
+	}
+	if configuredPath == realPath {
+		return []string{configuredPath}
+	}
+	return []string{configuredPath, realPath}
+}
+
+func resolvedPathIncludingMissing(path string) (string, bool) {
+	candidate, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err == nil {
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return resolved, true
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", false
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			return "", false
+		}
+		missing = append(missing, filepath.Base(candidate))
+		candidate = parent
+	}
 }
 
 func configuredSessionPath(realPath, configuredRoot, realRoot string) (string, bool) {
