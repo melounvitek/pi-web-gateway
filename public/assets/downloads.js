@@ -1,5 +1,9 @@
-export async function downloadResponse(response, fallbackFilename, document = globalThis.document, urls = globalThis.URL) {
+export async function downloadResponse(response, fallbackFilename, options = {}) {
+  const document = options.document || globalThis.document;
+  const urls = options.urls || globalThis.URL;
   const blob = await response.blob();
+  if (options.cancelled?.()) return null;
+
   const filename = downloadFilename(response.headers.get("Content-Disposition"), fallbackFilename);
   const objectUrl = urls.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -22,8 +26,8 @@ function downloadFilename(disposition, fallback) {
     }
   }
 
-  const quoted = disposition?.match(/filename="([^"]+)"/i)?.[1];
-  if (quoted) return quoted;
+  const quoted = disposition?.match(/filename="((?:\\.|[^"])*)"/i)?.[1];
+  if (quoted) return quoted.replace(/\\(.)/g, "$1");
 
   const unquoted = disposition?.match(/(?:^|;)\s*filename=([^;]+)/i)?.[1]?.trim();
   return unquoted || fallback;

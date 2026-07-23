@@ -1721,8 +1721,8 @@ async function submitExportPrompt(rawMessage, exportCommand) {
     if (result.cancelled || retryCancelled()) return;
     if (!result.response.ok) throw new Error(result.payload?.error || "Session could not be exported");
 
-    const filename = await downloadResponse(result.response, exportCommand.filename || "pi-session.html");
-    if (submittedViewChanged()) return;
+    const filename = await downloadResponse(result.response, exportCommand.filename || "pi-session.html", { cancelled: retryCancelled });
+    if (!filename || retryCancelled()) return;
 
     setComposerState("done", "Exported");
     showStatus(`Downloaded ${filename}`, true);

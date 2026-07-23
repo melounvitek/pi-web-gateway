@@ -88,15 +88,25 @@ test("download responses use the server filename and release temporary browser U
     headers: { get: () => "attachment; filename*=utf-8''Quarterly%20report.html" },
   };
 
-  const filename = await downloadResponse(response, "session.html", document, urls);
+  const options = { document, urls };
+  const filename = await downloadResponse(response, "session.html", options);
   response.headers.get = () => "attachment; filename=report.html";
-  const unquotedFilename = await downloadResponse(response, "report", document, urls);
+  const unquotedFilename = await downloadResponse(response, "report", options);
+  response.headers.get = () => 'attachment; filename="a\\\"b.html"';
+  const escapedFilename = await downloadResponse(response, "session.html", options);
+  let cancelled = false;
+  const cancelledFilename = await downloadResponse({
+    blob: async () => { cancelled = true; return "cancelled contents"; },
+    headers: { get: () => "attachment; filename=cancelled.html" },
+  }, "session.html", { ...options, cancelled: () => cancelled });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(filename, "Quarterly report.html");
   assert.equal(unquotedFilename, "report.html");
-  assert.deepEqual(clicked, [["blob:export", "Quarterly report.html"], ["blob:export", "report.html"]]);
-  assert.deepEqual(revoked, ["blob:export", "blob:export"]);
+  assert.equal(escapedFilename, 'a"b.html');
+  assert.equal(cancelledFilename, null);
+  assert.deepEqual(clicked, [["blob:export", "Quarterly report.html"], ["blob:export", "report.html"], ["blob:export", 'a"b.html']]);
+  assert.deepEqual(revoked, ["blob:export", "blob:export", "blob:export"]);
 });
 
 test("tool output keyboard helpers apply and remove accessible region state", () => {
