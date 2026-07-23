@@ -168,6 +168,45 @@ func TestMultiUserFiltersListingsReadsActionsAndAttachments(t *testing.T) {
 	}
 }
 
+func TestMultiUserListsSessionsThroughASymlinkedSessionsRoot(t *testing.T) {
+	fixture := seedNativeFixture(t)
+	configuredRoot := filepath.Join(fixture.root, "configured-sessions")
+	if err := os.Symlink(fixture.sessionsRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	cfg := multiUserConfig(fixture.root)
+	cfg.Home = fixture.home
+	cfg.SessionsRoot = configuredRoot
+	cfg.AttachmentsRoot = fixture.attachmentsRoot
+	cfg.SessionCwdsPath = fixture.configuredCWDs
+	handler := multiUserHandler(t, cfg)
+	workspace := "workspace-a"
+	if err := access.NewWorkspaceStore(cfg.WorkspaceAccessPath).ApproveWorkspace(workspace); err != nil {
+		t.Fatal(err)
+	}
+	all, err := (sessions.Store{Root: configuredRoot, Home: fixture.home, Cache: sessions.NewCache()}).Sessions()
+	if err != nil || len(all) == 0 {
+		t.Fatalf("sessions = %#v, %v", all, err)
+	}
+	path := all[0].Path
+	if !strings.HasPrefix(path, configuredRoot+string(filepath.Separator)) {
+		t.Fatalf("session path = %q", path)
+	}
+	if _, err := access.NewWorkspaceOwnershipStore(cfg.WorkspaceOwnershipPath).Claim(path, workspace); err != nil {
+		t.Fatal(err)
+	}
+	cookie := "gripi_workspace=" + workspace
+
+	index := getWorkspace(handler, "/", cookie)
+	if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), path) {
+		t.Fatalf("index = %d %s", index.Code, index.Body.String())
+	}
+	older := getWorkspace(handler, "/conversation_older?session="+url.QueryEscape(path), cookie)
+	if older.Code != http.StatusOK {
+		t.Fatalf("history = %d %s", older.Code, older.Body.String())
+	}
+}
+
 func multiUserConfig(root string) config.Config {
 	return config.Config{Address: "127.0.0.1:4567", Environment: "test", Home: root, SessionsRoot: filepath.Join(root, "sessions"), AttachmentsRoot: filepath.Join(root, "attachments"), ReadStatePath: filepath.Join(root, "read.json"), PinnedSessionsPath: filepath.Join(root, "pinned.json"), BrowserAccessPath: filepath.Join(root, "browser.json"), WorkspaceSecretPath: filepath.Join(root, "secret"), WorkspaceAccessPath: filepath.Join(root, "workspace-access.json"), WorkspaceOwnershipPath: filepath.Join(root, "owners.json"), RestartPath: filepath.Join(root, "restart"), BrowserAuthDisabled: true, MultiUserMode: true}
 }
