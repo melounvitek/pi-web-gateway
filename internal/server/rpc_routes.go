@@ -287,11 +287,11 @@ func (app *application) canonicalRPCSessionPath(request *http.Request, path stri
 	if cwd, ok := app.pendingSessions.CWD(path); ok && app.rpcClients.Active(path) {
 		var state map[string]any
 		if app.rpcClients.WithExistingClient(ctx, path, true, func(client rpc.RPCClient) error { var err error; state, err = client.GetState(ctx); return err }) == nil {
-			real := sessionFileFrom(state)
-			if real != "" {
+			reported := sessionFileFrom(state)
+			if reported != "" {
 				store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
-				if session, ok := store.Session(real); ok && session.CWD == cwd {
-					if err := app.movePendingRPCClient(request, path, real); err != nil {
+				if session, ok := store.Session(reported); ok && session.CWD == cwd {
+					if err := app.movePendingRPCClient(request, path, session.Path); err != nil {
 						return path, err
 					}
 					resolved, _, err := app.resolveOwnedPendingPath(request, path)
@@ -322,11 +322,14 @@ func (app *application) canonicalRPCSessionPath(request *http.Request, path stri
 			state, requestErr = client.GetState(ctx)
 			return requestErr
 		})
-		if err == nil && sessionFileFrom(state) == path {
-			if err := app.movePendingRPCClient(request, pending.Path, path); err != nil {
-				return path, err
+		if err == nil {
+			reported, found := store.Session(sessionFileFrom(state))
+			if found && reported.Path == session.Path {
+				if err := app.movePendingRPCClient(request, pending.Path, session.Path); err != nil {
+					return path, err
+				}
+				break
 			}
-			break
 		}
 	}
 	resolved, _, err := app.resolveOwnedPendingPath(request, path)

@@ -73,6 +73,57 @@ func TestCanonicalRPCSessionPathMovesPendingClientAndGatewayAttachments(t *testi
 	}
 }
 
+func TestCanonicalRPCSessionPathNormalizesNativePhysicalPathToConfiguredRoot(t *testing.T) {
+	root := t.TempDir()
+	physicalRoot := filepath.Join(root, "physical-sessions")
+	configuredRoot := filepath.Join(root, "configured-sessions")
+	attachmentsRoot := filepath.Join(root, "attachments")
+	project := filepath.Join(root, "project")
+	for _, path := range []string{physicalRoot, attachmentsRoot, project} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(physicalRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalPath := filepath.Join(physicalRoot, "real.jsonl")
+	configuredPath := filepath.Join(configuredRoot, "real.jsonl")
+	writeSessionRecords(t, physicalPath, []map[string]any{{"type": "session", "version": 3, "id": "real", "cwd": project}})
+	pendingPath := filepath.Join(configuredRoot, "pending.jsonl")
+	client := &remapClient{state: map[string]any{"success": true, "data": map[string]any{"sessionFile": physicalPath}}}
+	registry := rpc.NewRegistry(func(string) (rpc.RPCClient, error) { return nil, os.ErrNotExist }, nil)
+	if err := registry.Register(pendingPath, client); err != nil {
+		t.Fatal(err)
+	}
+	pending := rpc.NewPendingSessionRegistry(nil)
+	pending.Remember(pendingPath, project)
+	metadata := filepath.Join(attachmentsRoot, sessions.SessionHash(pendingPath)+".jsonl")
+	if err := os.WriteFile(metadata, []byte("gateway metadata\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	claimed := ""
+	app := &application{
+		config:          config.Config{SessionsRoot: configuredRoot, AttachmentsRoot: attachmentsRoot},
+		sessionCache:    sessions.NewCache(),
+		rpcClients:      registry,
+		pendingSessions: pending,
+		claimSession:    func(_ *http.Request, path string) (bool, error) { claimed = path; return true, nil },
+	}
+
+	result, err := app.canonicalRPCSessionPath(httptest.NewRequest(http.MethodGet, "http://app.test/", nil), pendingPath)
+	if err != nil || result != configuredPath || claimed != configuredPath {
+		t.Fatalf("result = %q, claimed = %q, err = %v", result, claimed, err)
+	}
+	if registry.Active(pendingPath) || registry.Active(physicalPath) || !registry.Active(configuredPath) {
+		t.Fatalf("active paths: pending=%v physical=%v configured=%v", registry.Active(pendingPath), registry.Active(physicalPath), registry.Active(configuredPath))
+	}
+	migrated, err := os.ReadFile(filepath.Join(attachmentsRoot, sessions.SessionHash(configuredPath)+".jsonl"))
+	if err != nil || string(migrated) != "gateway metadata\n" {
+		t.Fatalf("migrated metadata = %q, %v", migrated, err)
+	}
+}
+
 func TestCanonicalRPCSessionPathFinalizesPendingSessionAtSamePath(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
