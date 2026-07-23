@@ -301,12 +301,13 @@ func (app *application) canonicalRPCSessionPath(request *http.Request, path stri
 		}
 		return path, nil
 	}
-	if app.rpcClients.Active(path) {
-		return path, nil
-	}
 	store := sessions.Store{Root: app.config.SessionsRoot, Home: app.config.Home, Cache: app.sessionCache}
 	session, known := store.Session(path)
 	if !known {
+		return path, nil
+	}
+	path = session.Path
+	if app.rpcClients.Active(path) {
 		return path, nil
 	}
 	for _, pending := range app.pendingSessions.Entries() {

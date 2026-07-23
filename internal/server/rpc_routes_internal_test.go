@@ -124,6 +124,44 @@ func TestCanonicalRPCSessionPathNormalizesNativePhysicalPathToConfiguredRoot(t *
 	}
 }
 
+func TestCanonicalRPCSessionPathNormalizesExistingPhysicalPath(t *testing.T) {
+	root := t.TempDir()
+	physicalRoot := filepath.Join(root, "physical-sessions")
+	configuredRoot := filepath.Join(root, "configured-sessions")
+	project := filepath.Join(root, "project")
+	for _, path := range []string{physicalRoot, project} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(physicalRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalPath := filepath.Join(physicalRoot, "existing.jsonl")
+	configuredPath := filepath.Join(configuredRoot, "existing.jsonl")
+	writeSessionRecords(t, physicalPath, []map[string]any{{"type": "session", "version": 3, "id": "existing", "cwd": project}})
+	created := atomic.Int32{}
+	registry := rpc.NewRegistry(func(string) (rpc.RPCClient, error) {
+		created.Add(1)
+		return &remapClient{}, nil
+	}, nil)
+	app := &application{config: config.Config{SessionsRoot: configuredRoot}, sessionCache: sessions.NewCache(), rpcClients: registry, pendingSessions: rpc.NewPendingSessionRegistry(nil)}
+	request := httptest.NewRequest(http.MethodGet, "http://app.test/", nil)
+
+	for _, path := range []string{physicalPath, configuredPath} {
+		canonical, err := app.canonicalRPCSessionPath(request, path)
+		if err != nil || canonical != configuredPath {
+			t.Fatalf("canonical path for %q = %q, %v", path, canonical, err)
+		}
+		if err := registry.WithClient(request.Context(), canonical, func(rpc.RPCClient) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if created.Load() != 1 || registry.Active(physicalPath) || !registry.Active(configuredPath) {
+		t.Fatalf("created=%d physical=%v configured=%v", created.Load(), registry.Active(physicalPath), registry.Active(configuredPath))
+	}
+}
+
 func TestStartNewSessionNormalizesANotYetExistingNativePath(t *testing.T) {
 	root := t.TempDir()
 	physicalRoot := filepath.Join(root, "physical-sessions")
