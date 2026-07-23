@@ -374,7 +374,7 @@ func (store Store) Sessions() ([]*Session, error) {
 }
 
 func (store Store) SessionsDeferringMetadata(deferFor func(string) bool) ([]*Session, bool, error) {
-	root, err := filepath.EvalSymlinks(store.Root)
+	configuredRoot, root, err := store.sessionRoots()
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -394,14 +394,15 @@ func (store Store) SessionsDeferringMetadata(deferFor func(string) bool) ([]*Ses
 			return nil
 		}
 		realPath, err := filepath.EvalSymlinks(path)
-		if err != nil || !withinRoot(realPath, root) {
+		configuredPath, within := configuredSessionPath(realPath, configuredRoot, root)
+		if err != nil || !within {
 			return nil
 		}
 		stat, err := os.Stat(realPath)
 		if err != nil || !stat.Mode().IsRegular() {
 			return nil
 		}
-		busy := deferFor != nil && deferFor(realPath)
+		busy := deferFor != nil && deferFor(configuredPath)
 		session, found := store.Cache.sessionMetadata(realPath, stat, busy)
 		if found && busy {
 			deferred = true
@@ -420,6 +421,7 @@ func (store Store) SessionsDeferringMetadata(deferFor func(string) bool) ([]*Ses
 			return nil
 		}
 		copy := *session
+		copy.Path = configuredPath
 		result = append(result, &copy)
 		return nil
 	})
@@ -434,12 +436,13 @@ func (store Store) SessionsDeferringMetadata(deferFor func(string) bool) ([]*Ses
 
 func (store Store) Session(path string) (*Session, bool) {
 	path = filepath.Clean(path)
-	root, err := filepath.EvalSymlinks(store.Root)
+	configuredRoot, root, err := store.sessionRoots()
 	if err != nil {
 		return nil, false
 	}
 	realPath, err := filepath.EvalSymlinks(path)
-	if err != nil || !withinRoot(realPath, root) || filepath.Ext(realPath) != ".jsonl" {
+	configuredPath, within := configuredSessionPath(realPath, configuredRoot, root)
+	if err != nil || !within || filepath.Ext(realPath) != ".jsonl" {
 		return nil, false
 	}
 	indexed, err := store.Cache.Index(realPath)
@@ -450,6 +453,7 @@ func (store Store) Session(path string) (*Session, bool) {
 		return nil, false
 	}
 	copy := *indexed.session
+	copy.Path = configuredPath
 	return &copy, true
 }
 
@@ -554,7 +558,7 @@ func (store Store) Generation(path string) string {
 }
 
 func (store Store) canonicalSessionPath(path string) (string, bool) {
-	root, err := filepath.EvalSymlinks(store.Root)
+	_, root, err := store.sessionRoots()
 	if err != nil {
 		return "", false
 	}
@@ -564,6 +568,26 @@ func (store Store) canonicalSessionPath(path string) (string, bool) {
 	}
 	stat, err := os.Stat(realPath)
 	return realPath, err == nil && stat.Mode().IsRegular()
+}
+
+func (store Store) sessionRoots() (string, string, error) {
+	configured, err := filepath.Abs(store.Root)
+	if err != nil {
+		return "", "", err
+	}
+	real, err := filepath.EvalSymlinks(configured)
+	return configured, real, err
+}
+
+func configuredSessionPath(realPath, configuredRoot, realRoot string) (string, bool) {
+	if !withinRoot(realPath, realRoot) {
+		return "", false
+	}
+	relative, err := filepath.Rel(realRoot, realPath)
+	if err != nil {
+		return "", false
+	}
+	return filepath.Join(configuredRoot, relative), true
 }
 
 func buildIndex(path string, _ os.FileInfo) (*index, error) {

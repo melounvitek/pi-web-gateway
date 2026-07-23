@@ -469,6 +469,41 @@ func TestWindowRejectsMalformedUnsupportedAndOverCapOversizedEntries(t *testing.
 	})
 }
 
+func TestSymlinkedSessionsRootPreservesConfiguredPathIdentity(t *testing.T) {
+	root := t.TempDir()
+	physicalRoot := filepath.Join(root, "physical-sessions")
+	configuredRoot := filepath.Join(root, "configured-sessions")
+	project := filepath.Join(root, "project")
+	if err := os.MkdirAll(filepath.Join(physicalRoot, "project"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(physicalRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	physicalPath := filepath.Join(physicalRoot, "project", "session.jsonl")
+	configuredPath := filepath.Join(configuredRoot, "project", "session.jsonl")
+	writeSessionLines(t, physicalPath, []string{sessionLine(project)})
+	store := Store{Root: configuredRoot, Home: root, Cache: NewCache()}
+
+	deferredPath := ""
+	all, _, err := store.SessionsDeferringMetadata(func(path string) bool { deferredPath = path; return false })
+	if err != nil || len(all) != 1 || all[0].Path != configuredPath || deferredPath != configuredPath {
+		t.Fatalf("sessions = %#v, deferred path = %q, err = %v", all, deferredPath, err)
+	}
+	for _, path := range []string{configuredPath, physicalPath} {
+		session, ok := store.Session(path)
+		if !ok || session.Path != configuredPath {
+			t.Fatalf("Session(%q) = %#v, %v", path, session, ok)
+		}
+	}
+	if _, err := store.Window(configuredPath, "", false, nil, nil); err != nil {
+		t.Fatalf("Window() = %v", err)
+	}
+}
+
 func sessionFixture(t *testing.T) (string, string, string) {
 	t.Helper()
 	root := t.TempDir()
